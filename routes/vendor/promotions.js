@@ -1,6 +1,6 @@
 import express from 'express';
-import { getPromotions, createPromotion } from '../controllers/vendor/promotionController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { getPromotions, createPromotion } from '../../controllers/vendor/promotionController.js';
+import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
