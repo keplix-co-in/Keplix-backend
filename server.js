@@ -5,6 +5,9 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+import logger from './middleware/loggerMiddleware.js';
+
 //
 // Configurations
 dotenv.config();
@@ -21,6 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
+app.use(logger); // Apply Logger first
 app.use(cors());
 app.use(express.json());
 app.use('/media', express.static(path.join(__dirname, 'media')));
@@ -35,27 +39,37 @@ import authRoutes from './routes/auth.js';
 // Vendor Routes
 import vendorServiceRoutes from './routes/vendor/services.js';
 import vendorBookingRoutes from './routes/vendor/bookings.js';
-import inventoryRoutes from './routes/inventory.js'; // Need to update route file import path
-import availabilityRoutes from './routes/availability.js'; // Need to update route file import path
-import documentRoutes from './routes/documents.js'; // Need to update route file import path
-import promotionRoutes from './routes/promotions.js'; // Need to update route file import path
+import inventoryRoutes from './routes/vendor/inventory.js';
+import availabilityRoutes from './routes/vendor/availability.js';
+import documentRoutes from './routes/vendor/documents.js';
+import promotionRoutes from './routes/vendor/promotions.js';
 
 // User Routes
 import userServiceRoutes from './routes/user/services.js';
 import userBookingRoutes from './routes/user/bookings.js';
-import feedbackRoutes from './routes/feedback.js'; // Need to update route file import path
-import reviewRoutes from './routes/reviews.js'; // Need to update route file import path
+import feedbackRoutes from './routes/user/feedback.js';
+import reviewRoutes from './routes/user/reviews.js';
+import userPaymentRoutes from './routes/user/payments.js';
+import userNotificationRoutes from './routes/user/notifications.js';
+import userInteractionRoutes from './routes/user/interactions.js';
 
 // Shared/Interaction Routes
-import interactionRoutes from './routes/interactions.js';
-import notificationRoutes from './routes/notifications.js';
-import paymentRoutes from './routes/payments.js';
+// import interactionRoutes from './routes/interactions.js';
+// import notificationRoutes from './routes/notifications.js';
+// import paymentRoutes from './routes/payments.js';
+import vendorProfileRoutes from './routes/vendor/profile.js'; // Added
+import vendorPaymentRoutes from './routes/vendor/payments.js';
+import vendorReviewRoutes from './routes/vendor/reviews.js'; 
+import vendorFeedbackRoutes from './routes/vendor/feedback.js';
+import vendorInteractionRoutes from './routes/vendor/interactions.js';
+import vendorNotificationRoutes from './routes/vendor/notifications.js';
 
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 app.use('/accounts/auth', authRoutes);
+app.use('/accounts/vendor', vendorProfileRoutes); // Mounts /accounts/vendor/profile/
 
 // Vendor API Group
 app.use('/accounts/documents', documentRoutes);
@@ -64,6 +78,11 @@ app.use('/service_api/vendor', vendorBookingRoutes); // mounts /service_api/vend
 app.use('/service_api', inventoryRoutes); // Keeps /service_api/vendor/:id/inventory
 app.use('/service_api', availabilityRoutes); // Keeps /service_api/vendor/:id/availability
 app.use('/interactions/api/promotions', promotionRoutes);
+app.use('/interactions/api/vendor/reviews', vendorReviewRoutes); // /interactions/api/vendor/reviews
+app.use('/interactions/api/vendor/feedback', vendorFeedbackRoutes); // /interactions/api/vendor/feedback
+app.use('/interactions/api/vendor', vendorInteractionRoutes); // /interactions/api/vendor/conversations
+app.use('/interactions/api/vendor', vendorNotificationRoutes); // /interactions/api/vendor/notifications
+
 
 // User API Group
 app.use('/service_api/user', userServiceRoutes); // mounts /service_api/user/services
@@ -74,13 +93,18 @@ app.use('/service_api', userServiceRoutes); // For shared search routes like /se
 // We might need to mount it at /service_api too for the public endpoints
 app.use('/service_api', userServiceRoutes);
 
-app.use('/interactions/api/feedback', feedbackRoutes);
-app.use('/interactions/api', reviewRoutes);
+app.use('/interactions/api/feedback', feedbackRoutes); // User feedback
+app.use('/interactions/api', reviewRoutes); // User reviews (public view of vendor reviews)
 
-// Shared
-app.use('/service_api', paymentRoutes);
-app.use('/interactions/api', interactionRoutes);
-app.use('/interactions/api', notificationRoutes); // Check BASE_URL/interactions/api/
+// Shared -> Specific
+// app.use('/service_api', paymentRoutes);
+app.use('/service_api', userPaymentRoutes);
+app.use('/service_api', vendorPaymentRoutes);
+
+// app.use('/interactions/api', interactionRoutes);
+app.use('/interactions/api', userInteractionRoutes);
+// app.use('/interactions/api', notificationRoutes); 
+app.use('/interactions/api', userNotificationRoutes);
 
 // Socket.io Logic
 io.on('connection', (socket) => {
@@ -120,7 +144,11 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = 8000; // Using 8000 to match Django default
+// Error Handling Middleware (Must be last)
+app.use(notFound);
+app.use(errorHandler);
+
+const PORT = 8000; 
 httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`http://localhost:${PORT}`);
 });
