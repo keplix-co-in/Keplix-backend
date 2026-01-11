@@ -2,42 +2,27 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// @desc    Get all conversations for user
+// @desc    Get all conversations for user (Customer)
 // @route   GET /interactions/api/conversations/
 export const getConversations = async (req, res) => {
     try {
-        const userId = req.user.id; // User or Vendor
+        const userId = req.user.id; 
 
-        // Find conversations where user is involved (linked to booking)
-        // This logic mimics Django logic: User sees bookings they made; Vendor sees bookings for their services.
-        // Simplified: We find bookings where userId is participant
-
-        // 1. As Customer
+        // 1. As Customer: Find bookings where I am the user
         const customerBookings = await prisma.booking.findMany({
             where: { userId: userId },
             select: { id: true }
         });
 
-        // 2. As Vendor (Service Provider)
-        const vendorServices = await prisma.service.findMany({
-            where: { vendorId: userId },
-            select: { id: true }
-        });
-        const vendorServiceIds = vendorServices.map(s => s.id);
-        const vendorBookings = await prisma.booking.findMany({
-            where: { serviceId: { in: vendorServiceIds } },
-            select: { id: true }
-        });
-
-        const allBookingIds = [...customerBookings.map(b => b.id), ...vendorBookings.map(b => b.id)];
+        const allBookingIds = customerBookings.map(b => b.id);
 
         const conversations = await prisma.conversation.findMany({
             where: { bookingId: { in: allBookingIds } },
             include: {
                 booking: {
                     include: {
-                        user: { include: { userProfile: true } }, // Customer details
-                        service: { include: { vendor: { include: { vendorProfile: true } } } } // Vendor details
+                        user: { include: { userProfile: true } }, 
+                        service: { include: { vendor: { include: { vendorProfile: true } } } } 
                     }
                 },
                 messages: {
