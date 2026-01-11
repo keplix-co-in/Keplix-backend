@@ -121,6 +121,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = 8000; // Using 8000 to match Django default
-httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+httpServer.listen(process.env.PORT, () => {
+    console.log(`Server running on port ${process.env.PORT}`);
 });

@@ -31,16 +31,17 @@ model User {
   bookings Booking[] @relation("UserBookings")
   reviews  Review[]  @relation("UserReviews")
 
-  // Vendor Relations (Services offered by this user if they are a vendor)
-  services  Service[]   @relation("VendorServices")
-  inventory Inventory[]
+  // Vendor Relations
+  services     Service[]      @relation("VendorServices")
+  inventory    Inventory[]
+  Availability Availability[]
 
   // Chat & Notifications
   sentMessages  Message[]
   notifications Notification[]
   feedbacks     Feedback[]
   documents     Document[]
-  Availability  Availability[]
+  Promotion     Promotion[]
 }
 
 model UserProfile {
@@ -68,13 +69,13 @@ model VendorProfile {
 
   // Details
   gst_number      String?
-  operating_hours String? // e.g. "09:00 AM - 09:00 PM"
+  operating_hours String?
 
   // Status
-  status               String  @default("pending") // "pending", "approved", "rejected"
+  status               String  @default("pending")
   onboarding_completed Boolean @default(false)
 
-  image String? // URL to image
+  image String?
 }
 
 model Document {
@@ -99,9 +100,9 @@ model Service {
   name        String
   description String
   price       Decimal
-  duration    Int // in minutes
+  duration    Int
   category    String
-  image_url   String? // The field we aliased to 'image' in the serializer
+  image_url   String?
 
   bookings Booking[]
 }
@@ -113,15 +114,14 @@ model Booking {
   serviceId Int
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  booking_date DateTime // Can store just date part or full datetime
-  booking_time String // "14:30:00"
-  status       String   @default("pending") // pending, confirmed, completed, cancelled
+  booking_date DateTime
+  booking_time String
+  status       String   @default("pending")
   notes        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   payment      Payment?
   review       Review?
   conversation Conversation?
@@ -133,7 +133,7 @@ model Payment {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   amount        Decimal
-  status        String  @default("pending") // pending, paid, failed
+  status        String  @default("pending")
   method        String
   transactionId String?
 
@@ -199,10 +199,9 @@ model Review {
   createdAt DateTime @default(now())
 }
 
-
-
-  createdAt DateTime @default(now())
-}
+// ==============================
+// 4. PROMOTIONS, NOTIFICATIONS, FEEDBACK
+// ==============================
 
 model Promotion {
   id          Int      @id @default(autoincrement())

@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.post('/signup', registerUser);
 router.post('/login', authUser); // Maps to /accounts/auth/login/
-router.post('/login', authUser); // Maps to /accounts/auth/login/
+router.post('/login/', authUser); // Maps to /accounts/auth/login/
 router.get('/profile', protect, getUserProfile); // Maps to /accounts/auth/profile/
 router.post('/token/refresh', refreshToken);
 router.post('/logout', logoutUser);
