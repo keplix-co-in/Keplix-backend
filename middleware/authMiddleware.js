@@ -22,17 +22,30 @@ export const protect = async (req, res, next) => {
             });
 
             if (!req.user) {
-                return res.status(401).json({ message: 'Not authorized, user not found' });
+                res.status(401);
+                throw new Error('Not authorized, user not found');
+            }
+            
+            // Check for activity if needed (can be separate middleware but good safety net)
+            if (req.user.is_active === false) {
+                 res.status(403);
+                 throw new Error('Account is inactive');
             }
 
             next();
         } catch (error) {
             console.error(error);
-            res.status(401).json({ message: 'Not authorized, token failed' });
+            res.status(401);
+            // If it's our error, pass message, otherwise generic "Token failed"
+            const message = error.message === 'Not authorized, user not found' || error.message === 'Account is inactive' 
+                ? error.message 
+                : 'Not authorized, token failed';
+            throw new Error(message);
         }
     }
 
     if (!token) {
-        res.status(401).json({ message: 'Not authorized, no token' });
+        res.status(401);
+        throw new Error('Not authorized, no token');
     }
 };
