@@ -6,8 +6,32 @@ const prisma = new PrismaClient();
 // @route   GET /interactions/api/reviews/
 export const getReviews = async (req, res) => {
     try {
+        const { vendor_id } = req.query;
+        let where = {};
+        
+        if (vendor_id) {
+            // Filter reviews where the booking's service belongs to this vendor
+            // Note: Reviews are linked to Booking. Booking has Service. Service has vendorId.
+            // But Prisma schema Review -> Booking -> Service ?? 
+            // Let's check schema.
+            // If Review is directly linked to Vendor, or via Booking.
+            // Assuming Review -> Booking. And Booking -> Service -> User(Vendor)
+             where = {
+                booking: {
+                    service: {
+                         vendorId: parseInt(vendor_id)
+                    }
+                }
+            };
+        }
+
         const reviews = await prisma.review.findMany({
-            include: { user: { include: { userProfile: true } } }
+            where,
+            include: { 
+                user: { include: { userProfile: true } }, // The reviewer (customer)
+                booking: { include: { service: true } }   // The service context
+            },
+            orderBy: { createdAt: 'desc' }
         });
         res.json(reviews);
     } catch (error) {
