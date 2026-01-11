@@ -34,6 +34,7 @@ model User {
   // Vendor Relations (Services offered by this user if they are a vendor)
   services  Service[]   @relation("VendorServices")
   inventory Inventory[]
+  promotions Promotion[]
 
   // Chat & Notifications
   sentMessages  Message[]
@@ -41,6 +42,13 @@ model User {
   feedbacks     Feedback[]
   documents     Document[]
   Availability  Availability[]
+
+  // Device Info
+  fcmToken    String? // Firebase Cloud Messaging Token
+  device_type String? // android, ios, web
+  
+  @@index([email])
+  @@index([role])
 }
 
 model UserProfile {
@@ -113,9 +121,9 @@ model Booking {
   serviceId Int
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  booking_date DateTime // Can store just date part or full datetime
-  booking_time String // "14:30:00"
-  status       String   @default("pending") // pending, confirmed, completed, cancelled
+  booking_date DateTime 
+  booking_time String 
+  status       String   @default("pending") 
   notes        String?
 
   createdAt DateTime @default(now())
@@ -125,6 +133,11 @@ model Booking {
   payment      Payment?
   review       Review?
   conversation Conversation?
+  
+  @@index([userId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([booking_date])
 }
 
 model Payment {
@@ -133,11 +146,12 @@ model Payment {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   amount        Decimal
-  status        String  @default("pending") // pending, paid, failed
+  status        String  @default("pending") 
   method        String
   transactionId String?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Inventory {
@@ -193,16 +207,15 @@ model Review {
   userId Int
   user   User @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
 
-  rating  Int
-  comment String?
-
+  rating    Int
+  comment   String?
+  reply     String? // Vendor Reply
+  
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 
-
-  createdAt DateTime @default(now())
-}
 
 model Promotion {
   id          Int      @id @default(autoincrement())
@@ -218,14 +231,17 @@ model Promotion {
 }
 
 model Notification {
-  id     Int  @id @default(autoincrement())
-  userId Int
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
   title     String
   message   String
   is_read   Boolean  @default(false)
+  
   createdAt DateTime @default(now())
+  
+  @@index([userId])
 }
 
 model Feedback {
