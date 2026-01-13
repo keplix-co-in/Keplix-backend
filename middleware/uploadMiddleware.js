@@ -14,19 +14,26 @@ const storage = multer.diskStorage({
 });
 
 const checkFileType = (file, cb) => {
-    const filetypes = /jpg|jpeg|png/;
+    // Allowed extensions
+    const filetypes = /jpg|jpeg|png|pdf|doc|docx/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
+    
+    // Check mime type (looser check for docs)
+    const mimetype = filetypes.test(file.mimetype) || 
+                     file.mimetype === 'application/pdf' ||
+                     file.mimetype === 'application/msword' ||
+                     file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
     if (extname && mimetype) {
         return cb(null, true);
     } else {
-        cb('Images only!');
+        cb(new Error('Images and Documents (PDF, DOC) only!'));
     }
 };
 
 const upload = multer({
     storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: function (req, file, cb) {
         checkFileType(file, cb);
     },

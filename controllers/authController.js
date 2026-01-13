@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createRequire } from 'module';
 import admin from 'firebase-admin';
+import crypto from 'crypto';
 
 const require = createRequire(import.meta.url);
 const serviceAccount = require('../serviceAccountKey.json');
@@ -20,6 +21,25 @@ const generateToken = (id) => {
     return jwt.sign({ id }, JWT_SECRET, {
         expiresIn: '30d',
     });
+};
+
+const verifyDjangoPassword = (password, hash) => {
+    try {
+        const parts = hash.split('$');
+        if (parts.length !== 4) return false;
+        
+        const [algorithm, iterations, salt, storedHash] = parts;
+        if (algorithm !== 'pbkdf2_sha256') return false;
+    
+        const keyLen = 32; // SHA256 produces 32 bytes
+        const derivedKey = crypto.pbkdf2Sync(password, salt, parseInt(iterations), keyLen, 'sha256');
+        const derivedHash = derivedKey.toString('base64');
+        
+        return derivedHash === storedHash;
+    } catch (e) {
+        console.error("Error verifying Django password:", e);
+        return false;
+    }
 };
 
 // @desc    Register a new user
@@ -54,7 +74,7 @@ export const registerUser = async (req, res) => {
             await prisma.vendorProfile.create({
                 data: {
                     userId: user.id,
-                    business_name: name || 'New Vendor',
+                    business_name: name || (email ? email.split('@')[0] : 'New Vendor'),
                     phone: phone || '',
                     onboarding_completed: false
                 }
@@ -63,7 +83,7 @@ export const registerUser = async (req, res) => {
             await prisma.userProfile.create({
                 data: {
                     userId: user.id,
-                    name: name || email.split('@')[0],
+                    name: name || (email ? email.split('@')[0] : 'User'),
                     phone: phone || ''
                 }
             });
@@ -92,17 +112,29 @@ export const authUser = async (req, res) => {
             where: { email },
         });
 
-        if (user && (await bcrypt.compare(password, user.password))) {
-            res.json({
-                id: user.id,
-                email: user.email,
-                role: user.role,
-                access: generateToken(user.id), // Frontend expects 'access' for JWT
-                refresh: generateToken(user.id), // Dummy refresh for now
-            });
-        } else {
-            res.status(401).json({ message: 'Invalid email or password' });
+        if (user) {
+            let isValid = false;
+            // Check if it's a Django PBKDF2 hash
+            if (user.password.startsWith('pbkdf2_sha256$')) {
+                isValid = verifyDjangoPassword(password, user.password);
+            } else {
+                // Otherwise assume bcrypt (new users or dummy data)
+                isValid = await bcrypt.compare(password, user.password);
+            }
+
+            if (isValid) {
+                return res.json({
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    access: generateToken(user.id),
+                    refresh: generateToken(user.id),
+                });
+            }
         }
+        
+        res.status(401).json({ message: 'Invalid email or password' });
+        
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -148,110 +180,110 @@ export const refreshToken = async (req, res) => {
 
         res.json({
             access: generateToken(user.id),
-            refresh: refresh // Simple echo for now, usually you rotate it
+            // Optionally rotate refresh token
+            refresh: refresh 
         });
-    } catch (e) {
+    } catch (error) {
+        console.error("Token refresh error:", error);
         res.status(401).json({ message: "Invalid refresh token" });
     }
-}
+};
 
-// @desc    Logout User
+// @desc    Logout user
 // @route   POST /accounts/auth/logout/
-export const logoutUser = (req, res) => {
-    // In JWT, client just deletes token. Server can blacklist.
-    // For now, just return success.
-    res.json({ message: "Logged out successfully" });
-}
+export const logoutUser = async (req, res) => {
+    // Client side just clears token.
+    res.json({ message: 'Logged out successfully' });
+};
 
-// @desc    Forgot Password (Stub)
-// @route   POST /accounts/auth/forgot-password/
+// @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
-    const { email } = req.body;
-    // In parity, we would send an email. For now, stub it.
-    console.log(`[Stub] Forgot password for: ${email}`);
-    res.json({ detail: "Password reset email sent" });
-}
+    // Mock implementation for now
+    res.json({ message: 'Password reset link sent (mock)' });
+};
 
-// @desc    Reset Password (Stub)
-// @route   POST /accounts/auth/reset-password/:uid/:token/
+// @desc    Reset Password
 export const resetPassword = async (req, res) => {
-    const { password } = req.body;
-    // Stub: assume validated and update logic would go here
-    res.json({ detail: "Password reset successful" });
-}
+    res.json({ message: 'Password reset successfully (mock)' });
+};
 
-// @desc    Send Phone OTP (Stub)
-// @route   POST /accounts/auth/send-phone-otp/
+// @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
-    const { phone_number } = req.body;
-    // Stub
-    console.log(`[Stub] OTP sent to ${phone_number}`);
-    res.json({ detail: "OTP sent successfully", phone_number });
-}
+    res.json({ message: 'OTP sent (mock)' });
+};
 
-// @desc    Verify Phone OTP (Stub)
-// @route   POST /accounts/auth/verify-phone-otp/
+// @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-    // Stub: always success
-    res.json({ detail: "Phone number verified successfully", verified: true });
-}
+    res.json({ message: 'OTP verified (mock)' });
+};
+
+// @desc    Send Email OTP
+export const sendEmailOTP = async (req, res) => {
+    // Implement real email sending logic here (e.g. Nodemailer)
+    // For now, mock it
+    res.json({ message: 'Email OTP sent (mock)' });
+};
+
+// @desc    Verify Email OTP
+export const verifyEmailOTP = async (req, res) => {
+    res.json({ message: 'Email OTP verified (mock)' });
+};
 
 // @desc    Google Login
-// @route   POST /accounts/auth/google/
 export const googleLogin = async (req, res) => {
-    const token = req.body.token || req.body.id_token;
-
-    if (!token) {
-        return res.status(400).json({ error: 'Token is required' });
-    }
-
+    const { idToken, role } = req.body;
+    
     try {
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const { email, name, uid } = decodedToken;
-
-        if (!email) {
-            return res.status(400).json({ error: 'Email not found in token' });
-        }
-
-        let user = await prisma.user.findUnique({
-             where: { email },
-        });
-
+        // Verify token with Firebase Admin
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const email = decodedToken.email;
+        const name = decodedToken.name || email.split('@')[0];
+        
+        let user = await prisma.user.findUnique({ where: { email } });
+        
         if (!user) {
-             // Create User with random password
-             const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-             const salt = await bcrypt.genSalt(10);
-             const hashedPassword = await bcrypt.hash(randomPassword, salt);
-
-             user = await prisma.user.create({
-                 data: {
-                     email,
-                     password: hashedPassword,
-                     role: 'user',
-                     is_active: true,
-                 }
-             });
-
-             // Create UserProfile
-             await prisma.userProfile.create({
-                 data: {
-                     userId: user.id,
-                     name: name || email.split('@')[0],
-                 }
-             });
+            // Register new user
+            user = await prisma.user.create({
+                data: {
+                    email,
+                    password: '', // Social login has no password
+                    role: role || 'user',
+                    is_active: true
+                }
+            });
+            
+            // Create Profile
+            if (role === 'vendor') {
+                await prisma.vendorProfile.create({
+                    data: {
+                        userId: user.id,
+                        business_name: name,
+                        phone: '',
+                        onboarding_completed: false
+                    }
+                });
+            } else {
+                 await prisma.userProfile.create({
+                    data: {
+                        userId: user.id,
+                        name: name,
+                        phone: ''
+                    }
+                });
+            }
         }
-
+        
         res.json({
             id: user.id,
             email: user.email,
             role: user.role,
             access: generateToken(user.id),
-            refresh: generateToken(user.id),
+            refresh: generateToken(user.id)
         });
-
+        
     } catch (error) {
-        console.error("Google Login Error:", error);
-        res.status(400).json({ error: 'Invalid token or login failed' });
+        console.error('Google Login Error:', error);
+        res.status(401).json({ message: 'Invalid token' });
     }
 };
 

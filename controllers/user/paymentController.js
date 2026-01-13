@@ -20,9 +20,3 @@ export const verifyPayment = async (req, res) => {
 export const getUserPayments = async (req, res) => {
     res.json([]); // Return empty list for now
 };
-
-// @desc    Get Vendor Payments/Earnings
-// @route   GET /service_api/vendor/:vendor_id/payments/
-export const getVendorPayments = async (req, res) => {
-    res.json([]);
-};
