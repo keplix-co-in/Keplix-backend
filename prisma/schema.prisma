@@ -31,27 +31,17 @@ model User {
   bookings Booking[] @relation("UserBookings")
   reviews  Review[]  @relation("UserReviews")
 
-<<<<<<< HEAD
-  // Vendor Relations
-  services     Service[]      @relation("VendorServices")
-  inventory    Inventory[]
-  Availability Availability[]
-=======
   // Vendor Relations (Services offered by this user if they are a vendor)
   services  Service[]   @relation("VendorServices")
   inventory Inventory[]
   promotions Promotion[]
->>>>>>> origin/main
+  Availability  Availability[]
 
   // Chat & Notifications
   sentMessages  Message[]
   notifications Notification[]
   feedbacks     Feedback[]
   documents     Document[]
-<<<<<<< HEAD
-  Promotion     Promotion[]
-=======
-  Availability  Availability[]
 
   // Device Info
   fcmToken    String? // Firebase Cloud Messaging Token
@@ -59,7 +49,6 @@ model User {
   
   @@index([email])
   @@index([role])
->>>>>>> origin/main
 }
 
 model UserProfile {
@@ -76,18 +65,42 @@ model VendorProfile {
   userId Int  @unique
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Business Details
   business_name String
-  phone         String
-  email         String?
-  address       String? @default("")
+  business_type String? // e.g., "Individual", "Company"
+  description   String?
+
+  // Contact Info
+  phone           String
+  alternate_phone String?
+  email           String?
+  
+  // Owner Details
+  owner_name    String?
+  date_of_birth String? // YYYY-MM-DD
+
+  // Address Structure
+  address   String? @default("") // Full formatted address
+  street    String?
+  area      String?
+  city      String?
+  state     String?
+  pincode   String?
+  landmark  String?
 
   // Location
   latitude  Float?
   longitude Float?
 
-  // Details
-  gst_number      String?
-  operating_hours String?
+  // Tax & Legal
+  gst_number String?
+  has_gst    Boolean @default(false)
+  tax_type   String?
+
+  // Timings (JSON stored as String in SQLite)
+  operating_hours String? // e.g. "09:00 AM - 09:00 PM"
+  breaks          String? // JSON string: ["13:00-14:00"]
+  holidays        String? // JSON string: ["Sunday"]
 
   // Status
   status               String  @default("pending")
@@ -121,6 +134,7 @@ model Service {
   duration    Int
   category    String
   image_url   String?
+  is_active   Boolean @default(true)
 
   bookings Booking[]
 }
@@ -132,15 +146,9 @@ model Booking {
   serviceId Int
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-<<<<<<< HEAD
-  booking_date DateTime
-  booking_time String
-  status       String   @default("pending")
-=======
   booking_date DateTime 
   booking_time String 
   status       String   @default("pending") 
->>>>>>> origin/main
   notes        String?
 
   createdAt DateTime @default(now())
@@ -162,11 +170,7 @@ model Payment {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   amount        Decimal
-<<<<<<< HEAD
-  status        String  @default("pending")
-=======
   status        String  @default("pending") 
->>>>>>> origin/main
   method        String
   transactionId String?
 
@@ -235,13 +239,9 @@ model Review {
   updatedAt DateTime @updatedAt
 }
 
-<<<<<<< HEAD
 // ==============================
 // 4. PROMOTIONS, NOTIFICATIONS, FEEDBACK
 // ==============================
-=======
-
->>>>>>> origin/main
 
 model Promotion {
   id          Int      @id @default(autoincrement())

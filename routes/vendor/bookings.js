@@ -6,8 +6,11 @@ import { updateBookingStatusSchema } from '../../validators/vendor/bookingValida
 
 const router = express.Router();
 
-router.get('/bookings', protect, getVendorBookings);
-router.patch('/bookings/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
-router.put('/bookings/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
+// Matches GET /service_api/vendor/:vendorId/bookings
+router.get('/:vendorId/bookings', protect, getVendorBookings);
+
+// Matches PUT /service_api/vendor/:vendorId/bookings/update/:id
+router.put('/:vendorId/bookings/update/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
+router.patch('/:vendorId/bookings/update/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
 export default router;
