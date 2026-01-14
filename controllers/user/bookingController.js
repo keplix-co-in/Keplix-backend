@@ -36,13 +36,13 @@ export const getUserBookings = async (req, res) => {
 // @desc    Create a new booking
 // @route   POST /service_api/bookings/
 export const createBooking = async (req, res) => {
-    const { service_id, booking_date, booking_time, notes } = req.body;
+    const { serviceId, booking_date, booking_time, notes } = req.body;
 
     try {
         const booking = await prisma.booking.create({
             data: {
                 userId: req.user.id,
-                serviceId: parseInt(service_id),
+                serviceId: serviceId, // Already validated as number by Zod
                 booking_date: new Date(booking_date),
                 booking_time,
                 notes
