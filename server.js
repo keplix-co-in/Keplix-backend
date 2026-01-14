@@ -25,6 +25,8 @@ const io = new Server(httpServer, {
   },
 });
 
+app.set("io",io); // Make io accessible in routes via req.app.get('io')
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
