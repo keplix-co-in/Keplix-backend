@@ -134,6 +134,7 @@ model Service {
   duration    Int
   category    String
   image_url   String?
+  is_active   Boolean @default(true)
 
   bookings Booking[]
 }

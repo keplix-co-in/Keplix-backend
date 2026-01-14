@@ -19,7 +19,7 @@ export const getVendorServices = async (req, res) => {
 // @desc    Create Service
 // @route   POST /service_api/vendor/services
 export const createService = async (req, res) => {
-    const { name, description, price, duration, category } = req.body;
+    const { name, description, price, duration, category, is_active } = req.body;
     const image = req.file ? `/media/${req.file.filename}` : null;
 
     try {
@@ -31,7 +31,8 @@ export const createService = async (req, res) => {
                 price: parseFloat(price),
                 duration: parseInt(duration),
                 category,
-                image_url: image
+                image_url: image,
+                is_active: is_active !== undefined ? is_active : true
             }
         });
         res.status(201).json(service);
