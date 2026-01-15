@@ -6,9 +6,12 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
-import logger from "./middleware/loggerMiddleware.js";
 import helmet from "helmet";
 import corsOptions from "./util/cors.js";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+import morgan from "morgan";
+import Logger from "./util/logger.js";
 
 //
 // Configurations
@@ -16,12 +19,26 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-//CORS config also used in socket.io
+// Rate Limiter: 100 requests per 15 minutes
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  standardHeaders: true, 
+  legacyHeaders: false,
+});
+
+// Define allowed origins for both HTTP and WebSocket
+const allowedOrigins = [
+  "http://localhost:3000",       // React/Expo Web
+  "exp://192.168.1.8:8081",      // Expo Development (Change IP to match yours)
+  // Add your production domain later, e.g., "https://api.keplix.com"
+];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: corsOptions.origin, // Allow all origins for development
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
-    credentials:true
+    credentials: true
   },
 });
 
@@ -31,10 +48,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
-app.use(logger); // Apply Logger first
-
-app.use(helmet()); // for security headers
-app.use(helmet.frameguard({ action: "deny" })); //prevent clickjacking here
+app.use(morgan("combined", { stream: { write: (message) => Logger.http(message.trim()) } })); // HTTP Logging
+app.use(helmet()); 
+app.use(helmet.frameguard({ action: "deny" })); 
+app.use(compression()); // Compress responses
+app.use(limiter); // Apply rate limiting
 
 //XSS (CSP Prevented)
 app.use(
@@ -47,8 +65,9 @@ app.use(
       fontSrc: ["'self'", "data:"],
       connectSrc: [
         "'self'",
-        "http://localhost:3000", // frontend dev
-        "ws://localhost:8000", // socket.io
+        "http://localhost:3000",
+        "ws://localhost:8000",
+        ...allowedOrigins 
       ],
       frameSrc: ["'none'"], // no iframes allowed
       objectSrc: ["'none'"],
@@ -59,6 +78,26 @@ app.use(
   })
 );
 
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      // In development, you might want to log this to see what's being blocked
+      console.log('Blocked by CORS:', origin);
+      // For strictly blocking unknown origins:
+      // var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      // return callback(new Error(msg), false);
+      
+      // For now, in dev, let's be permissive but log it. 
+      // UNCOMMENT the validation above for production.
+      return callback(null, true); 
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
 app.use(cors(corsOptions));  //CORS origins allowed based on environment
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, "media")));
@@ -111,7 +150,7 @@ app.use("/service_api/vendor", vendorServiceRoutes); // mounts /service_api/vend
 app.use("/service_api/vendor", vendorBookingRoutes); // mounts /service_api/vendor/bookings
 app.use("/service_api", inventoryRoutes); // Keeps /service_api/vendor/:id/inventory
 app.use("/service_api", availabilityRoutes); // Keeps /service_api/vendor/:id/availability
-app.use("/interactions/api/promotions", promotionRoutes);
+app.use("/interactions/vendors", promotionRoutes); // Changed from /interactions/api/promotions to match frontend
 app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); // /interactions/api/vendor/reviews
 app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); // /interactions/api/vendor/feedback
 app.use("/interactions/api/vendor", vendorInteractionRoutes); // /interactions/api/vendor/conversations

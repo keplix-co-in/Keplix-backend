@@ -196,33 +196,44 @@ export const logoutUser = async (req, res) => {
     res.json({ message: 'Logged out successfully' });
 };
 
+import { sendEmail, sendSMS } from '../util/communication.js';
+
+// ...existing code...
+
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
-    // Mock implementation for now
+    const { email } = req.body;
+    // Generate token logic here in future
+    await sendEmail(email, "Reset Password", "Here is your reset link (mock)");
     res.json({ message: 'Password reset link sent (mock)' });
 };
 
 // @desc    Reset Password
 export const resetPassword = async (req, res) => {
+    // Verify token logic here
     res.json({ message: 'Password reset successfully (mock)' });
 };
 
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
+    const { phone_number } = req.body;
+    await sendSMS(phone_number, "Your OTP is 123456");
     res.json({ message: 'OTP sent (mock)' });
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
+    // Verify OTP logic
     res.json({ message: 'OTP verified (mock)' });
 };
 
 // @desc    Send Email OTP
 export const sendEmailOTP = async (req, res) => {
-    // Implement real email sending logic here (e.g. Nodemailer)
-    // For now, mock it
+    const { email } = req.body;
+    await sendEmail(email, "Email Verification", "Your OTP is 123456");
     res.json({ message: 'Email OTP sent (mock)' });
 };
+
 
 // @desc    Verify Email OTP
 export const verifyEmailOTP = async (req, res) => {
