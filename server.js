@@ -6,15 +6,26 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
-import logger from "./middleware/loggerMiddleware.js";
 import helmet from "helmet";
 import corsOptions from "./util/cors.js";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+import morgan from "morgan";
+import Logger from "./util/logger.js";
 
 //
 // Configurations
 dotenv.config();
 const app = express();
 const httpServer = createServer(app);
+
+// Rate Limiter: 100 requests per 15 minutes
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  standardHeaders: true, 
+  legacyHeaders: false,
+});
 
 // Define allowed origins for both HTTP and WebSocket
 const allowedOrigins = [
@@ -37,10 +48,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
-app.use(logger); // Apply Logger first
-
-app.use(helmet()); // for security headers
-app.use(helmet.frameguard({ action: "deny" })); //prevent clickjacking here
+app.use(morgan("combined", { stream: { write: (message) => Logger.http(message.trim()) } })); // HTTP Logging
+app.use(helmet()); 
+app.use(helmet.frameguard({ action: "deny" })); 
+app.use(compression()); // Compress responses
+app.use(limiter); // Apply rate limiting
 
 //XSS (CSP Prevented)
 app.use(
