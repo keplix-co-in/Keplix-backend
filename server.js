@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import logger from "./middleware/loggerMiddleware.js";
 import helmet from "helmet";
+import corsOptions from "./util/cors.js";
 
 //
 // Configurations
@@ -15,6 +16,7 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
+<<<<<<< HEAD
 // Define allowed origins for both HTTP and WebSocket
 const allowedOrigins = [
   "http://localhost:3000",       // React/Expo Web
@@ -29,6 +31,8 @@ const io = new Server(httpServer, {
     credentials: true
   },
 });
+
+app.set("io",io); // Make io accessible in routes via req.app.get('io')
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +67,7 @@ app.use(
   })
 );
 
+<<<<<<< HEAD
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -82,6 +87,9 @@ app.use(cors({
   },
   credentials: true
 }));
+=======
+app.use(cors(corsOptions));  //CORS origins allowed based on environment
+>>>>>>> origin/main
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, "media")));
 
