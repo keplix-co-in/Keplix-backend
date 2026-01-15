@@ -6,18 +6,18 @@ import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, f
 
 const router = express.Router();
 
-<<<<<<< HEAD
+router.post('/signup', validateRequest(registerSchema), registerUser);
 router.post('/signup', registerUser);
 router.post('/login', authUser); // Maps to /accounts/auth/login/
 router.post('/login/', authUser); // Maps to /accounts/auth/login/
 router.get('/profile', protect, getUserProfile); // Maps to /accounts/auth/profile/
 router.post('/token/refresh', refreshToken);
-=======
+
 router.post('/signup', validateRequest(registerSchema), registerUser);
 router.post('/login', validateRequest(loginSchema), authUser);
 router.get('/profile', protect, getUserProfile);
 router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken);
->>>>>>> origin/main
+
 router.post('/logout', logoutUser);
 router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);

@@ -7,9 +7,16 @@ import { createServiceSchema, updateServiceSchema } from '../../validators/vendo
 
 const router = express.Router();
 
-router.get('/services', protect, getVendorServices);
-router.post('/services', protect, upload.single('image'), validateRequest(createServiceSchema), createService);
-router.put('/services/:id', protect, validateRequest(updateServiceSchema), updateService); // Update might also need image upload?
-router.delete('/services/:id', protect, deleteService);
+// Matches GET /service_api/vendor/:vendorId/services
+router.get('/:vendorId/services', protect, getVendorServices);
+
+// Matches POST /service_api/vendor/:vendorId/services/create
+router.post('/:vendorId/services/create', protect, validateRequest(createServiceSchema), createService);
+
+// Matches PUT /service_api/vendor/:vendorId/services/update/:id
+router.put('/:vendorId/services/update/:id', protect, validateRequest(updateServiceSchema), updateService);
+
+// Matches DELETE /service_api/vendor/:vendorId/services/delete/:id
+router.delete('/:vendorId/services/delete/:id', protect, deleteService);
 
 export default router;
