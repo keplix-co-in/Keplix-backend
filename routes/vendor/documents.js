@@ -8,6 +8,6 @@ import { uploadDocumentSchema } from '../../validators/vendor/documentValidators
 const router = express.Router();
 
 router.get('/', protect, getDocuments);
-router.post('/', protect, upload.single('file'), validateRequest(uploadDocumentSchema), uploadDocument);
+router.post('/', protect, upload.single('file_url'), validateRequest(uploadDocumentSchema), uploadDocument);
 
 export default router;
