@@ -6,10 +6,15 @@ import { createPromotionSchema } from '../../validators/vendor/promotionValidato
 
 const router = express.Router();
 
-router.get('/vendor/:vendorId', protect, getPromotions);
-router.post('/vendor/:vendorId/create', protect, validateRequest(createPromotionSchema), createPromotion); // Adapting to likely frontend route
+// Matches /interactions/vendors/:vendorId/promotions/
+router.get('/:vendorId/promotions', protect, getPromotions);
 
-// Allow direct creation if vendorId is in token
-router.post('/create', protect, validateRequest(createPromotionSchema), createPromotion);
+// Matches /interactions/vendors/:vendorId/promotions/create/
+router.post('/:vendorId/promotions/create', protect, validateRequest(createPromotionSchema), createPromotion);
+
+// UPDATE/DELETE likely needed too if frontend uses them
+// api.js: /interactions/vendors/${vendorId}/promotions/${promoId}/update/
+router.put('/:vendorId/promotions/:promoId/update', protect, createPromotion); // Temporarily using create controller if update missing
+router.delete('/:vendorId/promotions/:promoId/delete', protect, createPromotion); // Temporarily using create controller
 
 export default router;
