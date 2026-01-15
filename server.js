@@ -8,18 +8,24 @@ import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import logger from "./middleware/loggerMiddleware.js";
 import helmet from "helmet";
+import corsOptions from "./util/cors.js";
 
 //
 // Configurations
 dotenv.config();
 const app = express();
 const httpServer = createServer(app);
+
+//CORS config also used in socket.io
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", // Allow all origins for development
+    origin: corsOptions.origin, // Allow all origins for development
     methods: ["GET", "POST"],
+    credentials:true
   },
 });
+
+app.set("io",io); // Make io accessible in routes via req.app.get('io')
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +59,7 @@ app.use(
   })
 );
 
-app.use(cors());
+app.use(cors(corsOptions));  //CORS origins allowed based on environment
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, "media")));
 
