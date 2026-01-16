@@ -1,9 +1,12 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 const isProd = process.env.NODE_ENV === "production";
 
-// Read allowed origins from env (comma separated)
+// Read allowed origins from env (comma separated) or default for dev
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
-  : [];
+  : ["http://localhost:3000", "exp://192.168.1.8:8081"];
 
 /**
  * CORS Options
@@ -40,4 +43,5 @@ const corsOptions = {
   credentials: true,
 };
 
+export { allowedOrigins };
 export default corsOptions;

@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import helmet from "helmet";
-import corsOptions from "./util/cors.js";
+import corsOptions, { allowedOrigins } from "./util/cors.js";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
@@ -36,13 +36,6 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many login attempts, please try again later." }
 });
-
-// Define allowed origins for both HTTP and WebSocket
-const allowedOrigins = [
-  "http://localhost:3000",       // React/Expo Web
-  "exp://192.168.1.8:8081",      // Expo Development (Change IP to match yours)
-  // Add your production domain later, e.g., "https://api.keplix.com"
-];
 
 const io = new Server(httpServer, {
   cors: {
@@ -89,25 +82,7 @@ app.use(
 );
 
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      // In development, you might want to log this to see what's being blocked
-      console.log('Blocked by CORS:', origin);
-      // For strictly blocking unknown origins:
-      // var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      // return callback(new Error(msg), false);
-      
-      // For now, in dev, let's be permissive but log it. 
-      // UNCOMMENT the validation above for production.
-      return callback(null, true); 
-    }
-    return callback(null, true);
-  },
-  credentials: true
-}));
+app.use(cors(corsOptions));
 app.use(cors(corsOptions));  //CORS origins allowed based on environment
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, "media")));
