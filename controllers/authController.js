@@ -2,17 +2,10 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createRequire } from 'module';
-import admin from 'firebase-admin';
+import admin from '../util/firebase.js'; // Use shared instance
 import crypto from 'crypto';
 
 const require = createRequire(import.meta.url);
-const serviceAccount = require('../serviceAccountKey.json');
-
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'django-insecure-secret-key-replacement';
