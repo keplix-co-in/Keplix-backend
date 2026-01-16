@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import helmet from "helmet";
-import corsOptions from "./util/cors.js";
+import corsOptions, { allowedOrigins } from "./util/cors.js";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
@@ -37,13 +37,6 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many login attempts, please try again later." }
 });
-
-// Define allowed origins for both HTTP and WebSocket
-const allowedOrigins = [
-  "http://localhost:3000",       // React/Expo Web
-  "exp://192.168.1.8:8081",      // Expo Development (Change IP to match yours)
-  // Add your production domain later, e.g., "https://api.keplix.com"
-];
 
 const io = new Server(httpServer, {
   cors: {

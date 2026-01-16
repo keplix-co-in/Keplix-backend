@@ -10,22 +10,39 @@ export const notFound = (req, res, next) => {
 
 // General Error Handler
 export const errorHandler = (err, req, res, next) => {
-    // If status code is 200 (OK) but there is an error, default to 500
-    const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+    // Determine status code
+    let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
     
+    // If explicit status code in error object
+    if (err.statusCode) {
+        statusCode = err.statusCode;
+    }
+
     res.status(statusCode);
 
-    // Log the error for server-side debugging
-    console.error(`[Error] ${req.method} ${req.url}:`, err.message);
+    // Map status codes to error string codes
+    let errorCode = "INTERNAL_SERVER_ERROR";
+    if (statusCode === 400) errorCode = "BAD_REQUEST";
+    else if (statusCode === 401) errorCode = "UNAUTHORIZED";
+    else if (statusCode === 403) errorCode = "FORBIDDEN";
+    else if (statusCode === 404) errorCode = "NOT_FOUND";
+    else if (statusCode === 429) errorCode = "TOO_MANY_REQUESTS";
+
+    // Override with custom code if provided
+    if (err.code && typeof err.code === 'string') {
+        errorCode = err.code;
+    }
+
+    // Server-side logging
+    console.error(`[Error] ${req.method} ${req.url}: ${err.message}`);
     if (process.env.NODE_ENV === 'development') {
         console.error(err.stack);
     }
 
     res.json({
         success: false,
-        code: statusCode,
-        message: err.message,
-        // Only show stack trace in development
+        message: err.message || "An unexpected error occurred",
+        code: errorCode,
         stack: process.env.NODE_ENV === 'production' ? null : err.stack,
     });
 };
