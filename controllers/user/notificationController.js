@@ -32,6 +32,24 @@ export const markRead = async (req, res) => {
     }
 }
 
+// @desc    Update FCM Token
+// @route   PUT /interactions/api/users/fcm-token/
+export const updateFcmToken = async (req, res) => {
+    const { fcmToken } = req.body;
+    const userId = req.user.id; // From authMiddleware
+
+    try {
+        await prisma.user.update({
+            where: { id: userId },
+            data: { fcmToken }
+        });
+        res.json({ message: 'FCM Token Updated' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+}
+
 // @desc    Create Notification (Internal/Admin)
 // @route   POST /interactions/api/notifications/create/
 export const createNotification = async (req, res) => {
