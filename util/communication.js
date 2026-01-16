@@ -1,20 +1,33 @@
 import { messaging } from './firebase.js';
+import Logger from './logger.js';
 
 export const sendEmail = async (to, subject, text) => {
+    // Check Config
+    if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER) {
+        Logger.warn("[Email] Not configured (Missing EMAIL_HOST/USER). Skipping.");
+        return false;
+    }
+    
     // TODO: Integrate with Nodemailer / SendGrid / AWS SES
-    console.log(`[MOCK EMAIL] To: ${to} | Subject: ${subject} | Body: ${text}`);
+    Logger.info(`[MOCK EMAIL] To: ${to} | Subject: ${subject}`);
     return true; 
 };
 
 export const sendSMS = async (to, message) => {
+    // Check Config
+    if (!process.env.SMS_API_KEY) {
+        Logger.warn("[SMS] Not configured (Missing SMS_API_KEY). Skipping.");
+        return false;
+    }
+
     // TODO: Integrate with Twilio / Msg91
-    console.log(`[MOCK SMS] To: ${to} | Message: ${message}`);
+    Logger.info(`[MOCK SMS] To: ${to} | Message: ${message}`);
     return true;
 };
 
 export const sendPushNotification = async (token, title, body, data = {}) => {
     if (!token) {
-        console.log("No FCM Token provided via push notification.");
+        Logger.warn("No FCM Token provided via push notification.");
         return false;
     }
 
@@ -29,10 +42,10 @@ export const sendPushNotification = async (token, title, body, data = {}) => {
 
     try {
         const response = await messaging.send(message);
-        console.log('Successfully sent message:', response);
+        Logger.info(`[FCM] Successfully sent message: ${response}`);
         return true;
     } catch (error) {
-        console.error('Error sending message:', error);
+        Logger.error(`[FCM] Error sending message: ${error.message}`);
         return false;
     }
 };
