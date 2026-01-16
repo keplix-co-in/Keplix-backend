@@ -12,8 +12,7 @@ const levels = {
 // Define level based on environment
 const level = () => {
   const env = process.env.NODE_ENV || 'development';
-  const isDevelopment = env === 'development';
-  return isDevelopment ? 'debug' : 'warn';
+  return env === 'development' ? 'debug' : 'info';
 };
 
 // Define colors for each level
@@ -27,7 +26,7 @@ const colors = {
 
 winston.addColors(colors);
 
-const format = winston.format.combine(
+const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
   winston.format.colorize({ all: true }),
   winston.format.printf(
@@ -35,21 +34,27 @@ const format = winston.format.combine(
   ),
 );
 
-const transports = [
-  new winston.transports.Console(),
-  // Add file transports for production
-  new winston.transports.File({
-    filename: 'logs/error.log',
-    level: 'error',
-  }),
-  new winston.transports.File({ filename: 'logs/all.log' }),
-];
+const fileFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.json()
+  )
 
 const Logger = winston.createLogger({
   level: level(),
   levels,
-  format,
-  transports,
+ transports : [
+  new winston.transports.Console({ format: consoleFormat }),
+  // Add file transports for production
+  new winston.transports.File({
+    filename: 'logs/error.log',
+    level: 'error',
+    format: fileFormat
+  }),
+  new winston.transports.File({
+     filename: 'logs/all.log',
+     format: fileFormat
+    }),
+],
 });
 
 export default Logger;
