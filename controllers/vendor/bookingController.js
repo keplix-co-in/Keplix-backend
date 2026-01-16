@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import { initiateVendorPayout } from "../../util/payoutHelper.js";
+import { sendPushNotification } from "../../util/communication.js";
 
 const prisma = new PrismaClient();
 
@@ -54,22 +56,81 @@ export const updateBookingStatus = async (req, res) => {
     const booking = await prisma.booking.update({
       where: { id: parseInt(req.params.id) },
       data: { status },
-      select: {
-        id: true,
-        status: true, // required for socket room
-        userId: true,
-      },
+      // Include service relation so we can find vendor for payout
+      include: {
+        service: true
+      }
     });
 
     //socket.io instance
-    const io = req.app.get("io");
-
+    const io = req.app.get("io");   
     // Notify user about booking status update
     io.to(`user_${booking.userId}`).emit("booking_updated", {
       bookingId: booking.id,
       status: booking.status,
       message: "Your booking status has been updated",
     });
+
+    // === PUSH NOTIFICATION ===
+    const userForPush = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: { fcmToken: true }
+    });
+
+    if (userForPush && userForPush.fcmToken) {
+        let title = "Booking Update";
+        let body = `Your booking is now ${status}`;
+        
+        if (status === 'confirmed') {
+            title = "Booking Accepted!";
+            body = "The vendor has accepted your booking request.";
+        } else if (status === 'completed') {
+            title = "Service Completed";
+            body = "Your service has been marked as completed.";
+        } else if (status === 'cancelled') {
+             title = "Booking Cancelled";
+             body = "Your booking request was cancelled.";
+        }
+
+        sendPushNotification(userForPush.fcmToken, title, body, { bookingId: booking.id.toString() }).catch(err => console.error("Push Error", err));
+    }
+
+    // === AUTOMATED PAYOUT LOGIC ===
+    if (status === 'completed' || status === 'service_completed') {
+        const payment = await prisma.payment.findUnique({
+            where: { bookingId: booking.id }
+        });
+
+        if (payment && payment.status === 'success' && payment.vendorPayoutStatus === 'pending') {
+            // Find specific service provider if needed, or just the vendor owner of the service
+            // The booking already links to a service which links to a vendor (User)
+            const service = await prisma.service.findUnique({ 
+                where: { id: booking.service.id },
+                select: { vendorId: true }
+            });
+
+            // Run Payout
+            try {
+                const payoutResult = await initiateVendorPayout(payment, service.vendorId);
+                
+                if (payoutResult.success) {
+                    await prisma.payment.update({
+                        where: { id: payment.id },
+                        data: {
+                            vendorPayoutStatus: 'paid',
+                            vendorPayoutId: payoutResult.payoutId
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Payout Failed", err);
+                await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { vendorPayoutStatus: 'failed' }
+                });
+            }
+        }
+    }
     
     res.json(booking);
   } catch (error) {
