@@ -6,37 +6,28 @@ import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, f
 
 const router = express.Router();
 
-router.post('/signup', validateRequest(registerSchema), registerUser);
-router.post('/signup', registerUser);
-router.post('/login', authUser); // Maps to /accounts/auth/login/
-router.post('/login/', authUser); // Maps to /accounts/auth/login/
-router.get('/profile', protect, getUserProfile); // Maps to /accounts/auth/profile/
-router.post('/token/refresh', refreshToken);
-
+// Auth Routes (Standard)
 router.post('/signup', validateRequest(registerSchema), registerUser);
 router.post('/login', validateRequest(loginSchema), authUser);
-router.get('/profile', protect, getUserProfile);
 router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken);
-
 router.post('/logout', logoutUser);
 router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);
+router.post('/google', googleLogin);
+
+// OTP Routes
 router.post('/send-phone-otp', sendPhoneOTP);
 router.post('/verify-phone-otp', verifyPhoneOTP);
 router.post('/send-email-otp', sendEmailOTP);
 router.post('/verify-email-otp', verifyEmailOTP);
-router.post('/google', googleLogin);
 
-// Compatibility aliases (if frontend uses trailing slashes)
+// Protected Routes
+router.get('/profile', protect, getUserProfile);
+
+// Compatibility aliases (for trailing slashes if needed by legacy frontend code)
 router.post('/signup/', validateRequest(registerSchema), registerUser);
 router.post('/login/', validateRequest(loginSchema), authUser);
-router.get('/profile/', protect, getUserProfile);
 router.post('/token/refresh/', validateRequest(refreshTokenSchema), refreshToken);
 router.post('/logout/', logoutUser);
-router.post('/forgot-password/', validateRequest(forgotPasswordSchema), forgotPassword);
-router.post('/send-phone-otp/', sendPhoneOTP);
-router.post('/verify-phone-otp/', verifyPhoneOTP);
-router.post('/send-email-otp/', sendEmailOTP);
-router.post('/verify-email-otp/', verifyEmailOTP);
 
 export default router;
