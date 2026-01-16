@@ -12,6 +12,7 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
 import Logger from "./util/logger.js";
+import loggerMiddleware from "./middleware/loggerMiddleware.js"
 
 //
 // Configurations
@@ -58,7 +59,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Middleware
-app.use(morgan("combined", { stream: { write: (message) => Logger.http(message.trim()) } })); // HTTP Logging
+app.use(loggerMiddleware);
+// app.use(morgan("combined", { stream: { write: (message) => Logger.http(message.trim()) } })); // HTTP Logging
 app.use(helmet()); 
 app.use(helmet.frameguard({ action: "deny" })); 
 app.use(compression()); // Compress responses
@@ -95,7 +97,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       // In development, you might want to log this to see what's being blocked
-      console.log('Blocked by CORS:', origin);
+      Logger.warn(`Blocked by CORS:', ${origin}`);
       // For strictly blocking unknown origins:
       // var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       // return callback(new Error(msg), false);
@@ -193,11 +195,11 @@ app.use("/interactions/api", userNotificationRoutes);
 
 // Socket.io Logic
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  Logger.info(`User connected:", ${socket.id}`);
 
   socket.on("join_room", (room) => {
     socket.join(room);
-    console.log(`User ${socket.id} joined room ${room}`);
+    Logger.info(`User ${socket.id} joined room ${room}`);
   });
 
   socket.on("send_message", async (data) => {
@@ -220,12 +222,12 @@ io.on("connection", (socket) => {
         io.to(data.room).emit("receive_message", data);
       }
     } catch (e) {
-      console.error("Socket Error", e);
+      Logger.error(`Socket Error: ${e.message}`);
     }
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    Logger.info(`User disconnected:, ${socket.id}`);
   });
 });
 
@@ -235,5 +237,5 @@ app.use(errorHandler);
 
 const PORT = 8000;
 httpServer.listen(PORT, () => {
-  console.log(`http://localhost:${PORT}`);
+  Logger.info(`http://localhost:${PORT}`);
 });
