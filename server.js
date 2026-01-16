@@ -19,12 +19,22 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// Rate Limiter: 100 requests per 15 minutes
+// Rate Limiter: General API Limiter (300 requests per 15 minutes)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 100, 
+  max: 300, 
   standardHeaders: true, 
   legacyHeaders: false,
+  message: { message: "Too many requests, please try again later." }
+});
+
+// Auth Limiter: Stricter for Login/Register (10 requests per 15 minutes)
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later." }
 });
 
 // Define allowed origins for both HTTP and WebSocket
@@ -52,7 +62,7 @@ app.use(morgan("combined", { stream: { write: (message) => Logger.http(message.t
 app.use(helmet()); 
 app.use(helmet.frameguard({ action: "deny" })); 
 app.use(compression()); // Compress responses
-app.use(limiter); // Apply rate limiting
+// Rate limit applied later to exclude static files
 
 //XSS (CSP Prevented)
 app.use(
@@ -102,6 +112,9 @@ app.use(cors(corsOptions));  //CORS origins allowed based on environment
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, "media")));
 
+// Apply Global Rate Limiter (Excludes static files)
+app.use(limiter);
+
 // Database Check Route
 app.get("/", (req, res) => {
   res.json({ message: "Keplix Backend (Node.js) is running!" });
@@ -141,7 +154,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-app.use("/accounts/auth", authRoutes);
+app.use("/accounts/auth", authLimiter, authRoutes);
 app.use("/accounts/vendor", vendorProfileRoutes); // Mounts /accounts/vendor/profile/
 
 // Vendor API Group
