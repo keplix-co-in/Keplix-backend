@@ -46,6 +46,25 @@ async function main() {
 
     const hashedPassword = await bcrypt.hash('password123', 10);
 
+    // --- Create Super Admin ---
+    const adminUser = await prisma.user.create({
+      data: {
+        email: "admin@keplix.com",
+        password: hashedPassword,
+        role: "admin",
+        is_active: true,
+        userProfile: {
+          create: {
+            name: "Super Admin",
+            phone: "9999999999",
+            address: "Keplix HQ"
+          }
+        }
+      }
+    });
+    console.log("✅ Super Admin created: admin@keplix.com / password123");
+    // --------------------------
+
     // Creates 100 Vendors
     const vendors = [];
     
