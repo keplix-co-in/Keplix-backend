@@ -2,17 +2,10 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createRequire } from 'module';
-import admin from 'firebase-admin';
+import admin from '../util/firebase.js'; // Use shared instance
 import crypto from 'crypto';
 
 const require = createRequire(import.meta.url);
-const serviceAccount = require('../serviceAccountKey.json');
-
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'django-insecure-secret-key-replacement';
@@ -54,7 +47,7 @@ export const registerUser = async (req, res) => {
         });
 
         if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ success: false, message: 'User already exists', code: 'USER_EXISTS' });
         }
 
         const salt = await bcrypt.genSalt(10);
@@ -97,7 +90,8 @@ export const registerUser = async (req, res) => {
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        res.status(500);
+        next(error);
     }
 };
 

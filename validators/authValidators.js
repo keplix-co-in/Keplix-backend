@@ -30,3 +30,21 @@ export const resetPasswordSchema = z.object({
 export const forgotPasswordSchema = z.object({
   email: z.string().email(),
 });
+
+export const googleLoginSchema = z.object({
+  idToken: z.string().min(1, { message: "Google ID Token is required" }),
+  role: z.enum(['user', 'vendor']).optional(),
+});
+
+export const requestOtpSchema = z.object({
+    phone_number: z.string().regex(/^\+?[1-9]\d{1,14}$/, { message: "Invalid phone number" }).optional(),
+    email: z.string().email().optional()
+}).refine(data => data.phone_number || data.email, {
+    message: "Either phone_number or email is required"
+});
+
+export const verifyOtpSchema = z.object({
+    phone_number: z.string().optional(),
+    email: z.string().optional(),
+    otp: z.string().length(6, { message: "OTP must be 6 digits" })
+});
