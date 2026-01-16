@@ -47,7 +47,7 @@ export const registerUser = async (req, res) => {
         });
 
         if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ success: false, message: 'User already exists', code: 'USER_EXISTS' });
         }
 
         const salt = await bcrypt.genSalt(10);
@@ -90,7 +90,8 @@ export const registerUser = async (req, res) => {
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        res.status(500);
+        next(error);
     }
 };
 
