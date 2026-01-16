@@ -170,9 +170,16 @@ model Payment {
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   amount        Decimal
-  status        String  @default("pending") 
-  method        String
-  transactionId String?
+  currency      String  @default("INR")
+  status        String  @default("pending") // success, failed, pending
+  method        String  // stripe, razorpay, cash
+  transactionId String? // Gateway Payment ID
+
+  // Vendor Payout Tracking
+  vendorPayoutStatus String? @default("pending") // pending, paid, failed, not_applicable
+  vendorPayoutId     String? // External Transfer ID
+  platformFee        Decimal?
+  vendorAmount       Decimal?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
