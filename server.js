@@ -225,7 +225,7 @@ io.on("connection", (socket) => {
 });
 
 // Error Handling Middleware (Must be last)
-app.use(notFound);
+app.use(notFound);  // Re-enabled
 app.use(errorHandler);
 
 const PORT = 8000;
