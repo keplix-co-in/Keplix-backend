@@ -22,6 +22,9 @@ export const createService = async (req, res) => {
     const { name, description, price, duration, category, is_active } = req.body;
     const image = req.file ? `/media/${req.file.filename}` : null;
 
+    // Handle boolean conversion for FormData strings
+    const isActive = is_active === 'true' || is_active === true;
+
     try {
         const service = await prisma.service.create({
             data: {
@@ -32,7 +35,7 @@ export const createService = async (req, res) => {
                 duration: parseInt(duration),
                 category,
                 image_url: image,
-                is_active: is_active !== undefined ? is_active : true
+                is_active: is_active !== undefined ? isActive : true
             }
         });
         res.status(201).json(service);
