@@ -19,6 +19,10 @@ export const getVendorServices = async (req, res) => {
 // @desc    Create Service
 // @route   POST /service_api/vendor/services
 export const createService = async (req, res) => {
+
+    console.log('BODY:', req.body);
+    console.log('FILE:', req.file);
+
     const { name, description, price, duration, category, is_active } = req.body;
     const image = req.file ? `/media/${req.file.filename}` : null;
 

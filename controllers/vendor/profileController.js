@@ -121,7 +121,7 @@ export const createVendorProfile = async (req, res) => {
          const existingProfile = await prisma.vendorProfile.findUnique({
             where: { userId: req.user.id }
         });
-
+        
         if (existingProfile) {
             // Forward to Update Logic if exists
             // Or return error
