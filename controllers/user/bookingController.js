@@ -84,7 +84,10 @@ export const createBooking = async (req, res) => {
                 serviceId: serviceId, // Already validated as number by Zod
                 booking_date: new Date(booking_date),
                 booking_time,
-                notes
+                notes,
+                conversation: {
+                    create: {} // Automatically create a conversation for this booking
+                }
             }
         });
 
