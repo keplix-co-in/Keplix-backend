@@ -199,10 +199,24 @@ io.on("connection", (socket) => {
     // data: { room, message, senderId, conversationId }
     try {
       if (data.conversationId && data.message && data.senderId) {
+        const convId = parseInt(data.conversationId);
+        const sendId = parseInt(data.senderId);
+
+        // Verify conversation exists to prevent FK Crashes
+        const conversationExists = await prisma.conversation.count({
+            where: { id: convId }
+        });
+
+        if (!conversationExists) {
+             Logger.warn(`Socket: Invalid conversationId ${convId} from sender ${sendId}`);
+             socket.emit("error_message", "Invalid Conversation ID");
+             return;
+        }
+
         const savedMessage = await prisma.message.create({
           data: {
-            conversationId: parseInt(data.conversationId),
-            senderId: parseInt(data.senderId),
+            conversationId: convId,
+            senderId: sendId,
             message_text: data.message,
           },
           include: { sender: true },
@@ -225,7 +239,7 @@ io.on("connection", (socket) => {
 });
 
 // Error Handling Middleware (Must be last)
-app.use(notFound);
+app.use(notFound);  // Re-enabled
 app.use(errorHandler);
 
 const PORT = 8000;

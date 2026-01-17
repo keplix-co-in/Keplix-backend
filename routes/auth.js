@@ -7,7 +7,8 @@ import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, f
 const router = express.Router();
 
 // Auth Routes (Standard)
-router.post('/signup', validateRequest(registerSchema), registerUser);
+router.post('/register', validateRequest(registerSchema), registerUser);
+router.post('/signup', validateRequest(registerSchema), registerUser); // Alias for compatibility
 router.post('/login', validateRequest(loginSchema), authUser);
 router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken);
 router.post('/logout', logoutUser);

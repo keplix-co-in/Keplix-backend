@@ -9,8 +9,7 @@ const router = express.Router();
 // Matches GET /service_api/vendor/:vendorId/bookings
 router.get('/:vendorId/bookings', protect, getVendorBookings);
 
-// Matches PUT /service_api/vendor/:vendorId/bookings/update/:id
-router.put('/:vendorId/bookings/update/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
+// Matches PATCH /service_api/vendor/:vendorId/bookings/update/:id
 router.patch('/:vendorId/bookings/update/:id', protect, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
 export default router;
