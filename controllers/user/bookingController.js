@@ -74,24 +74,29 @@ export const getUserBookings = async (req, res) => {
 // @desc    Create a new booking
 // @route   POST /service_api/bookings/
 export const createBooking = async (req, res) => {
-  const { serviceId, booking_date, booking_time, notes } = req.body;
 
-  try {
-    const booking = await prisma.booking.create({
-      data: {
-        userId: req.user.id,
-        serviceId: serviceId, // Already validated as number by Zod
-        booking_date: new Date(booking_date),
-        booking_time,
-        notes,
-      },
-    });
-    res.status(201).json(booking);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server Error" });
-  }
-};
+    const { serviceId, booking_date, booking_time, notes } = req.body;
+
+    try {
+        const booking = await prisma.booking.create({
+            data: {
+                userId: req.user.id,
+                serviceId: serviceId, // Already validated as number by Zod
+                booking_date: new Date(booking_date),
+                booking_time,
+                notes,
+                conversation: {
+                    create: {} // Automatically create a conversation for this booking
+                }
+            }
+        });
+
+        res.status(201).json(booking);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+}
 
 // @desc    Update/Cancel booking
 // @route   PUT /service_api/user/:userId/bookings/update/:id

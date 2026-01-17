@@ -103,14 +103,32 @@ export const createVendorProfile = async (req, res) => {
 
     const data = { 
         userId: req.user.id,
-        business_name, business_type, description,
-        phone, alternate_phone, email,
-        owner_name, date_of_birth,
-        address, street, area, city, state, pincode, landmark,
-        latitude, longitude,
-        gst_number, has_gst, tax_type,
-        operating_hours, breaks, holidays,
-        onboarding_completed: true // Default to true on explicit create
+        business_name, 
+        business_type, 
+        description,
+        phone, 
+        alternate_phone, 
+        email,
+        owner_name, 
+        date_of_birth,
+        address, 
+        street, 
+        area, 
+        city, 
+        state, 
+        pincode, 
+        landmark,
+        // Convert to float/int if they exist, otherwise undefined
+        latitude: latitude ? parseFloat(latitude) : undefined, 
+        longitude: longitude ? parseFloat(longitude) : undefined,
+        gst_number, 
+        // Boolean conversion if string "true"/"false" comes from FormData
+        has_gst: has_gst === 'true' || has_gst === true, 
+        tax_type,
+        operating_hours, 
+        breaks, 
+        holidays,
+        onboarding_completed: true 
     };
 
     if (req.file) {
@@ -139,7 +157,7 @@ export const createVendorProfile = async (req, res) => {
 
         res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        console.error("Create Vendor Profile Error:", error); // Added detailed logging
+        res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
