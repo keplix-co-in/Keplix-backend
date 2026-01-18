@@ -54,10 +54,20 @@ export const updateVendorProfile = async (req, res) => {
         updates.onboarding_completed = onboarding_completed;
     }
 
-    // Handle Image upload if present
-    if (req.file) {
-        updates.image = `/media/${req.file.filename}`;
+    // Handle Image uploads (fields: image, cover_image)
+    if (req.files) {
+        if (req.files.image && req.files.image[0]) {
+            updates.image = req.files.image[0].path; 
+        }
+        if (req.files.cover_image && req.files.cover_image[0]) {
+            updates.cover_image = req.files.cover_image[0].path;
+        }
+    } else if (req.file) {
+        // Fallback for single 'image' upload if middleware wasn't updated correctly or old request
+        updates.image = req.file.path;
     }
+
+    console.log('[VendorProfile] Update Request:', { userId: req.user.id, updates });
 
     try {
         const vendorProfile = await prisma.vendorProfile.update({
@@ -78,9 +88,9 @@ export const updateVendorProfile = async (req, res) => {
     } catch (error) {
         console.error(error);
         if (error.code === 'P2025') {
-             // Profile doesn't exist, maybe try create?
-             // Or return 404
-             return res.status(404).json({ message: 'Vendor profile not found. Please Create first.' });
+             // Profile doesn't exist.
+             // Auto-create: Since this is likely onboarding trying to "Update" a profile that isn't made yet.
+             return createVendorProfile(req, res);
         }
         res.status(500).json({ message: 'Server Error' });
     }
@@ -131,8 +141,16 @@ export const createVendorProfile = async (req, res) => {
         onboarding_completed: true 
     };
 
-    if (req.file) {
-        data.image = `/media/${req.file.filename}`;
+    // Handle Image uploads (fields: image, cover_image)
+    if (req.files) {
+        if (req.files.image && req.files.image[0]) {
+            data.image = req.files.image[0].path; 
+        }
+        if (req.files.cover_image && req.files.cover_image[0]) {
+            data.cover_image = req.files.cover_image[0].path;
+        }
+    } else if (req.file) {
+        data.image = req.file.path; 
     }
 
     try {
