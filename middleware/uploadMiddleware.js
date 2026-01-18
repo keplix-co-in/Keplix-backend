@@ -5,20 +5,23 @@ import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
 
 const checkFileType = (file, cb) => {
-    // Allowed extensions
-    const filetypes = /jpg|jpeg|png|pdf|doc|docx/;
+    // Allowed extensions - expanded
+    const filetypes = /jpg|jpeg|png|heic|webp|pdf|doc|docx/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     
-    // Check mime type (looser check for docs)
-    const mimetype = filetypes.test(file.mimetype) || 
+    // Check mime type (looser check for docs & images)
+    // Cloudinary usually handles types well.
+    // If mime type is octet-stream (sometimes happens with form-data), rely on extension.
+    const mimetype = filetypes.test(file.mimetype) ||
                      file.mimetype === 'application/pdf' ||
                      file.mimetype === 'application/msword' ||
-                     file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                     file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                     file.mimetype === 'application/octet-stream';
 
-    if (extname && mimetype) {
+    if (extname) { // Prioritize extension check as mimetype can be fickle in formData
         return cb(null, true);
     } else {
-        cb(new Error('Images and Documents (PDF, DOC) only!'));
+        cb(new Error(`Images/Docs only. Got: ${file.mimetype} / ${path.extname(file.originalname)}`));
     }
 };
 
