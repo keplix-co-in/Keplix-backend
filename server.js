@@ -154,10 +154,10 @@ app.use("/accounts/vendor", vendorProfileRoutes); // Mounts /accounts/vendor/pro
 
 // Vendor API Group
 app.use("/accounts/documents", documentRoutes);
-app.use("/service_api/vendor", vendorServiceRoutes); // mounts /service_api/vendor/services
-app.use("/service_api/vendor", vendorBookingRoutes); // mounts /service_api/vendor/bookings
-app.use("/service_api", inventoryRoutes); // Keeps /service_api/vendor/:id/inventory
-app.use("/service_api", availabilityRoutes); // Keeps /service_api/vendor/:id/availability
+app.use("/service-api/vendor", vendorServiceRoutes); // mounts /service_api/vendor/services
+app.use("/service-api/vendor", vendorBookingRoutes); // mounts /service_api/vendor/bookings
+app.use("/service-api", inventoryRoutes); // Keeps /service_api/vendor/:id/inventory
+app.use("/service-api", availabilityRoutes); // Keeps /service_api/vendor/:id/availability
 app.use("/interactions/vendors", promotionRoutes); // Changed from /interactions/api/promotions to match frontend
 app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); // /interactions/api/vendor/reviews
 app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); // /interactions/api/vendor/feedback
@@ -165,21 +165,21 @@ app.use("/interactions/api/vendor", vendorInteractionRoutes); // /interactions/a
 app.use("/interactions/api/vendor", vendorNotificationRoutes); // /interactions/api/vendor/notifications
 
 // User API Group
-app.use("/service_api/user", userServiceRoutes); // mounts /service_api/user/services
-app.use("/service_api/user", userBookingRoutes); // mounts /service_api/user/bookings
-app.use("/service_api", userServiceRoutes); // For shared search routes like /service_api/search
+app.use("/service-api/user", userServiceRoutes); // mounts /service_api/user/services
+app.use("/service-api/user", userBookingRoutes); // mounts /service_api/user/bookings
+app.use("/service-api", userServiceRoutes); // For shared search routes like /service_api/search
 // Note: /service_api/services/:id is also in user service controller, but mounted under /user currently?
 // Let's ensure public routes work. userServiceRoutes has /services (public), /search etc.
 // We might need to mount it at /service_api too for the public endpoints
-app.use("/service_api", userServiceRoutes);
+app.use("/service-api", userServiceRoutes);
 
 app.use("/interactions/api/feedback", feedbackRoutes); // User feedback
 app.use("/interactions/api", reviewRoutes); // User reviews (public view of vendor reviews)
 
 // Shared -> Specific
 // app.use('/service_api', paymentRoutes);
-app.use("/service_api", userPaymentRoutes);
-app.use("/service_api", vendorPaymentRoutes);
+app.use("/service-api", userPaymentRoutes);
+app.use("/service-api", vendorPaymentRoutes);
 
 // app.use('/interactions/api', interactionRoutes);
 app.use("/interactions/api", userInteractionRoutes);

@@ -101,6 +101,7 @@ export const createVendorProfile = async (req, res) => {
         operating_hours, breaks, holidays
     } = req.body;
 
+
     const data = { 
         userId: req.user.id,
         business_name, 
@@ -130,15 +131,20 @@ export const createVendorProfile = async (req, res) => {
         holidays,
         onboarding_completed: true 
     };
+    
+    //cloudinary image upload
+    const image = req.file?.path;
+    if(!image) return res.status(400).json({message:"Image required"});
 
-    if (req.file) {
-        data.image = `/media/${req.file.filename}`;
-    }
+    // if (req.file) {
+    //     data.image = `/media/${req.file.filename}`;
+    // }
 
     try {
          const existingProfile = await prisma.vendorProfile.findUnique({
             where: { userId: req.user.id }
         });
+    
         
         if (existingProfile) {
             // Forward to Update Logic if exists

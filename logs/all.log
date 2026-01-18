@@ -180,3 +180,266 @@
 {"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-17T15:48:28.848Z"}
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T15:55:00.955Z"}
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T15:55:09.254Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T19:41:38.325Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-17T19:43:51.167Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T19:47:01.370Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-17T19:53:57.809Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T19:59:03.199Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-17T19:59:07.758Z"}
+{"level":"warn","message":"[400] POST  /accounts/auth/signup - 483ms","timestamp":"2026-01-17T19:59:08.241Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-17T19:59:47.614Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 643ms","timestamp":"2026-01-17T19:59:48.256Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-17T20:00:48.335Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 14ms","timestamp":"2026-01-17T20:00:48.348Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-17T20:02:24.573Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 358ms","timestamp":"2026-01-17T20:02:24.930Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from ::1","timestamp":"2026-01-17T20:04:11.816Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/token/refresh - 13ms","timestamp":"2026-01-17T20:04:11.828Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from ::1","timestamp":"2026-01-17T20:05:26.230Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/token/refresh - 445ms","timestamp":"2026-01-17T20:05:26.674Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/logout from ::1","timestamp":"2026-01-17T20:07:49.087Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/logout - 5ms","timestamp":"2026-01-17T20:07:49.091Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/forgot-password from ::1","timestamp":"2026-01-17T20:10:36.749Z"}
+{"level":"info","message":"[MOCK EMAIL] To: Sameer@gmail.com | Subject: Reset Password","timestamp":"2026-01-17T20:10:36.766Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/forgot-password - 25ms","timestamp":"2026-01-17T20:10:36.770Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/forgot-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4Njc5OTg4LCJleHAiOjE3NzEyNzE5ODh9.SqO2oeyw630XjbL1FqJf3Wqe-hISPeJbDhFEzYbxSl4 from ::1","timestamp":"2026-01-17T20:14:25.067Z"}
+{"level":"warn","message":"[404] POST  /accounts/auth/forgot-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4Njc5OTg4LCJleHAiOjE3NzEyNzE5ODh9.SqO2oeyw630XjbL1FqJf3Wqe-hISPeJbDhFEzYbxSl4 - 22ms","timestamp":"2026-01-17T20:14:25.085Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4Njc5OTg4LCJleHAiOjE3NzEyNzE5ODh9.SqO2oeyw630XjbL1FqJf3Wqe-hISPeJbDhFEzYbxSl4 from ::1","timestamp":"2026-01-17T20:14:42.259Z"}
+{"level":"warn","message":"[404] POST  /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4Njc5OTg4LCJleHAiOjE3NzEyNzE5ODh9.SqO2oeyw630XjbL1FqJf3Wqe-hISPeJbDhFEzYbxSl4 - 2ms","timestamp":"2026-01-17T20:14:42.262Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-17T20:14:53.302Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 617ms","timestamp":"2026-01-17T20:14:53.918Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4NjgwODkzLCJleHAiOjE3NzEyNzI4OTN9.g7hQyzqevsGdvUi2yy23LdO0vI0PFGV0Ud-zlPERQvI from ::1","timestamp":"2026-01-17T20:15:22.412Z"}
+{"level":"warn","message":"[404] POST  /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4NjgwODkzLCJleHAiOjE3NzEyNzI4OTN9.g7hQyzqevsGdvUi2yy23LdO0vI0PFGV0Ud-zlPERQvI - 5ms","timestamp":"2026-01-17T20:15:22.416Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4NjgwODkzLCJleHAiOjE3NzEyNzI4OTN9.g7hQyzqevsGdvUi2yy23LdO0vI0PFGV0Ud-zlPERQvI from ::1","timestamp":"2026-01-17T20:15:27.233Z"}
+{"level":"warn","message":"[404] POST  /accounts/auth/reset-password/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwiaWF0IjoxNzY4NjgwODkzLCJleHAiOjE3NzEyNzI4OTN9.g7hQyzqevsGdvUi2yy23LdO0vI0PFGV0Ud-zlPERQvI - 4ms","timestamp":"2026-01-17T20:15:27.236Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/forgot-password from ::1","timestamp":"2026-01-17T20:23:46.320Z"}
+{"level":"info","message":"[MOCK EMAIL] To: Sameer@gmail.com | Subject: Reset Password","timestamp":"2026-01-17T20:23:46.331Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/forgot-password - 18ms","timestamp":"2026-01-17T20:23:46.335Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-17T22:18:09.412Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 1020ms","timestamp":"2026-01-17T22:18:10.429Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-17T22:18:24.059Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 382ms","timestamp":"2026-01-17T22:18:24.442Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T22:18:58.116Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T22:19:00.799Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T22:19:03.311Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-17T22:19:05.904Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-17T22:20:01.790Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-17T22:20:03.959Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 30ms","timestamp":"2026-01-17T22:20:03.989Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T04:35:02.304Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-18T04:35:18.441Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 846ms","timestamp":"2026-01-18T04:35:19.286Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-18T04:43:06.963Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 1442ms","timestamp":"2026-01-18T04:43:08.402Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-18T04:44:54.047Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 1031ms","timestamp":"2026-01-18T04:44:55.077Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-18T04:45:07.144Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 253ms","timestamp":"2026-01-18T04:45:07.396Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-18T04:45:31.878Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 501ms","timestamp":"2026-01-18T04:45:32.379Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor from ::1","timestamp":"2026-01-18T04:48:45.203Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor - 1171ms","timestamp":"2026-01-18T04:48:46.372Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor from ::1","timestamp":"2026-01-18T04:51:07.382Z"}
+{"level":"error","message":"[500] POST  /accounts/vendor - 356ms","timestamp":"2026-01-18T04:51:07.737Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor from ::1","timestamp":"2026-01-18T04:53:09.989Z"}
+{"level":"error","message":"[500] POST  /accounts/vendor - 341ms","timestamp":"2026-01-18T04:53:10.329Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T04:54:51.448Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor from ::1","timestamp":"2026-01-18T04:54:58.719Z"}
+{"level":"error","message":"[500] POST  /accounts/vendor - 1656ms","timestamp":"2026-01-18T04:55:00.374Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T04:55:09.957Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor from ::1","timestamp":"2026-01-18T04:55:48.140Z"}
+{"level":"error","message":"[500] POST  /accounts/vendor - 607ms","timestamp":"2026-01-18T04:55:48.747Z"}
+{"level":"info","message":"Incoming: GET /accounts/vendor from ::1","timestamp":"2026-01-18T04:56:47.121Z"}
+{"level":"http","message":"[200] GET  /accounts/vendor - 874ms","timestamp":"2026-01-18T04:56:47.995Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/profile/ from ::1","timestamp":"2026-01-18T05:00:15.484Z"}
+{"level":"error","message":"[500] POST  /accounts/vendor/profile/ - 400ms","timestamp":"2026-01-18T05:00:15.880Z"}
+{"level":"info","message":"Incoming: GET /accounts/vendor/profile/ from ::1","timestamp":"2026-01-18T05:00:24.745Z"}
+{"level":"http","message":"[200] GET  /accounts/vendor/profile/ - 564ms","timestamp":"2026-01-18T05:00:25.310Z"}
+{"level":"info","message":"Incoming: GET /accounts/documents from ::1","timestamp":"2026-01-18T05:03:04.923Z"}
+{"level":"http","message":"[200] GET  /accounts/documents - 1348ms","timestamp":"2026-01-18T05:03:06.270Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents from ::1","timestamp":"2026-01-18T05:04:57.363Z"}
+{"level":"error","message":"[500] POST  /accounts/documents - 353ms","timestamp":"2026-01-18T05:04:57.712Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents from ::1","timestamp":"2026-01-18T05:10:07.572Z"}
+{"level":"error","message":"[500] POST  /accounts/documents - 657ms","timestamp":"2026-01-18T05:10:08.226Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:10:31.413Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 382ms","timestamp":"2026-01-18T05:10:31.792Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:14:34.577Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:14:48.243Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:14:59.814Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:15:35.621Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:15:42.403Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 938ms","timestamp":"2026-01-18T05:15:43.340Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:15:50.229Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:29.821Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:31.598Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:39.904Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:45.901Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:47.700Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:51.158Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:56.252Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:17:59.964Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:18:00.488Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 777ms","timestamp":"2026-01-18T05:18:01.265Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:18:06.627Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:18:09.778Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:26:31.297Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:26:35.011Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:26:45.621Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 836ms","timestamp":"2026-01-18T05:26:46.456Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-18T05:34:15.860Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 1081ms","timestamp":"2026-01-18T05:34:16.939Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from ::1","timestamp":"2026-01-18T05:34:36.253Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 322ms","timestamp":"2026-01-18T05:34:36.571Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-18T05:37:45.985Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 1355ms","timestamp":"2026-01-18T05:37:47.337Z"}
+{"level":"info","message":"Incoming: GET /accounts/vendor/ from ::1","timestamp":"2026-01-18T05:38:09.233Z"}
+{"level":"http","message":"[200] GET  /accounts/vendor/ - 514ms","timestamp":"2026-01-18T05:38:09.747Z"}
+{"level":"info","message":"Incoming: POST /accounts/vendor/ from ::1","timestamp":"2026-01-18T05:48:30.476Z"}
+{"level":"warn","message":"[400] POST  /accounts/vendor/ - 2040ms","timestamp":"2026-01-18T05:48:32.512Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:58:18.135Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:58:22.686Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 620ms","timestamp":"2026-01-18T05:58:23.306Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:58:36.582Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:58:47.184Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:58:50.759Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 595ms","timestamp":"2026-01-18T05:58:51.353Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T05:59:29.071Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T05:59:34.269Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 545ms","timestamp":"2026-01-18T05:59:34.814Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:00:45.642Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:00:49.227Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 610ms","timestamp":"2026-01-18T06:00:49.836Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:01:28.506Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 307ms","timestamp":"2026-01-18T06:01:28.810Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:01:30.767Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 271ms","timestamp":"2026-01-18T06:01:31.036Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:01:32.565Z"}
+{"level":"error","message":"[500] POST  /accounts/documents/ - 266ms","timestamp":"2026-01-18T06:01:32.832Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:04:25.580Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:04:26.780Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:06:41.190Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:06:46.366Z"}
+{"level":"http","message":"[201] POST  /accounts/documents/ - 6132ms","timestamp":"2026-01-18T06:06:52.498Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:07:37.412Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T06:07:40.633Z"}
+{"level":"http","message":"[201] POST  /accounts/documents/ - 5883ms","timestamp":"2026-01-18T06:07:46.516Z"}
+{"level":"info","message":"Incoming: GET /accounts/documents/ from ::1","timestamp":"2026-01-18T06:10:24.004Z"}
+{"level":"http","message":"[200] GET  /accounts/documents/ - 537ms","timestamp":"2026-01-18T06:10:24.538Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:13:41.068Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/services/create from ::1","timestamp":"2026-01-18T06:18:59.802Z"}
+{"level":"error","message":"[500] POST  /service_api/vendor/7/services/create - 663ms","timestamp":"2026-01-18T06:19:00.462Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/services/create from ::1","timestamp":"2026-01-18T06:19:28.561Z"}
+{"level":"error","message":"[500] POST  /service_api/vendor/7/services/create - 279ms","timestamp":"2026-01-18T06:19:28.840Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/services/create from ::1","timestamp":"2026-01-18T06:19:33.787Z"}
+{"level":"error","message":"[500] POST  /service_api/vendor/7/services/create - 248ms","timestamp":"2026-01-18T06:19:34.034Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/services/create from ::1","timestamp":"2026-01-18T06:20:44.181Z"}
+{"level":"http","message":"[201] POST  /service_api/vendor/7/services/create - 871ms","timestamp":"2026-01-18T06:20:45.044Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:22:49.830Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:22:50.979Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:22:53.746Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:23:11.757Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T06:23:21.246Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/services/create from ::1","timestamp":"2026-01-18T06:23:27.457Z"}
+{"level":"http","message":"[201] POST  /service_api/vendor/7/services/create - 1270ms","timestamp":"2026-01-18T06:23:28.727Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:28:02.909Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/services from ::1","timestamp":"2026-01-18T07:29:25.262Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:29:42.842Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/services from ::1","timestamp":"2026-01-18T07:29:49.334Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/services - 1127ms","timestamp":"2026-01-18T07:29:50.460Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:32:58.846Z"}
+{"level":"warn","message":"[404] GET  /service_api/vendor/7/services/update/2 - 27ms","timestamp":"2026-01-18T07:32:58.869Z"}
+{"level":"info","message":"Incoming: PATCH /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:33:44.483Z"}
+{"level":"warn","message":"[404] PATCH  /service_api/vendor/7/services/update/2 - 5ms","timestamp":"2026-01-18T07:33:44.488Z"}
+{"level":"info","message":"Incoming: PUT /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:33:50.292Z"}
+{"level":"http","message":"[200] PUT  /service_api/vendor/7/services/update/2 - 684ms","timestamp":"2026-01-18T07:33:50.977Z"}
+{"level":"info","message":"Incoming: PUT /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:34:21.670Z"}
+{"level":"http","message":"[200] PUT  /service_api/vendor/7/services/update/2 - 532ms","timestamp":"2026-01-18T07:34:22.200Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:38:38.607Z"}
+{"level":"info","message":"Incoming: PUT /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:38:45.373Z"}
+{"level":"http","message":"[200] PUT  /service_api/vendor/7/services/update/2 - 1246ms","timestamp":"2026-01-18T07:38:46.618Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:40:03.787Z"}
+{"level":"info","message":"Incoming: PUT /service_api/vendor/7/services/update/2 from ::1","timestamp":"2026-01-18T07:40:06.730Z"}
+{"level":"http","message":"[200] PUT  /service_api/vendor/7/services/update/2 - 933ms","timestamp":"2026-01-18T07:40:07.664Z"}
+{"level":"info","message":"Incoming: DELETE /service_api/vendor/7/services/delete/2 from ::1","timestamp":"2026-01-18T07:41:27.639Z"}
+{"level":"http","message":"[200] DELETE  /service_api/vendor/7/services/delete/2 - 552ms","timestamp":"2026-01-18T07:41:28.189Z"}
+{"level":"info","message":"Incoming: PATCH /service_api/vendor/7/bookings/update/2 from ::1","timestamp":"2026-01-18T07:46:04.063Z"}
+{"level":"error","message":"[500] PATCH  /service_api/vendor/7/bookings/update/2 - 1795ms","timestamp":"2026-01-18T07:46:05.851Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:49:16.646Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:49:41.776Z"}
+{"level":"info","message":"Incoming: PATCH /service_api/vendor/7/bookings/update/2 from ::1","timestamp":"2026-01-18T07:49:44.578Z"}
+{"level":"error","message":"[500] PATCH  /service_api/vendor/7/bookings/update/2 - 1003ms","timestamp":"2026-01-18T07:49:45.583Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/bookings from ::1","timestamp":"2026-01-18T07:50:07.794Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/bookings - 626ms","timestamp":"2026-01-18T07:50:08.420Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/services from ::1","timestamp":"2026-01-18T07:52:41.775Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/services - 733ms","timestamp":"2026-01-18T07:52:42.506Z"}
+{"level":"info","message":"Incoming: PATCH /service_api/vendor/7/bookings/update/3 from ::1","timestamp":"2026-01-18T07:53:57.242Z"}
+{"level":"error","message":"[500] PATCH  /service_api/vendor/7/bookings/update/3 - 523ms","timestamp":"2026-01-18T07:53:57.757Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T07:56:12.518Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/bookings from ::1","timestamp":"2026-01-18T07:56:14.331Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/bookings - 1417ms","timestamp":"2026-01-18T07:56:15.748Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T08:15:46.989Z"}
+{"level":"info","message":"Incoming: POST /service_api/user/bookings from ::1","timestamp":"2026-01-18T08:15:51.538Z"}
+{"level":"http","message":"[201] POST  /service_api/user/bookings - 1245ms","timestamp":"2026-01-18T08:15:52.781Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/bookings from ::1","timestamp":"2026-01-18T08:18:42.503Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/bookings - 1143ms","timestamp":"2026-01-18T08:18:43.645Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/inventory/create from ::1","timestamp":"2026-01-18T08:21:23.264Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T08:21:41.608Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/inventory/create from ::1","timestamp":"2026-01-18T08:21:44.720Z"}
+{"level":"http","message":"[201] POST  /service_api/vendor/7/inventory/create - 1227ms","timestamp":"2026-01-18T08:21:45.946Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/inventory/update/1 from ::1","timestamp":"2026-01-18T08:23:56.079Z"}
+{"level":"warn","message":"[404] POST  /service_api/vendor/7/inventory/update/1 - 15ms","timestamp":"2026-01-18T08:23:56.090Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/inventory from ::1","timestamp":"2026-01-18T08:25:12.697Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/inventory - 574ms","timestamp":"2026-01-18T08:25:13.271Z"}
+{"level":"info","message":"Incoming: PUT /service_api/vendor/7/inventory/update/1 from ::1","timestamp":"2026-01-18T08:28:29.877Z"}
+{"level":"http","message":"[200] PUT  /service_api/vendor/7/inventory/update/1 - 1053ms","timestamp":"2026-01-18T08:28:30.925Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/7/availability/create from ::1","timestamp":"2026-01-18T08:31:17.573Z"}
+{"level":"http","message":"[201] POST  /service_api/vendor/7/availability/create - 796ms","timestamp":"2026-01-18T08:31:18.365Z"}
+{"level":"info","message":"Incoming: GET /service_api/vendor/7/availability from ::1","timestamp":"2026-01-18T08:32:31.244Z"}
+{"level":"http","message":"[200] GET  /service_api/vendor/7/availability - 506ms","timestamp":"2026-01-18T08:32:31.749Z"}
+{"level":"info","message":"Incoming: POST /interactions/vendors/7/promottions/create from ::1","timestamp":"2026-01-18T08:47:03.579Z"}
+{"level":"warn","message":"[404] POST  /interactions/vendors/7/promottions/create - 88ms","timestamp":"2026-01-18T08:47:03.653Z"}
+{"level":"info","message":"Incoming: POST /interactions/vendors/7/promotions/create from ::1","timestamp":"2026-01-18T08:47:26.380Z"}
+{"level":"http","message":"[201] POST  /interactions/vendors/7/promotions/create - 1307ms","timestamp":"2026-01-18T08:47:27.686Z"}
+{"level":"info","message":"Incoming: POST /interactions/vendors/7/promotions/create from ::1","timestamp":"2026-01-18T08:48:32.031Z"}
+{"level":"http","message":"[201] POST  /interactions/vendors/7/promotions/create - 551ms","timestamp":"2026-01-18T08:48:32.580Z"}
+{"level":"info","message":"Incoming: GET /interactions/vendors/7/promotions from ::1","timestamp":"2026-01-18T08:50:05.494Z"}
+{"level":"http","message":"[200] GET  /interactions/vendors/7/promotions - 549ms","timestamp":"2026-01-18T08:50:06.043Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T08:52:39.765Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/vendor/feedback/create from ::1","timestamp":"2026-01-18T08:59:56.416Z"}
+{"level":"http","message":"[201] POST  /interactions/api/vendor/feedback/create - 1107ms","timestamp":"2026-01-18T08:59:57.516Z"}
+{"level":"info","message":"Incoming: GET /interactions/api/vendor/feedback/ from ::1","timestamp":"2026-01-18T09:01:06.074Z"}
+{"level":"http","message":"[200] GET  /interactions/api/vendor/feedback/ - 519ms","timestamp":"2026-01-18T09:01:06.591Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T11:59:41.599Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T11:59:53.645Z"}
+{"level":"http","message":"[201] POST  /accounts/documents/ - 3953ms","timestamp":"2026-01-18T11:59:57.597Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T12:00:29.898Z"}
+{"level":"http","message":"[201] POST  /accounts/documents/ - 5955ms","timestamp":"2026-01-18T12:00:35.847Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T12:02:24.937Z"}
+{"level":"warn","message":"[400] POST  /accounts/documents/ - 519ms","timestamp":"2026-01-18T12:02:25.454Z"}
+{"level":"info","message":"Incoming: POST /accounts/documents/ from ::1","timestamp":"2026-01-18T12:02:45.446Z"}
+{"level":"http","message":"[201] POST  /accounts/documents/ - 6915ms","timestamp":"2026-01-18T12:02:52.358Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:23:37.289Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:23:37.994Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:23:54.148Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:23:57.800Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:11.983Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:22.768Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:28.221Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:29.095Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:33.875Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:35.442Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:36.708Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:40.622Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:44.003Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:24:57.161Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:00.809Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:18.521Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:20.475Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:23.051Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:26.580Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:32.669Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:34.907Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:39.849Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:40.135Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:47.247Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-18T12:25:51.536Z"}
