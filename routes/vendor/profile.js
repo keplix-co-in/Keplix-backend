@@ -9,15 +9,20 @@ const router = express.Router();
 
 router.get('/', protect, getVendorProfile);
 // Add upload middleware to handle FormData (image + text fields)
-router.patch('/', protect, upload.single('image'), validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.patch('/', protect, upload.single('image'), validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.post('/', protect, upload.single('image'), validateRequest(createVendorProfileSchema), createVendorProfile);
+const uploadFields = upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'cover_image', maxCount: 1 }
+]);
+
+router.put('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.patch('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.post('/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 // Trailing slash support
 router.get('/profile/', protect, getVendorProfile);
-router.patch('/profile/', protect, upload.single('image'), validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.post('/profile/', protect, upload.single('image'), validateRequest(createVendorProfileSchema), createVendorProfile);
-
+router.put('/profile/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.patch('/profile/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.post('/profile/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 
 export default router;

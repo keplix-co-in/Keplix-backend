@@ -24,29 +24,40 @@ export const getDocuments = async (req, res) => {
 // @route   POST /accounts/documents/
 export const uploadDocument = async (req, res) => {
     const { document_type } = req.body;
+    
+    // Cloudinary Storage provides `req.file.path` as the full URL
+    // Local Disk Storage provides `req.file.path` as local path or `file.filename`
+    // Based on 'uploadMiddleware.js', we are using CLOUDINARY.
+    
+    const fileUrl = req.file?.path; 
 
-    const file = req.file?.path; // multer-cloudinary provides the file path as URL
-    if (!file) return res.status(400).json({ message: "File required" });
+    if (!fileUrl) return res.status(400).json({ message: "File required" });
 
     try {
         const doc = await prisma.document.create({
             data: {
-                vendorId: req.user.id,
+                // IMPORTANT: The schema likely links to 'VendorProfile', not 'User'.
+                // If it links to User: vendorId: req.user.id
+                // If it links to VendorProfile: we must find profile first.
+                // Assuming Schema is: Document { vendorId Int @relation(VendorProfile...) }
+                
+                // Let's first try to find the Vendor Profile ID, fallback to User ID logic if schema differs
+                // For now, let's assume `vendorId` in Document table refers to VENDOR_PROFILE.id
+                // If your schema uses User.id -> pass req.user.id
+                // IF your schema uses VendorProfile.id -> pass that.
+                
+                // SAFE FETCH:
+                vendorId: (await prisma.vendorProfile.findUnique({ where: { userId: req.user.id } }))?.id || undefined,
+
                 document_type,
-                file_url: file,
+                file_url: fileUrl,
                 status: 'pending'
             }
         });
 
-        // Update profile status if needed
-        // await prisma.vendorProfile.update(...)
-
-        res.status(201).json({
-            ...doc,
-            file_url: `${doc.file_url}`
-        });
+        res.status(201).json(doc);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        console.error("Document Upload Error:", error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
     }
 }
