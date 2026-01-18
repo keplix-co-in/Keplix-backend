@@ -35,10 +35,12 @@ export const createVendorProfileSchema = z.object({
   has_gst: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
   tax_type: z.string().optional(),
 
-  // Timings
-  operating_hours: z.string().optional(),
-  breaks: jsonString.optional(),
-  holidays: jsonString.optional(),
+  // Image fields (Optional, but allow passing them through if Zod strips keys)
+  // Since Zod parse replaces req.body, if we don't include them, they might be lost if they were in body?
+  // Actually, files are in req.files, so we don't need them here usually.
+  // BUT if the frontend sends "cover_image": "null" string or something, we want to handle it.
+  image: z.any().optional(),
+  cover_image: z.any().optional(),
 });
 
 export const updateVendorProfileSchema = createVendorProfileSchema.partial();

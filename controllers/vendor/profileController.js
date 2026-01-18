@@ -54,18 +54,32 @@ export const updateVendorProfile = async (req, res) => {
         updates.onboarding_completed = onboarding_completed;
     }
 
-    // Handle Image uploads (fields: image, cover_image)
+    // Handle Image uploads
     if (req.files) {
-        if (req.files.image && req.files.image[0]) {
-            updates.image = req.files.image[0].path; 
+        console.log('[VendorProfile] Files Object Keys:', Object.keys(req.files));
+        
+        // Handle 'image' -> Owner Selfie
+        const imageFiles = req.files.image || req.files['image'];
+        if (imageFiles && imageFiles.length > 0) {
+            updates.image = imageFiles[0].path; 
+            console.log('-> SET: Owner Image URL:', updates.image);
         }
-        if (req.files.cover_image && req.files.cover_image[0]) {
-            updates.cover_image = req.files.cover_image[0].path;
+
+        // Handle 'cover_image' -> Workshop Photo
+        const coverFiles = req.files.cover_image || req.files['cover_image'];
+        if (coverFiles && coverFiles.length > 0) {
+            updates.cover_image = coverFiles[0].path;
+            console.log('-> SET: Workshop Image URL:', updates.cover_image);
+        } else {
+             console.log('-> SKIP: No cover_image file found in req.files');
         }
     } else if (req.file) {
-        // Fallback for single 'image' upload if middleware wasn't updated correctly or old request
+        // Fallback for single file upload
         updates.image = req.file.path;
+        console.log('-> SET: Fallback single file to image');
     }
+
+    console.log('[VendorProfile] Final Updates Object:', JSON.stringify(updates, null, 2));
 
     console.log('[VendorProfile] Update Request:', { userId: req.user.id, updates });
 
