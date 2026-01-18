@@ -54,10 +54,34 @@ export const updateVendorProfile = async (req, res) => {
         updates.onboarding_completed = onboarding_completed;
     }
 
-    // Handle Image upload if present
-    if (req.file) {
-        updates.image = `/media/${req.file.filename}`;
+    // Handle Image uploads
+    if (req.files) {
+        console.log('[VendorProfile] Files Object Keys:', Object.keys(req.files));
+        
+        // Handle 'image' -> Owner Selfie
+        const imageFiles = req.files.image || req.files['image'];
+        if (imageFiles && imageFiles.length > 0) {
+            updates.image = imageFiles[0].path; 
+            console.log('-> SET: Owner Image URL:', updates.image);
+        }
+
+        // Handle 'cover_image' -> Workshop Photo
+        const coverFiles = req.files.cover_image || req.files['cover_image'];
+        if (coverFiles && coverFiles.length > 0) {
+            updates.cover_image = coverFiles[0].path;
+            console.log('-> SET: Workshop Image URL:', updates.cover_image);
+        } else {
+             console.log('-> SKIP: No cover_image file found in req.files');
+        }
+    } else if (req.file) {
+        // Fallback for single file upload
+        updates.image = req.file.path;
+        console.log('-> SET: Fallback single file to image');
     }
+
+    console.log('[VendorProfile] Final Updates Object:', JSON.stringify(updates, null, 2));
+
+    console.log('[VendorProfile] Update Request:', { userId: req.user.id, updates });
 
     try {
         const vendorProfile = await prisma.vendorProfile.update({
@@ -78,9 +102,9 @@ export const updateVendorProfile = async (req, res) => {
     } catch (error) {
         console.error(error);
         if (error.code === 'P2025') {
-             // Profile doesn't exist, maybe try create?
-             // Or return 404
-             return res.status(404).json({ message: 'Vendor profile not found. Please Create first.' });
+             // Profile doesn't exist.
+             // Auto-create: Since this is likely onboarding trying to "Update" a profile that isn't made yet.
+             return createVendorProfile(req, res);
         }
         res.status(500).json({ message: 'Server Error' });
     }
@@ -131,14 +155,18 @@ export const createVendorProfile = async (req, res) => {
         holidays,
         onboarding_completed: true 
     };
-    
-    //cloudinary image upload
-    const image = req.file?.path;
-    if(!image) return res.status(400).json({message:"Image required"});
 
-    // if (req.file) {
-    //     data.image = `/media/${req.file.filename}`;
-    // }
+    // Handle Image uploads (fields: image, cover_image)
+    if (req.files) {
+        if (req.files.image && req.files.image[0]) {
+            data.image = req.files.image[0].path; 
+        }
+        if (req.files.cover_image && req.files.cover_image[0]) {
+            data.cover_image = req.files.cover_image[0].path;
+        }
+    } else if (req.file) {
+        data.image = req.file.path; 
+    }
 
     try {
          const existingProfile = await prisma.vendorProfile.findUnique({
