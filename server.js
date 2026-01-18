@@ -190,46 +190,35 @@ app.use("/interactions/api", userNotificationRoutes);
 io.on("connection", (socket) => {
   Logger.info(`User connected:", ${socket.id}`);
 
-  socket.on("join_room", (room) => {
-    socket.join(room);
-    Logger.info(`User ${socket.id} joined room ${room}`);
+  // 1. Join a specific chat room (Conversation ID)
+  socket.on('join_conversation', (conversationId) => {
+    socket.join(conversationId);
+    console.log(`User/Vendor joined room: ${conversationId}`);
   });
 
-  socket.on("send_message", async (data) => {
-    // data: { room, message, senderId, conversationId }
+  // 2. Handle Sending Messages
+  socket.on('send_message', async (data) => {
+    // data = { conversationId, senderType, text }
+    const { conversationId, senderType, text } = data;
+
     try {
-      if (data.conversationId && data.message && data.senderId) {
-        const convId = parseInt(data.conversationId);
-        const sendId = parseInt(data.senderId);
+      // A. Save to Database (Postgres)
+      const newMessage = await prisma.message.create({
+        data: {
+          conversationId,
+          senderType,
+          text,
+        },
+      });
 
-        // Verify conversation exists to prevent FK Crashes
-        const conversationExists = await prisma.conversation.count({
-            where: { id: convId }
-        });
+      // B. Send to everyone in that room (including sender, for confirmation)
+      io.to(conversationId).emit('receive_message', newMessage); 
+      
+      // C. Optional: Send Push Notification (FCM) to the other party here
 
-        if (!conversationExists) {
-             Logger.warn(`Socket: Invalid conversationId ${convId} from sender ${sendId}`);
-             socket.emit("error_message", "Invalid Conversation ID");
-             return;
-        }
-
-        const savedMessage = await prisma.message.create({
-          data: {
-            conversationId: convId,
-            senderId: sendId,
-            message_text: data.message,
-          },
-          include: { sender: true },
-        });
-
-        // Emit detailed object
-        io.to(data.room).emit("receive_message", savedMessage);
-      } else {
-        // Fallback for testing
-        io.to(data.room).emit("receive_message", data);
-      }
-    } catch (e) {
-      Logger.error(`Socket Error: ${e.message}`);
+    } catch (error) {
+      console.error('Socket Message Error:', error);
+      socket.emit('error', { message: 'Message could not be sent' });
     }
   });
 

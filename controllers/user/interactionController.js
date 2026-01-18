@@ -40,25 +40,21 @@ export const getConversations = async (req, res) => {
     }
 };
 
-// @desc    Get messages for a conversation
-// @route   GET /interactions/api/messages/?conversation_id=X
+// @desc    Get messages for a specific conversation
+// @route   GET /interactions/api/chat/:conversationId
 export const getMessages = async (req, res) => {
-    const conversationId = req.query.conversation_id;
+  try {
+    const { conversationId } = req.params;
+    
+    // Validate access here (check if req.user.id belongs to this conversation)
 
-    if (!conversationId) {
-        return res.status(400).json({ message: 'Conversation ID required' });
-    }
+    const messages = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' }, // Oldest first
+    });
 
-    try {
-        const messages = await prisma.message.findMany({
-            where: { conversationId: parseInt(conversationId) },
-            orderBy: { sent_at: 'asc' },
-            include: { sender: true }
-        });
-
-        res.json(messages);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
-    }
+    res.json({ success: true, count: messages.length, data: messages });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
