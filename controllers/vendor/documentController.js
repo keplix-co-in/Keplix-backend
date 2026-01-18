@@ -24,8 +24,8 @@ export const getDocuments = async (req, res) => {
 // @route   POST /accounts/documents/
 export const uploadDocument = async (req, res) => {
     const { document_type } = req.body;
-    const file = req.file.path; // multer-cloudinary provides the file path as URL
 
+    const file = req.file?.path; // multer-cloudinary provides the file path as URL
     if (!file) return res.status(400).json({ message: "File required" });
 
     try {
@@ -43,7 +43,7 @@ export const uploadDocument = async (req, res) => {
 
         res.status(201).json({
             ...doc,
-            file_url: `${req.protocol}://${req.get('host')}${doc.file_url}`
+            file_url: `${doc.file_url}`
         });
     } catch (error) {
         console.error(error);
