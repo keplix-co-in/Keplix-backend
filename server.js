@@ -149,6 +149,24 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Health check endpoint for Cloud Run
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Keplix Backend API', 
+    version: '1.0.0',
+    status: 'running'
+  });
+});
+
 app.use("/accounts/auth", authLimiter, authRoutes);
 app.use("/accounts/vendor", vendorProfileRoutes); // Mounts /accounts/vendor/profile/
 
@@ -231,7 +249,9 @@ io.on("connection", (socket) => {
 app.use(notFound);  // Re-enabled
 app.use(errorHandler);
 
-const PORT = 8000;
-httpServer.listen(PORT, () => {
+// Cloud Run requires listening on the PORT environment variable
+const PORT = process.env.PORT || 8000;
+httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`http://localhost:${PORT}`);
+  Logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode`);
 });
