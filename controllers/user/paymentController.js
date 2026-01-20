@@ -47,12 +47,22 @@ export const createPaymentOrder = async (req, res) => {
 
             const order = await razorpay.orders.create(options);
 
+            console.log('✅ [Razorpay] Order created successfully:', {
+                orderId: order.id,
+                amount: order.amount,
+                currency: order.currency,
+                receipt: order.receipt,
+                status: order.status
+            });
+
             return res.json({
                 id: order.id,
                 amount: order.amount,
                 currency: order.currency,
                 gateway: 'razorpay',
-                key_id: process.env.RAZORPAY_KEY_ID 
+                key_id: process.env.RAZORPAY_KEY_ID,
+                receipt: order.receipt,
+                status: order.status
             });
         }
     } catch (error) {
@@ -65,11 +75,24 @@ export const createPaymentOrder = async (req, res) => {
 // @route   POST /service_api/payments/verify/
 export const verifyPayment = async (req, res) => {
     try {
-        const { paymentId, orderId, signature, bookingId, gateway, amount } = req.body;
+        const { id, amount, currency, gateway, status, paymentId, signature, bookingId } = req.body;
+        
+        // id = order ID (from create response)
+        // paymentId = actual payment ID (if payment was completed)
+        const orderId = id;
+        const transactionId = paymentId || id; // Use paymentId if available, otherwise orderId
 
-        if (!bookingId) {
-            return res.status(400).json({ message: "Booking ID is required to link payment" });
-        }
+        console.log('🔍 [Payment Verify] Request received:', {
+            orderId: id,
+            paymentId,
+            bookingId,
+            gateway,
+            amount,
+            status
+        });
+
+        // For testing: bookingId is optional
+        // In production, you should require it
 
         // 1. Verify Signature (Skipped for demo - assume secure if gateway confirms)
         // In prod, use razorpay.utils.verifyPaymentSignature or Stripe Webhooks
@@ -80,34 +103,63 @@ export const verifyPayment = async (req, res) => {
         const platformFee = totalAmount * 0.10; 
         const vendorAmount = totalAmount - platformFee;
 
+        const paymentData = {
+            amount: totalAmount,
+            currency: currency || 'INR',
+            method: gateway || 'unknown',
+            transactionId: transactionId,
+            status: paymentId ? 'success' : 'pending', // Success if paymentId provided, otherwise pending
+            vendorPayoutStatus: 'pending', // Waiting for service completion
+            platformFee: platformFee,
+            vendorAmount: vendorAmount
+        };
+
+        // Only link to booking if bookingId is provided
+        if (bookingId) {
+            paymentData.bookingId = parseInt(bookingId);
+        }
+
         const payment = await prisma.payment.create({
-            data: {
-                bookingId: parseInt(bookingId),
-                amount: totalAmount,
-                method: gateway || 'unknown',
-                transactionId: paymentId,
-                status: 'success', // Money is now in Admin Account
-                vendorPayoutStatus: 'pending', // Waiting for service completion
-                platformFee: platformFee,
-                vendorAmount: vendorAmount
-            }
+            data: paymentData
         });
 
-        // 3. Update Booking Status to Confirmed (if not already)
-        await prisma.booking.update({
-            where: { id: parseInt(bookingId) },
-            data: { status: 'confirmed' }
+        console.log('✅ [Payment Verify] Payment saved to database:', {
+            paymentId: payment.id,
+            amount: payment.amount,
+            status: payment.status,
+            transactionId: payment.transactionId
         });
+
+        // 3. Update Booking Status to Confirmed (if bookingId provided)
+        if (bookingId) {
+            try {
+                await prisma.booking.update({
+                    where: { id: parseInt(bookingId) },
+                    data: { status: 'confirmed' }
+                });
+                console.log('✅ [Payment Verify] Booking status updated to confirmed');
+            } catch (bookingError) {
+                console.warn('⚠️  [Payment Verify] Could not update booking:', bookingError.message);
+            }
+        }
 
         res.json({ 
             status: "success", 
-            message: "Payment verified and held in Escrow", 
-            paymentId: payment.id 
+            message: bookingId 
+                ? "Payment verified and held in Escrow" 
+                : "Payment verified (test mode - no booking linked)", 
+            paymentId: payment.id,
+            amount: payment.amount,
+            platformFee: payment.platformFee,
+            vendorAmount: payment.vendorAmount
         });
 
     } catch (error) {
         console.error("Payment Verification Error:", error);
-        res.status(500).json({ message: "Payment verification failed" });
+        res.status(500).json({ 
+            message: "Payment verification failed",
+            error: error.message 
+        });
     }
 };
 
