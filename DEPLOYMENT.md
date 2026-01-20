@@ -48,20 +48,46 @@ gcloud iam service-accounts keys create key.json \
     --iam-account=github-actions@$PROJECT_ID.iam.gserviceaccount.com
 ```
 
-### 3. Store Secrets in Google Cloud Secret Manager
+### 3. Store Environment Variables in Google Cloud Secret Manager
+
+**⚠️ IMPORTANT: Your .env file stays LOCAL - never commit it to GitHub!**
+
+Instead, you'll store all environment variables as **secrets in Google Cloud**:
 
 ```bash
-# Create secrets
-echo -n "your-database-url" | gcloud secrets create DATABASE_URL --data-file=-
-echo -n "your-jwt-secret" | gcloud secrets create JWT_SECRET --data-file=-
-echo -n "your-razorpay-key-id" | gcloud secrets create RAZORPAY_KEY_ID --data-file=-
-echo -n "your-razorpay-key-secret" | gcloud secrets create RAZORPAY_KEY_SECRET --data-file=-
+# Use YOUR actual values from your local .env file
 
-# Grant access to Cloud Run service account
-gcloud secrets add-iam-policy-binding DATABASE_URL \
+# Database connection (from your Supabase/PostgreSQL)
+echo -n "postgresql://postgres:keplixpasswo@db.ruvtpvypjgqzfqfdjguz.supabase.co:5432/postgres" | gcloud secrets create DATABASE_URL --data-file=-
+
+# JWT Secret (from your .env)
+echo -n "your_super_secret_jwt_key_here" | gcloud secrets create JWT_SECRET --data-file=-
+
+# Razorpay credentials (from your .env)
+echo -n "rzp_test_S5i7PFkuGOebOd" | gcloud secrets create RAZORPAY_KEY_ID --data-file=-
+echo -n "obxLqNRkcUnfGRnIrzAts4Nk" | gcloud secrets create RAZORPAY_KEY_SECRET --data-file=-
+
+# Stripe (optional)
+echo -n "sk_test_..." | gcloud secrets create STRIPE_SECRET_KEY --data-file=-
+
+# Firebase service account (paste entire JSON content)
+cat serviceAccountKey.json | gcloud secrets create FIREBASE_SERVICE_ACCOUNT --data-file=-
+
+# Cloudinary (if you use it)
+echo -n "your-cloudinary-url" | gcloud secrets create CLOUDINARY_URL --data-file=-
+
+# Grant access to ALL secrets
+for SECRET in DATABASE_URL JWT_SECRET RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET STRIPE_SECRET_KEY FIREBASE_SERVICE_ACCOUNT CLOUDINARY_URL; do
+  gcloud secrets add-iam-policy-binding $SECRET \
     --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
+done
 ```
+
+**Where each value comes from:**
+- Copy values from your **local .env file** (`C:\keplix-frontend-master\keplix-backend\.env`)
+- Cloud Run will automatically inject these as environment variables
+- Your application code uses them the same way: `process.env.DATABASE_URL`
 
 ### 4. Configure GitHub Secrets
 
