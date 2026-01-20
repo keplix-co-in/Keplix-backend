@@ -11,7 +11,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install ALL dependencies first (needed for Prisma generation)
-RUN npm ci --legacy-peer-deps
+# Using npm install since package-lock.json may not exist
+RUN npm install --legacy-peer-deps
 
 # Copy prisma schema
 COPY prisma ./prisma/
