@@ -1,5 +1,5 @@
 import express from 'express';
-import { getPromotions, createPromotion, updatePromotion } from '../../controllers/vendor/promotionController.js';
+import { getPromotions, createPromotion, updatePromotion, deletePromotion } from '../../controllers/vendor/promotionController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createPromotionSchema } from '../../validators/vendor/promotionValidators.js';
@@ -15,6 +15,6 @@ router.post('/:vendorId/promotions/create', protect, validateRequest(createPromo
 // UPDATE/DELETE likely needed too if frontend uses them
 // api.js: /interactions/vendors/${vendorId}/promotions/${promoId}/update/
 router.put('/:vendorId/promotions/:promoId/update', protect, updatePromotion); // Temporarily using create controller if update missing
-router.delete('/:vendorId/promotions/:promoId/delete', protect, createPromotion); // Temporarily using create controller
+router.delete('/:vendorId/promotions/:promoId/delete', protect, deletePromotion); // Temporarily using create controller
 
 export default router;
