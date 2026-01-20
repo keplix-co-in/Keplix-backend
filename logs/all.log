@@ -676,3 +676,11 @@
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-20T06:11:23.608Z"}
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-20T06:11:29.568Z"}
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-20T06:11:31.741Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-20T10:09:42.671Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from ::1","timestamp":"2026-01-20T10:10:45.079Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 650ms","timestamp":"2026-01-20T10:10:45.729Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-20T10:17:05.289Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments.order/create from ::1","timestamp":"2026-01-20T10:17:19.596Z"}
+{"level":"warn","message":"[404] POST  /service-api/payments.order/create - 43ms","timestamp":"2026-01-20T10:17:19.636Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/order/create from ::1","timestamp":"2026-01-20T10:18:02.343Z"}
+{"level":"http","message":"[200] POST  /service-api/payments/order/create - 1457ms","timestamp":"2026-01-20T10:18:03.799Z"}
