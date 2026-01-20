@@ -49,8 +49,8 @@ jobs:
             --region $REGION \
             --allow-unauthenticated \
             --set-env-vars="NODE_ENV=production" \
-            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest" \
-            --memory 512Mi \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,CLOUDINARY_URL=CLOUDINARY_URL:latest" \
+            --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
             --min-instances 0 \
