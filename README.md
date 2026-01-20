@@ -123,4 +123,4 @@ The server will start at: `http://localhost:8000`
 *   **Role-Based Access Control:** Middleware ensures Vendors cannot access User routes and vice-versa where appropriate.
 *   **Input Validation:** All incoming data is sanitized and validated using Zod schemas.
 *   **Secure Headers:** Production-ready middleware stack.
-*   **Request Logging:** Console logging for monitoring traffic status and latency.
+*   **Request Logging:** Console logging for monitoring traffic status and latency..
