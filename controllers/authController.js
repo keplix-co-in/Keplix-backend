@@ -1,295 +1,384 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { createRequire } from 'module';
-import admin from '../util/firebase.js'; // Use shared instance
-import crypto from 'crypto';
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { createRequire } from "module";
+import admin from "../util/firebase.js"; // Use shared instance
+import crypto from "crypto";
+import { resend } from "../util/resend.js";
+import { generateOTP } from "../util/otp.js";
 
 const require = createRequire(import.meta.url);
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'django-insecure-secret-key-replacement';
+const JWT_SECRET =
+  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
 
 const generateToken = (id) => {
-    return jwt.sign({ id }, JWT_SECRET, {
-        expiresIn: '30d',
-    });
+  return jwt.sign({ id }, JWT_SECRET, {
+    expiresIn: "30d",
+  });
 };
 
 const verifyDjangoPassword = (password, hash) => {
-    try {
-        const parts = hash.split('$');
-        if (parts.length !== 4) return false;
-        
-        const [algorithm, iterations, salt, storedHash] = parts;
-        if (algorithm !== 'pbkdf2_sha256') return false;
-    
-        const keyLen = 32; // SHA256 produces 32 bytes
-        const derivedKey = crypto.pbkdf2Sync(password, salt, parseInt(iterations), keyLen, 'sha256');
-        const derivedHash = derivedKey.toString('base64');
-        
-        return derivedHash === storedHash;
-    } catch (e) {
-        console.error("Error verifying Django password:", e);
-        return false;
-    }
+  try {
+    const parts = hash.split("$");
+    if (parts.length !== 4) return false;
+
+    const [algorithm, iterations, salt, storedHash] = parts;
+    if (algorithm !== "pbkdf2_sha256") return false;
+
+    const keyLen = 32; // SHA256 produces 32 bytes
+    const derivedKey = crypto.pbkdf2Sync(
+      password,
+      salt,
+      parseInt(iterations),
+      keyLen,
+      "sha256"
+    );
+    const derivedHash = derivedKey.toString("base64");
+
+    return derivedHash === storedHash;
+  } catch (e) {
+    console.error("Error verifying Django password:", e);
+    return false;
+  }
 };
 
 // @desc    Register a new user
 // @route   POST /accounts/auth/signup/
 // @access  Public
-export const registerUser = async (req, res) => {
-    const { email, password, role, name, phone } = req.body;
+export const registerUser = async (req, res, next) => {
+  const { email, password, role, name, phone } = req.body;
 
-    try {
-        const userExists = await prisma.user.findUnique({
-            where: { email },
-        });
+  try {
+    const userExists = await prisma.user.findUnique({
+      where: { email },
+    });
 
-        if (userExists) {
-            return res.status(400).json({ success: false, message: 'User already exists', code: 'USER_EXISTS' });
-        }
-
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Create User
-        const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                role: role || 'user',
-            },
-        });
-
-        // Create Profile based on role
-        if (role === 'vendor') {
-            await prisma.vendorProfile.create({
-                data: {
-                    userId: user.id,
-                    business_name: name || (email ? email.split('@')[0] : 'New Vendor'),
-                    phone: phone || '',
-                    onboarding_completed: false
-                }
-            });
-        } else {
-            await prisma.userProfile.create({
-                data: {
-                    userId: user.id,
-                    name: name || (email ? email.split('@')[0] : 'User'),
-                    phone: phone || ''
-                }
-            });
-        }
-
-        res.status(201).json({
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            token: generateToken(user.id),
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500);
-        next(error);
+    if (userExists) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists",
+        code: "USER_EXISTS",
+      });
     }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create User
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        role: role || "user",
+      },
+    });
+
+    // Create Profile based on role
+    if (role === "vendor") {
+      await prisma.vendorProfile.create({
+        data: {
+          userId: user.id,
+          business_name: name || (email ? email.split("@")[0] : "New Vendor"),
+          phone: phone || "",
+          onboarding_completed: false,
+        },
+      });
+    } else {
+      await prisma.userProfile.create({
+        data: {
+          userId: user.id,
+          name: name || (email ? email.split("@")[0] : "User"),
+          phone: phone || "",
+        },
+      });
+    }
+
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user.id),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500);
+    next(error);
+  }
 };
 
 // @desc    Auth user & get token
 // @route   POST /accounts/auth/login/
 // @access  Public
 export const authUser = async (req, res) => {
-    const { email, password } = req.body;
+  const { email, password } = req.body;
 
-    try {
-        const user = await prisma.user.findUnique({
-            where: { email },
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (user) {
+      let isValid = false;
+      // Check if it's a Django PBKDF2 hash
+      if (user.password.startsWith("pbkdf2_sha256$")) {
+        isValid = verifyDjangoPassword(password, user.password);
+      } else {
+        // Otherwise assume bcrypt (new users or dummy data)
+        isValid = await bcrypt.compare(password, user.password);
+      }
+
+      if (isValid) {
+        return res.json({
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          access: generateToken(user.id),
+          refresh: generateToken(user.id),
         });
-
-        if (user) {
-            let isValid = false;
-            // Check if it's a Django PBKDF2 hash
-            if (user.password.startsWith('pbkdf2_sha256$')) {
-                isValid = verifyDjangoPassword(password, user.password);
-            } else {
-                // Otherwise assume bcrypt (new users or dummy data)
-                isValid = await bcrypt.compare(password, user.password);
-            }
-
-            if (isValid) {
-                return res.json({
-                    id: user.id,
-                    email: user.email,
-                    role: user.role,
-                    access: generateToken(user.id),
-                    refresh: generateToken(user.id),
-                });
-            }
-        }
-        
-        res.status(401).json({ message: 'Invalid email or password' });
-        
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+      }
     }
+
+    res.status(401).json({ message: "Invalid email or password" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
 };
 
 // @desc    Get user profile
 // @route   GET /accounts/auth/profile/
 // @access  Private
 export const getUserProfile = async (req, res) => {
-    const user = req.user;
+  const user = req.user;
 
-    if (user) {
-        let profileData = {};
-        if (user.role === 'vendor') {
-            profileData = user.vendorProfile || {};
-        } else {
-            profileData = user.userProfile || {};
-        }
-
-        res.json({
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            ...profileData
-        });
+  if (user) {
+    let profileData = {};
+    if (user.role === "vendor") {
+      profileData = user.vendorProfile || {};
     } else {
-        res.status(404).json({ message: 'User not found' });
+      profileData = user.userProfile || {};
     }
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      ...profileData,
+    });
+  } else {
+    res.status(404).json({ message: "User not found" });
+  }
 };
 
 // @desc    Refresh Token
 // @route   POST /accounts/auth/token/refresh/
 export const refreshToken = async (req, res) => {
-    const { refresh } = req.body;
-    if (!refresh) return res.status(400).json({ message: "Refresh token required" });
+  const { refresh } = req.body;
+  if (!refresh)
+    return res.status(400).json({ message: "Refresh token required" });
 
-    try {
-        const decoded = jwt.verify(refresh, JWT_SECRET);
-        const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+  try {
+    const decoded = jwt.verify(refresh, JWT_SECRET);
+    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
-        if (!user) return res.status(401).json({ message: "User not found" });
+    if (!user) return res.status(401).json({ message: "User not found" });
 
-        res.json({
-            access: generateToken(user.id),
-            // Optionally rotate refresh token
-            refresh: refresh 
-        });
-    } catch (error) {
-        console.error("Token refresh error:", error);
-        res.status(401).json({ message: "Invalid refresh token" });
-    }
+    res.json({
+      access: generateToken(user.id),
+      // Optionally rotate refresh token
+      refresh: refresh,
+    });
+  } catch (error) {
+    console.error("Token refresh error:", error);
+    res.status(401).json({ message: "Invalid refresh token" });
+  }
 };
 
 // @desc    Logout user
 // @route   POST /accounts/auth/logout/
 export const logoutUser = async (req, res) => {
-    // Client side just clears token.
-    res.json({ message: 'Logged out successfully' });
+  // Client side just clears token.
+  res.json({ message: "Logged out successfully" });
 };
 
-import { sendEmail, sendSMS } from '../util/communication.js';
+import { sendEmail, sendSMS } from "../util/communication.js";
 
 // ...existing code...
 
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
-    const { email } = req.body;
-    // Generate token logic here in future
-    await sendEmail(email, "Reset Password", "Here is your reset link (mock)");
-    res.json({ message: 'Password reset link sent (mock)' });
+  const { email } = req.body;
+  // Generate token logic here in future
+  await sendEmail(email, "Reset Password", "Here is your reset link (mock)");
+  res.json({ message: "Password reset link sent (mock)" });
 };
 
 // @desc    Reset Password
 export const resetPassword = async (req, res) => {
-    // Verify token logic here
-    res.json({ message: 'Password reset successfully (mock)' });
+  // Verify token logic here
+  res.json({ message: "Password reset successfully (mock)" });
 };
 
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
-    const { phone_number } = req.body;
-    await sendSMS(phone_number, "Your OTP is 123456");
-    res.json({ message: 'OTP sent (mock)' });
+  const { phone_number } = req.body;
+  await sendSMS(phone_number, "Your OTP is 123456");
+  res.json({ message: "OTP sent (mock)" });
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-    // Verify OTP logic
-    res.json({ message: 'OTP verified (mock)' });
+  // Verify OTP logic
+  res.json({ message: "OTP verified (mock)" });
 };
 
 // @desc    Send Email OTP
 export const sendEmailOTP = async (req, res) => {
-    const { email } = req.body;
-    await sendEmail(email, "Email Verification", "Your OTP is 123456");
-    res.json({ message: 'Email OTP sent (mock)' });
-};
+  const { email } = req.body;
 
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+  try {
+    const otp = generateOTP();
+    console.log(otp);
+    //save OTP in database
+    // await prisma.emailOTP.upsert({
+    //   data: {
+    //     email,
+    //     otp,
+    //     expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
+    //   },
+    // });
+
+  
+
+    await prisma.emailOTP.upsert({
+      where: {
+        email: email, // must be UNIQUE in schema
+      },
+      update: {
+        otp,
+        expiresAt: new Date(Date.now() + 5.5 * 60 * 60 * 1000 + 5 * 60 * 1000)
+      },
+      create: {
+        email,
+        otp,
+        expiresAt: new Date(Date.now() + 5.5 * 60 * 60 * 1000 + 5 * 60 * 1000)
+      },
+    });
+
+    //send Email via resend
+    await resend.emails.send({
+      from: "Keplix <onboarding@resend.dev>",
+      to: email,
+      html: `
+        <h2>Email Verification</h2>
+        <p>Your OTP is:</p>
+        <h1>${otp}</h1>
+        <p>This OTP is valid for 5 minutes.</p>
+      `,
+    });
+
+    res.json({ status: true, message: "Email OTP sent successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+};
 
 // @desc    Verify Email OTP
 export const verifyEmailOTP = async (req, res) => {
-    res.json({ message: 'Email OTP verified (mock)' });
-};
+  const { email, otp } = req.body;
 
+  if (!email || !otp) {
+    return res.status(400).json({ error: "Email or OTP is required" });
+  }
+
+  try {
+
+    const createdAt = new Date(Date.now()+ 5.5 * 60 * 60 *1000); //for IST Timezone
+    const record = await prisma.emailOTP.findFirst({
+      where: { email, otp, verified: false },
+      orderBy: { createdAt: createdAt },
+    });
+
+    console.log(record);
+
+    if (!record) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    if (!record.expiresAt < new Date()) {
+      return res.status(400).json({ error: "OTP Expired" });
+    }
+
+    await prisma.emailOTP.update({
+      where: { id: record.id },
+      data: { verified: true },
+    });
+
+    res.json({ success: true, message: "Email OTP verified successfully" });
+  } catch (error) {
+    return res.status(500).json({ message: "OTP Verification Failed" });
+  }
+};
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
-    const { idToken, role } = req.body;
-    
-    try {
-        // Verify token with Firebase Admin
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
-        const email = decodedToken.email;
-        const name = decodedToken.name || email.split('@')[0];
-        
-        let user = await prisma.user.findUnique({ where: { email } });
-        
-        if (!user) {
-            // Register new user
-            user = await prisma.user.create({
-                data: {
-                    email,
-                    password: '', // Social login has no password
-                    role: role || 'user',
-                    is_active: true
-                }
-            });
-            
-            // Create Profile
-            if (role === 'vendor') {
-                await prisma.vendorProfile.create({
-                    data: {
-                        userId: user.id,
-                        business_name: name,
-                        phone: '',
-                        onboarding_completed: false
-                    }
-                });
-            } else {
-                 await prisma.userProfile.create({
-                    data: {
-                        userId: user.id,
-                        name: name,
-                        phone: ''
-                    }
-                });
-            }
-        }
-        
-        res.json({
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            access: generateToken(user.id),
-            refresh: generateToken(user.id)
+  const { idToken, role } = req.body;
+
+  try {
+    // Verify token with Firebase Admin
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const email = decodedToken.email;
+    const name = decodedToken.name || email.split("@")[0];
+
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      // Register new user
+      user = await prisma.user.create({
+        data: {
+          email,
+          password: "", // Social login has no password
+          role: role || "user",
+          is_active: true,
+        },
+      });
+
+      // Create Profile
+      if (role === "vendor") {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: user.id,
+            business_name: name,
+            phone: "",
+            onboarding_completed: false,
+          },
         });
-        
-    } catch (error) {
-        console.error('Google Login Error:', error);
-        res.status(401).json({ message: 'Invalid token' });
+      } else {
+        await prisma.userProfile.create({
+          data: {
+            userId: user.id,
+            name: name,
+            phone: "",
+          },
+        });
+      }
     }
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      access: generateToken(user.id),
+      refresh: generateToken(user.id),
+    });
+  } catch (error) {
+    console.error("Google Login Error:", error);
+    res.status(401).json({ message: "Invalid token" });
+  }
 };
 
 // ======================
