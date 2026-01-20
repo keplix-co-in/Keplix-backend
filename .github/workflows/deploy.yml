@@ -1,0 +1,61 @@
+name: Deploy to Google Cloud
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: keplix-backend
+  REGION: asia-south1  # Change to your preferred region
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: |
+          gcloud auth configure-docker
+
+      - name: Build Docker image
+        run: |
+          docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
+                       -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
+
+      - name: Push Docker image to GCR
+        run: |
+          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA
+          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
+            --platform managed \
+            --region $REGION \
+            --allow-unauthenticated \
+            --set-env-vars="NODE_ENV=production" \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,CLOUDINARY_URL=CLOUDINARY_URL:latest" \
+            --memory 1Gi \
+            --cpu 1 \
+            --max-instances 10 \
+            --min-instances 0 \
+            --timeout 300
+
+      - name: Show deployment URL
+        run: |
+          gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)'
