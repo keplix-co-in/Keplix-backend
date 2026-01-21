@@ -13,3 +13,14 @@ export const updateBookingSchema = z.object({
   notes: z.string().optional(),
   status: z.enum(['pending', 'cancelled']).optional(), 
 });
+
+export const confirmServiceSchema = z.object({
+  confirmed: z.boolean({ required_error: "Confirmation required" }),
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().max(500).optional(),
+});
+
+export const disputeServiceSchema = z.object({
+  reason: z.string().min(10, { message: "Please provide a detailed reason (minimum 10 characters)" })
+    .max(1000, { message: "Reason too long (maximum 1000 characters)" }),
+});

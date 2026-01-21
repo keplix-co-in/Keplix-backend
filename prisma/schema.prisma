@@ -107,7 +107,7 @@ model Booking {
   serviceId    Int
   booking_date DateTime
   booking_time String
-  status       String        @default("pending")
+  status       String        @default("pending") // pending, confirmed, in_progress, service_completed, user_confirmed, disputed, cancelled, refunded
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt

@@ -12,7 +12,8 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
 import Logger from "./util/logger.js";
-import loggerMiddleware from "./middleware/loggerMiddleware.js"
+import loggerMiddleware from "./middleware/loggerMiddleware.js";
+import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 
 //
 // Configurations
@@ -105,6 +106,7 @@ app.use(cors({
 }));
 app.use(cors(corsOptions));  //CORS origins allowed based on environment
 app.use(express.json());
+app.use(sanitizeInput); // XSS protection and input sanitization
 app.use("/media", express.static(path.join(__dirname, "media")));
 
 // Apply Global Rate Limiter (Excludes static files)
@@ -128,6 +130,7 @@ import promotionRoutes from "./routes/vendor/promotions.js";
 // User Routes
 import userServiceRoutes from "./routes/user/services.js";
 import userBookingRoutes from "./routes/user/bookings.js";
+import userProfileRoutes from "./routes/user/profile.js";
 import feedbackRoutes from "./routes/user/feedback.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import userPaymentRoutes from "./routes/user/payments.js";
@@ -185,6 +188,7 @@ app.use("/interactions/api/vendor", vendorNotificationRoutes); // /interactions/
 // User API Group
 app.use("/service-api/user", userServiceRoutes); // mounts /service_api/user/services
 app.use("/service-api/user", userBookingRoutes); // mounts /service_api/user/bookings
+app.use("/service-api", userProfileRoutes); // mounts /service_api/user/:userId/profile
 app.use("/service-api", userServiceRoutes); // For shared search routes like /service_api/search
 // Note: /service_api/services/:id is also in user service controller, but mounted under /user currently?
 // Let's ensure public routes work. userServiceRoutes has /services (public), /search etc.
@@ -198,9 +202,6 @@ app.use("/interactions/api", reviewRoutes); // User reviews (public view of vend
 // app.use('/service_api', paymentRoutes);
 app.use("/service-api", userPaymentRoutes);
 app.use("/service-api", vendorPaymentRoutes);
-
-//vendor payout route
-app.use("service-api", )
 
 // app.use('/interactions/api', interactionRoutes);
 app.use("/interactions/api", userInteractionRoutes);
