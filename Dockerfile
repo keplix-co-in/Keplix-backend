@@ -26,8 +26,8 @@ COPY . .
 # Remove dev dependencies to reduce image size
 RUN npm prune --omit=dev --legacy-peer-deps
 
-# Expose port (update if your app uses a different port)
-EXPOSE 8000
+# Expose port 8080 (Cloud Run default)
+EXPOSE 8080
 
 # Set environment to production
 ENV NODE_ENV=production
