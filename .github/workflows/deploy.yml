@@ -1,20 +1,20 @@
-name: Deploy to Google Cloud
+name: Deploy to Google Cloud Run
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: keplix-backend
-  REGION: asia-south1  # Change to your preferred region
+  REGION: asia-south1
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,6 +41,14 @@ jobs:
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
 
+      - name: Clear existing Cloud Run service
+        continue-on-error: true
+        run: |
+          gcloud run services delete $SERVICE_NAME \
+            --region $REGION \
+            --project $PROJECT_ID \
+            --quiet
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
@@ -48,20 +56,22 @@ jobs:
             --platform managed \
             --region $REGION \
             --project $PROJECT_ID \
-            --set-env-vars="NODE_ENV=production,PORT=8080,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}" \
+            --port 8000 \
+            --set-env-vars="NODE_ENV=production,PORT=8000,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}" \
             --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
             --min-instances 0 \
-            --timeout 300
+            --timeout 300 \
+            --allow-unauthenticated
 
-      - name: Make service publicly accessible
+      - name: Show deployment URL
         run: |
-          gcloud run services add-iam-policy-binding $SERVICE_NAME \
-            --region=$REGION \
-            --member="allUsers" \
-            --role="roles/run.invoker" \
-            --project=$PROJECT_ID
+          echo "Deployment successful!"
+          gcloud run services describe $SERVICE_NAME \
+            --region $REGION \
+            --project $PROJECT_ID \
+            --format 'value(status.url)'
 
       - name: Show deployment URL
         run: |
