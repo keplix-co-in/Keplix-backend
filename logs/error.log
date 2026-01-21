@@ -90,3 +90,8 @@
 {"level":"error","message":"[500] POST  /accounts/auth/verify-email-otp - 35ms","timestamp":"2026-01-20T04:11:10.254Z"}
 {"level":"error","message":"[500] POST  /accounts/auth/verify-email-otp - 278ms","timestamp":"2026-01-20T04:11:59.105Z"}
 {"level":"error","message":"[500] POST  /accounts/auth/verify-email-otp - 10ms","timestamp":"2026-01-20T06:10:47.337Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 586ms","timestamp":"2026-01-20T11:08:01.304Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 376ms","timestamp":"2026-01-20T11:22:01.583Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 465ms","timestamp":"2026-01-20T11:25:48.457Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 344ms","timestamp":"2026-01-20T11:57:02.568Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 359ms","timestamp":"2026-01-20T12:00:58.627Z"}
