@@ -71,6 +71,38 @@ export const getUserBookings = async (req, res) => {
   }
 };
 
+// @desc    Get single booking
+// @route   GET /service_api/user/:userId/bookings/:id
+export const getSingleBooking = async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.id);
+    const userId = parseInt(req.params.userId);
+
+    const booking = await prisma.booking.findFirst({
+      where: { 
+        id: bookingId,
+        userId: userId // Ensure user owns this booking
+      },
+      include: {
+        service: {
+          include: { vendor: { include: { vendorProfile: true } } },
+        },
+        payment: true,
+        review: true
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    res.json(booking);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 // @desc    Create a new booking
 // @route   POST /service_api/bookings/
 export const createBooking = async (req, res) => {

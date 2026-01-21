@@ -31,10 +31,12 @@
     "multer-storage-cloudinary": "^4.0.0",
     "postgres": "^3.4.8",
     "razorpay": "^2.9.6",
-    "resend": "^6.7.0",
+    "resend": "^6.8.0",
     "socket.io": "^4.7.4",
     "stripe": "^20.1.2",
+    "twilio": "^5.11.2",
     "winston": "^3.19.0",
+    "xss": "^1.0.15",
     "zod": "^4.3.5"
   },
   "devDependencies": {

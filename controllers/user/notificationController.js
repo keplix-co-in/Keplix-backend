@@ -32,6 +32,54 @@ export const markRead = async (req, res) => {
     }
 }
 
+// @desc    Mark all notifications as read
+// @route   PUT /service_api/user/:userId/notifications/read-all
+export const markAllRead = async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId);
+        
+        if (req.user.id !== userId) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        await prisma.notification.updateMany({
+            where: { userId: userId, is_read: false },
+            data: { is_read: true }
+        });
+        
+        res.json({ message: 'All notifications marked as read' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+}
+
+// @desc    Delete notification
+// @route   DELETE /service_api/user/:userId/notifications/:id
+export const deleteNotification = async (req, res) => {
+    try {
+        const notificationId = parseInt(req.params.id);
+        const userId = parseInt(req.params.userId);
+
+        const notification = await prisma.notification.findUnique({
+            where: { id: notificationId }
+        });
+
+        if (!notification || notification.userId !== userId || req.user.id !== userId) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        await prisma.notification.delete({
+            where: { id: notificationId }
+        });
+
+        res.json({ message: 'Notification deleted' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+}
+
 // @desc    Update FCM Token
 // @route   PUT /interactions/api/users/fcm-token/
 export const updateFcmToken = async (req, res) => {
