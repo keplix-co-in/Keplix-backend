@@ -8,27 +8,28 @@ datasource db {
 }
 
 model User {
-  id            Int            @id @default(autoincrement())
-  email         String         @unique
-  password      String
-  role          String         @default("user")
-  is_active     Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  fcmToken      String?
-  device_type   String?
-  Availability  Availability[]
-  bookings      Booking[]      @relation("UserBookings")
-  documents     Document[]
-  feedbacks     Feedback[]
-  inventory     Inventory[]
-  Message       Message[]
-  notifications Notification[]
-  promotions    Promotion[]
-  reviews       Review[]       @relation("UserReviews")
-  services      Service[]      @relation("VendorServices")
-  userProfile   UserProfile?
-  vendorProfile VendorProfile?
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
+  password            String
+  role                String               @default("user")
+  is_active           Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  fcmToken            String?
+  device_type         String?
+  Availability        Availability[]
+  bookings            Booking[]            @relation("UserBookings")
+  documents           Document[]
+  feedbacks           Feedback[]
+  inventory           Inventory[]
+  Message             Message[]
+  notifications       Notification[]
+  promotions          Promotion[]
+  reviews             Review[]             @relation("UserReviews")
+  services            Service[]            @relation("VendorServices")
+  userProfile         UserProfile?
+  vendorProfile       VendorProfile?
+  VendorPayoutAccount VendorPayoutAccount?
 
   @@index([email])
   @@index([role])
@@ -113,7 +114,7 @@ model Booking {
   service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   user         User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
   conversation Conversation?
-  payment      Payment?
+  payment      Payment?      @relation("BookingPayment")
   review       Review?
 
   @@index([userId])
@@ -123,24 +124,23 @@ model Booking {
 }
 
 model Payment {
-  id        Int     @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   bookingId Int?     @unique
-  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking   Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
 
   amount        Decimal
   currency      String  @default("INR")
   status        String  @default("pending") // success, failed, pending
-  method        String  // stripe, razorpay, cash
+  method        String // stripe, razorpay, cash
   transactionId String? // Gateway Payment ID
 
   // Vendor Payout Tracking
-  vendorPayoutStatus String? @default("pending") // pending, paid, failed, not_applicable
+  vendorPayoutStatus String?  @default("pending") // pending, paid, failed, not_applicable
   vendorPayoutId     String? // External Transfer ID
   platformFee        Decimal?
   vendorAmount       Decimal?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
-  booking            Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 model Inventory {
@@ -237,4 +237,18 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model VendorPayoutAccount {
+  id       Int  @id @default(autoincrement())
+  vendorId Int  @unique
+  vendor   User @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  contactId     String // RazorpayX contact_id
+  fundAccountId String // RazorpayX fund_account_id
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

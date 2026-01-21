@@ -199,6 +199,9 @@ app.use("/interactions/api", reviewRoutes); // User reviews (public view of vend
 app.use("/service-api", userPaymentRoutes);
 app.use("/service-api", vendorPaymentRoutes);
 
+//vendor payout route
+app.use("service-api", )
+
 // app.use('/interactions/api', interactionRoutes);
 app.use("/interactions/api", userInteractionRoutes);
 // app.use('/interactions/api', notificationRoutes);
