@@ -47,14 +47,21 @@ jobs:
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
-            --allow-unauthenticated \
-            --set-env-vars="NODE_ENV=production" \
-            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,CLOUDINARY_URL=CLOUDINARY_URL:latest" \
+            --project $PROJECT_ID \
+            --set-env-vars="NODE_ENV=production,PORT=8080,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}" \
             --memory 1Gi \
             --cpu 1 \
             --max-instances 10 \
             --min-instances 0 \
             --timeout 300
+
+      - name: Make service publicly accessible
+        run: |
+          gcloud run services add-iam-policy-binding $SERVICE_NAME \
+            --region=$REGION \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --project=$PROJECT_ID
 
       - name: Show deployment URL
         run: |
