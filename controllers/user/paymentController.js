@@ -172,6 +172,8 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
+import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
+import Logger from "../../util/logger.js";
 
 const prisma = new PrismaClient();
 
@@ -275,4 +277,107 @@ export const verifyPayment = async (req, res) => {
     res.status(500).json({ message: "Payment verification failed" });
   }
 };
+
+/**
+ * RAZORPAY WEBHOOK HANDLER
+ * Handles payment status updates from Razorpay
+ */
+export const handleRazorpayWebhook = async (req, res) => {
+  try {
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    
+    if (!webhookSecret) {
+      Logger.error('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured');
+      return res.status(500).json({ error: 'Webhook not configured' });
+    }
+
+    // Verify webhook signature
+    const isValid = verifyRazorpayWebhook(req, webhookSecret);
+    
+    if (!isValid) {
+      Logger.error('[Webhook] Invalid signature - possible security breach');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    const { event, payload } = req.body;
+    Logger.info(`[Webhook] Received event: ${event}`);
+
+    // Handle different payment events
+    switch (event) {
+      case 'payment.captured':
+        await handlePaymentCaptured(payload.payment.entity);
+        break;
+        
+      case 'payment.failed':
+        await handlePaymentFailed(payload.payment.entity);
+        break;
+        
+      case 'order.paid':
+        Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
+        break;
+        
+      default:
+        Logger.info(`[Webhook] Unhandled event type: ${event}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    Logger.error(`[Webhook] Error: ${error.message}`);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+};
+
+// Helper: Handle payment captured event
+async function handlePaymentCaptured(payment) {
+  try {
+    const { id, order_id, amount, status } = payment;
+    
+    Logger.info(`[Webhook] Payment captured: ${id}, Amount: ${amount / 100}`);
+    
+    // Update payment record if exists
+    const existingPayment = await prisma.payment.findFirst({
+      where: { transactionId: id }
+    });
+
+    if (existingPayment) {
+      await prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: { status: 'success' }
+      });
+      Logger.info(`[Webhook] Payment ${id} updated to success`);
+    }
+  } catch (error) {
+    Logger.error(`[Webhook] handlePaymentCaptured error: ${error.message}`);
+  }
+}
+
+// Helper: Handle payment failed event
+async function handlePaymentFailed(payment) {
+  try {
+    const { id, error_description } = payment;
+    
+    Logger.error(`[Webhook] Payment failed: ${id}, Reason: ${error_description}`);
+    
+    const existingPayment = await prisma.payment.findFirst({
+      where: { transactionId: id }
+    });
+
+    if (existingPayment) {
+      await prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: { status: 'failed' }
+      });
+      
+      // Update booking back to pending
+      if (existingPayment.bookingId) {
+        await prisma.booking.update({
+          where: { id: existingPayment.bookingId },
+          data: { status: 'pending' }
+        });
+      }
+    }
+  } catch (error) {
+    Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
+  }
+}
 
