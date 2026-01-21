@@ -32,5 +32,8 @@ EXPOSE 8080
 # Set environment to production
 ENV NODE_ENV=production
 
-# Start the application
-CMD ["node", "server.js"]
+# Start the application with logging
+CMD echo "Starting server..." && \
+    echo "PORT=${PORT}" && \
+    echo "NODE_ENV=${NODE_ENV}" && \
+    node server.js
