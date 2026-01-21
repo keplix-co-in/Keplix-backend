@@ -84,9 +84,9 @@ export const updateBookingStatus = async (req, res) => {
         if (status === 'confirmed') {
             title = "Booking Accepted!";
             body = "The vendor has accepted your booking request.";
-        } else if (status === 'completed') {
+        } else if (status === 'service_completed') {
             title = "Service Completed";
-            body = "Your service has been marked as completed.";
+            body = "The vendor has marked your service as completed. Please confirm to release payment.";
         } else if (status === 'cancelled') {
              title = "Booking Cancelled";
              body = "Your booking request was cancelled.";
@@ -95,42 +95,9 @@ export const updateBookingStatus = async (req, res) => {
         sendPushNotification(userForPush.fcmToken, title, body, { bookingId: booking.id.toString() }).catch(err => console.error("Push Error", err));
     }
 
-    // === AUTOMATED PAYOUT LOGIC ===
-    if (status === 'completed' || status === 'service_completed') {
-        const payment = await prisma.payment.findUnique({
-            where: { bookingId: booking.id }
-        });
-
-        if (payment && payment.status === 'success' && payment.vendorPayoutStatus === 'pending') {
-            // Find specific service provider if needed, or just the vendor owner of the service
-            // The booking already links to a service which links to a vendor (User)
-            const service = await prisma.service.findUnique({ 
-                where: { id: booking.service.id },
-                select: { vendorId: true }
-            });
-
-            // Run Payout
-            try {
-                const payoutResult = await initiateVendorPayout(payment, service.vendorId);
-                
-                if (payoutResult.success) {
-                    await prisma.payment.update({
-                        where: { id: payment.id },
-                        data: {
-                            vendorPayoutStatus: 'paid',
-                            vendorPayoutId: payoutResult.payoutId
-                        }
-                    });
-                }
-            } catch (err) {
-                console.error("Payout Failed", err);
-                await prisma.payment.update({
-                    where: { id: payment.id },
-                    data: { vendorPayoutStatus: 'failed' }
-                });
-            }
-        }
-    }
+    // ❌ REMOVED: Auto-payout when vendor marks completed
+    // ✅ NEW FLOW: Payout only happens when USER confirms service completion
+    // User must call POST /user/:userId/bookings/:id/confirm
     
     res.json(booking);
   } catch (error) {
