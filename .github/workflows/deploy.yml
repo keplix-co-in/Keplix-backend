@@ -1,20 +1,20 @@
-name: Deploy to Google Cloud
+name: Deploy to Google Cloud Run
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: keplix-backend
-  REGION: asia-south1  # Change to your preferred region
+  REGION: asia-south1
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,14 +47,24 @@ jobs:
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
-            --allow-unauthenticated \
-            --set-env-vars="NODE_ENV=production" \
-            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,RAZORPAY_KEY_ID=RAZORPAY_KEY_ID:latest,RAZORPAY_KEY_SECRET=RAZORPAY_KEY_SECRET:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,CLOUDINARY_URL=CLOUDINARY_URL:latest" \
-            --memory 1Gi \
-            --cpu 1 \
+            --project $PROJECT_ID \
+            --port 8080 \
+            --set-env-vars="NODE_ENV=production,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }},FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}" \
+            --memory 2Gi \
+            --cpu 2 \
             --max-instances 10 \
             --min-instances 0 \
-            --timeout 300
+            --timeout 600 \
+            --cpu-boost \
+            --allow-unauthenticated
+
+      - name: Show deployment URL
+        run: |
+          echo "Deployment successful!"
+          gcloud run services describe $SERVICE_NAME \
+            --region $REGION \
+            --project $PROJECT_ID \
+            --format 'value(status.url)'
 
       - name: Show deployment URL
         run: |

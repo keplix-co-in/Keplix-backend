@@ -56,15 +56,7 @@ export const getUserBookings = async (req, res) => {
       },
     }));
 
-    res.json({
-      data: formattedBookings,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(formattedBookings);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
