@@ -45,15 +45,7 @@ export const getAllServices = async (req, res) => {
       vendor_image: service.vendor?.vendorProfile?.image || null,
     }));
 
-    res.json({
-      data: enrichedServices,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(enrichedServices);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
