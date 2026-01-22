@@ -16,9 +16,6 @@ export const getUserProfileData = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: {
-        userProfile: true,
-      },
       select: {
         id: true,
         email: true,
@@ -46,26 +43,34 @@ export const getUserProfileData = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
-    const { name, phone, address } = req.body;
+    const { name, phone, address, profile_picture, id_proof_front, id_proof_back } = req.body;
 
     // Verify user owns this profile
     if (req.user.id !== userId) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
+    // Build update data - only include fields that are provided
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+    if (profile_picture !== undefined) updateData.profile_picture = profile_picture;
+    if (id_proof_front !== undefined) updateData.id_proof_front = id_proof_front;
+    if (id_proof_back !== undefined) updateData.id_proof_back = id_proof_back;
+
     // Upsert user profile
     const profile = await prisma.userProfile.upsert({
       where: { userId: userId },
-      update: {
-        name: name || undefined,
-        phone: phone || undefined,
-        address: address || undefined,
-      },
+      update: updateData,
       create: {
         userId: userId,
-        name: name,
+        name: name || "User",
         phone: phone || null,
         address: address || null,
+        profile_picture: profile_picture || null,
+        id_proof_front: id_proof_front || null,
+        id_proof_back: id_proof_back || null,
       },
     });
 
