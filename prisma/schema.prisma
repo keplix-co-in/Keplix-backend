@@ -36,12 +36,15 @@ model User {
 }
 
 model UserProfile {
-  id      Int     @id @default(autoincrement())
-  userId  Int     @unique
-  name    String
-  phone   String?
-  address String?
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              Int     @id @default(autoincrement())
+  userId          Int     @unique
+  name            String
+  phone           String?
+  address         String?
+  profile_picture String?
+  id_proof_front  String?
+  id_proof_back   String?
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VendorProfile {
@@ -237,6 +240,15 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model PhoneOTP {
+  id           Int      @id @default(autoincrement())
+  phone_number String   @unique
+  otp          String
+  expiresAt    DateTime
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now())
 }
 
 model VendorPayoutAccount {
