@@ -6,8 +6,9 @@ const prisma = new PrismaClient();
 // @route   GET /interactions/api/users/:user_id/notifications/ (Shared endpoint pattern)
 export const getVendorNotifications = async (req, res) => {
     try {
+        const userId = req.params.user_id ? parseInt(req.params.user_id) : req.user.id;
         const notifications = await prisma.notification.findMany({
-            where: { userId: parseInt(req.params.user_id) }, // Vendor is also a user
+            where: { userId: userId }, // Vendor is also a user
             orderBy: { createdAt: 'desc' }
         });
         res.json(notifications);

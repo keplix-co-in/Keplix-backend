@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
+import { createNotification } from "../../util/notificationHelper.js";
 
 const prisma = new PrismaClient();
 
@@ -92,7 +93,22 @@ export const updateBookingStatus = async (req, res) => {
              body = "Your booking request was cancelled.";
         }
 
+        // Store in DB
+        await createNotification(booking.userId, title, body);
+
         sendPushNotification(userForPush.fcmToken, title, body, { bookingId: booking.id.toString() }).catch(err => console.error("Push Error", err));
+    } else {
+        // Even if no FCM token, store in DB
+        let title = "Booking Update";
+        let body = `Your booking is now ${status}`;
+         if (status === 'confirmed') {
+            title = "Booking Accepted!";
+            body = "The vendor has accepted your booking request.";
+        } else if (status === 'service_completed') {
+             title = "Service Completed";
+             body = "The vendor has marked your service as completed. Please confirm to release payment.";
+        }
+        await createNotification(booking.userId, title, body);
     }
 
     // ❌ REMOVED: Auto-payout when vendor marks completed
