@@ -243,7 +243,7 @@ export const sendEmailOTP = async (req, res) => {
   }
   try {
     const otp = generateOTP();
-    console.log(otp);
+    //console.log(otp);
     //save OTP in database
     // await prisma.emailOTP.upsert({
     //   data: {

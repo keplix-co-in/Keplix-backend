@@ -232,6 +232,7 @@ export const verifyPayment = async (req, res) => {
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
+      console.log(expectedSignature, signature)
 
     if (expectedSignature !== signature) {
       return res.status(400).json({ message: "Invalid payment signature" });

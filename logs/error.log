@@ -95,3 +95,5 @@
 {"level":"error","message":"[500] POST  /service-api/payments/verify - 465ms","timestamp":"2026-01-20T11:25:48.457Z"}
 {"level":"error","message":"[500] POST  /service-api/payments/verify - 344ms","timestamp":"2026-01-20T11:57:02.568Z"}
 {"level":"error","message":"[500] POST  /service-api/payments/verify - 359ms","timestamp":"2026-01-20T12:00:58.627Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 417ms","timestamp":"2026-01-22T14:32:00.628Z"}
+{"level":"error","message":"[500] PUT  /accounts/vendor/ - 4159ms","timestamp":"2026-01-23T10:04:51.897Z"}

@@ -724,3 +724,60 @@
 {"level":"http","message":"[201] POST  /accounts/auth/signup - 585ms","timestamp":"2026-01-20T12:08:51.391Z"}
 {"level":"info","message":"Incoming: POST /service-api/vendor/payments/order/create from 127.0.0.1","timestamp":"2026-01-20T12:14:41.103Z"}
 {"level":"http","message":"[200] POST  /service-api/vendor/payments/order/create - 869ms","timestamp":"2026-01-20T12:14:41.969Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:26:13.086Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:26:13.087Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/order/create from 127.0.0.1","timestamp":"2026-01-22T14:27:06.265Z"}
+{"level":"http","message":"[200] POST  /service-api/payments/order/create - 1676ms","timestamp":"2026-01-22T14:27:07.939Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:27:43.451Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 104ms","timestamp":"2026-01-22T14:27:43.554Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:28:18.696Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 119ms","timestamp":"2026-01-22T14:28:18.816Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:28:40.643Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 105ms","timestamp":"2026-01-22T14:28:40.747Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:32:00.216Z"}
+{"level":"error","message":"[500] POST  /service-api/payments/verify - 417ms","timestamp":"2026-01-22T14:32:00.628Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:32:09.239Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 541ms","timestamp":"2026-01-22T14:32:09.779Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:33:34.250Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 118ms","timestamp":"2026-01-22T14:33:34.368Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:02.639Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:02.641Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:04.087Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:04.087Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:09.728Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:09.729Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:12.345Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:12.345Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:34:18.500Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 460ms","timestamp":"2026-01-22T14:34:18.960Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:35:42.338Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:35:42.339Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:35:43.556Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 719ms","timestamp":"2026-01-22T14:35:44.275Z"}
+{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:36:12.064Z"}
+{"level":"warn","message":"[400] POST  /service-api/payments/verify - 195ms","timestamp":"2026-01-22T14:36:12.253Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:00:26.986Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:00:26.986Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-23T10:02:54.016Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 1035ms","timestamp":"2026-01-23T10:02:55.048Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-23T10:03:37.679Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 143ms","timestamp":"2026-01-23T10:03:37.821Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from 127.0.0.1","timestamp":"2026-01-23T10:04:04.970Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/token/refresh - 80ms","timestamp":"2026-01-23T10:04:05.049Z"}
+{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:04:47.738Z"}
+{"level":"error","message":"[500] PUT  /accounts/vendor/ - 4159ms","timestamp":"2026-01-23T10:04:51.897Z"}
+{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:05:31.298Z"}
+{"level":"http","message":"[200] PUT  /accounts/vendor/ - 22429ms","timestamp":"2026-01-23T10:05:53.727Z"}
+{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:07:40.778Z"}
+{"level":"http","message":"[200] PUT  /accounts/vendor/ - 3849ms","timestamp":"2026-01-23T10:07:44.626Z"}
+{"level":"info","message":"Incoming: GET /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:08:03.962Z"}
+{"level":"http","message":"[200] GET  /accounts/vendor/ - 224ms","timestamp":"2026-01-23T10:08:04.185Z"}
+{"level":"info","message":"Incoming: POST /service_api/vendor/2/services/create from 127.0.0.1","timestamp":"2026-01-23T14:50:07.849Z"}
+{"level":"warn","message":"[404] POST  /service_api/vendor/2/services/create - 53ms","timestamp":"2026-01-23T14:50:07.899Z"}
+{"level":"info","message":"Incoming: POST /service-api/vendor/2/services/create from 127.0.0.1","timestamp":"2026-01-23T14:50:39.537Z"}
+{"level":"http","message":"[201] POST  /service-api/vendor/2/services/create - 1637ms","timestamp":"2026-01-23T14:50:41.175Z"}
+{"level":"info","message":"Incoming: GET /service-api/vendor/2/bookings from 127.0.0.1","timestamp":"2026-01-23T14:56:54.605Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T14:57:48.274Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T14:57:48.274Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T15:11:27.435Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T15:11:27.435Z"}
