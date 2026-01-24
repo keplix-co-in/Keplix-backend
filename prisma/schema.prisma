@@ -23,7 +23,7 @@ model User {
   documents           Document[]
   feedbacks           Feedback[]
   inventory           Inventory[]
-  Message             Message[]
+  sentMessages        Message[]            @relation("UserSentMessages")
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
@@ -171,8 +171,11 @@ model Conversation {
   id        Int       @id @default(autoincrement())
   bookingId Int       @unique
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   messages  Message[]
+
+  @@index([bookingId])
 }
 
 model Message {
@@ -181,9 +184,12 @@ model Message {
   senderId       Int
   message_text   String
   sent_at        DateTime     @default(now())
-  senderType     String?
+  isRead         Boolean      @default(false)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  User           User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sender         User         @relation("UserSentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
 }
 
 model Review {

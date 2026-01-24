@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { getIO } from '../../socket.js';
 
 const prisma = new PrismaClient();
 
@@ -49,12 +50,71 @@ export const getMessages = async (req, res) => {
     // Validate access here (check if req.user.id belongs to this conversation)
 
     const messages = await prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' }, // Oldest first
+      where: { conversationId: Number(conversationId) }, // Ensure ID is a number
+      orderBy: { sent_at: 'asc' }, // Correct field name
+      include: {
+          sender: {
+              select: {
+                  id: true,
+                  role: true
+              }
+          }
+      }
     });
 
-    res.json({ success: true, count: messages.length, data: messages });
+    res.json(messages); // Return array directly for easier frontend mapping or { data: messages }
   } catch (error) {
+    console.error("Error fetching messages:", error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// @desc    Send a message
+// @route   POST /interactions/api/chat/send
+export const sendMessage = async (req, res) => {
+    try {
+        const { conversationId, message_text } = req.body;
+        const senderId = req.user.id; 
+
+        if (!conversationId || !message_text) {
+             return res.status(400).json({ message: "Missing fields" });
+        }
+
+        const message = await prisma.message.create({
+            data: {
+                conversationId: Number(conversationId),
+                senderId: senderId,
+                message_text: message_text,
+            },
+            include: {
+                sender: { 
+                     select: {
+                        id: true,
+                        role: true, 
+                     }
+                }
+            }
+        });
+        
+        // Update conversation updated_at
+        await prisma.conversation.update({
+            where: { id: Number(conversationId) },
+            data: { updatedAt: new Date() }
+        });
+
+        // Socket.io Emit
+        try {
+            const io = getIO();
+            io.to(String(conversationId)).emit("receive_message", message);
+        } catch (socketError) {
+             console.error("Socket emit failed:", socketError);
+             // Don't fail the request if socket fails, message is saved
+        }
+
+        res.status(201).json(message);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Failed to send message' });
+    }
 };
