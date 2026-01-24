@@ -33,7 +33,7 @@
     "postgres": "^3.4.8",
     "razorpay": "^2.9.6",
     "resend": "^6.8.0",
-    "socket.io": "^4.7.4",
+    "socket.io": "^4.8.3",
     "stripe": "^20.1.2",
     "twilio": "^5.11.2",
     "winston": "^3.19.0",
