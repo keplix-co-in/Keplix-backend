@@ -16,6 +16,7 @@ model User {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   fcmToken            String?
+  pushToken           String?
   device_type         String?
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")

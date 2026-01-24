@@ -12,7 +12,8 @@ import {
   verifyPhoneOTP, 
   sendEmailOTP, 
   verifyEmailOTP, 
-  googleLogin 
+  googleLogin,
+  updatePushToken
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
@@ -46,6 +47,7 @@ router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOT
 // Protected Routes
 router.get('/profile', protect, getUserProfile);
 router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
+router.put('/push-token', protect, updatePushToken);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
 router.post('/signup/', validateRequest(registerSchema), registerUser);
