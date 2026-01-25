@@ -102,6 +102,7 @@ export const updateFcmToken = async (req, res) => {
 // @route   POST /interactions/api/notifications/create/
 export const createNotification = async (req, res) => {
     const { user_id, title, message } = req.body;
+    //console.log(user_id)
     try {
         const notif = await prisma.notification.create({
             data: {

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { createNotification } from "../../util/notificationHelper.js";
 
 const prisma = new PrismaClient();
 
@@ -56,15 +57,7 @@ export const getUserBookings = async (req, res) => {
       },
     }));
 
-    res.json({
-      data: formattedBookings,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(formattedBookings);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -120,8 +113,18 @@ export const createBooking = async (req, res) => {
                 conversation: {
                     create: {} // Automatically create a conversation for this booking
                 }
-            }
+            },
+            include: { service: true }
         });
+
+        // Notify Vendor
+        if (booking.service && booking.service.vendorId) {
+             await createNotification(
+                booking.service.vendorId, 
+                "New Booking Request", 
+                `New booking for ${booking.service.name} on ${booking_date}`
+            );
+        }
 
         res.status(201).json(booking);
     } catch (error) {
@@ -171,7 +174,16 @@ export const updateBooking = async (req, res) => {
         booking_time: booking_time || undefined,
         notes: notes || undefined,
       },
+      include: { service: true }
     });
+
+    if (status === "cancelled") {
+         await createNotification(
+            updatedBooking.service.vendorId,
+            "Booking Cancelled",
+             `Booking for ${updatedBooking.service.name} was cancelled by the user.`
+        );
+    }
 
     res.json(updatedBooking);
   } catch (error) {

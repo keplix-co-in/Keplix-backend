@@ -30,13 +30,17 @@ const limiter = rateLimit({
   message: { message: "Too many requests, please try again later." }
 });
 
-// Auth Limiter: Stricter for Login/Register (10 requests per 15 minutes)
+// Auth Limiter: For Login/Register (50 requests per 15 minutes for development)
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: process.env.NODE_ENV === 'production' ? 20 : 50, // More lenient in dev
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: "Too many login attempts, please try again later." }
+  message: { message: "Too many authentication attempts, please try again in a few minutes." },
+  skip: (req) => {
+    // Skip rate limiting for logout and token refresh
+    return req.path.includes('/logout') || req.path.includes('/token/refresh');
+  }
 });
 
 const io = new Server(httpServer, {
@@ -105,7 +109,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(cors(corsOptions));  //CORS origins allowed based on environment
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increased limit for large payloads
+app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies
 app.use(sanitizeInput); // XSS protection and input sanitization
 app.use("/media", express.static(path.join(__dirname, "media")));
 
@@ -118,7 +123,7 @@ app.get("/", (req, res) => {
 });
 
 // Import Routes (To be implemented)
-import authRoutes from "./routes/auth.js";
+import authRoutes, { logoutRouter } from "./routes/auth.js";
 // Vendor Routes
 import vendorServiceRoutes from "./routes/vendor/services.js";
 import vendorBookingRoutes from "./routes/vendor/bookings.js";
@@ -171,32 +176,32 @@ app.get('/', (req, res) => {
 });
 
 app.use("/accounts/auth", authLimiter, authRoutes);
-app.use("/accounts/vendor", vendorProfileRoutes); // Mounts /accounts/vendor/profile/
+app.use("/accounts/auth", logoutRouter); // Logout without rate limit
+app.use("/accounts/vendor", vendorProfileRoutes); 
 
 // Vendor API Group
 app.use("/accounts/documents", documentRoutes);
-app.use("/service-api/vendor", vendorServiceRoutes); // mounts /service_api/vendor/services
-app.use("/service-api/vendor", vendorBookingRoutes); // mounts /service_api/vendor/bookings
-app.use("/service-api", inventoryRoutes); // Keeps /service_api/vendor/:id/inventory
-app.use("/service-api", availabilityRoutes); // Keeps /service_api/vendor/:id/availability
-app.use("/interactions/vendors", promotionRoutes); // Changed from /interactions/api/promotions to match frontend
-app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); // /interactions/api/vendor/reviews
-app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); // /interactions/api/vendor/feedback
-app.use("/interactions/api/vendor", vendorInteractionRoutes); // /interactions/api/vendor/conversations
-app.use("/interactions/api/vendor", vendorNotificationRoutes); // /interactions/api/vendor/notifications
+app.use("/service_api/vendor", vendorServiceRoutes); 
+app.use("/service_api/vendor", vendorBookingRoutes); 
+app.use("/service_api", inventoryRoutes); 
+app.use("/service_api", availabilityRoutes); 
+app.use("/interactions/vendors", promotionRoutes); 
+app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); 
+app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); 
+app.use("/interactions/api/vendor", vendorInteractionRoutes); 
+app.use("/interactions/api/vendor", vendorNotificationRoutes); 
 
 // User API Group
-app.use("/service-api/user", userServiceRoutes); // mounts /service_api/user/services
-app.use("/service-api/user", userBookingRoutes); // mounts /service_api/user/bookings
-app.use("/service-api", userProfileRoutes); // mounts /service_api/user/:userId/profile
-app.use("/service-api", userServiceRoutes); // For shared search routes like /service_api/search
-// Note: /service_api/services/:id is also in user service controller, but mounted under /user currently?
-// Let's ensure public routes work. userServiceRoutes has /services (public), /search etc.
-// We might need to mount it at /service_api too for the public endpoints
-app.use("/service-api", userServiceRoutes);
+app.use("/service-api/user", userServiceRoutes); 
+app.use("/service-api/user", userBookingRoutes); 
+app.use("/service-api/user", userProfileRoutes); 
+app.use("/service-api", userPaymentRoutes); // matches /service_api/payments/...
+app.use("/service-api", userServiceRoutes); // matches /service_api/services/:id
 
-app.use("/interactions/api/feedback", feedbackRoutes); // User feedback
-app.use("/interactions/api", reviewRoutes); // User reviews (public view of vendor reviews)
+app.use("/interactions/api/feedback", feedbackRoutes); 
+app.use("/interactions/api", reviewRoutes); 
+app.use("/interactions/api/user", userNotificationRoutes);
+app.use("/interactions/api/user", userInteractionRoutes);
 
 // Shared -> Specific
 // app.use('/service_api', paymentRoutes);

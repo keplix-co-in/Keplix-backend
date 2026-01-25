@@ -97,3 +97,28 @@
 {"level":"error","message":"[500] POST  /service-api/payments/verify - 359ms","timestamp":"2026-01-20T12:00:58.627Z"}
 {"level":"error","message":"[500] POST  /service-api/payments/verify - 417ms","timestamp":"2026-01-22T14:32:00.628Z"}
 {"level":"error","message":"[500] PUT  /accounts/vendor/ - 4159ms","timestamp":"2026-01-23T10:04:51.897Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 29ms","timestamp":"2026-01-24T10:42:24.335Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 8ms","timestamp":"2026-01-24T10:43:38.764Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 23ms","timestamp":"2026-01-24T10:48:59.294Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 591ms","timestamp":"2026-01-24T11:56:04.664Z"}
+{"level":"error","message":"[500] GET  /service-api/user/3/bookings/create - 161ms","timestamp":"2026-01-24T11:56:21.938Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 136ms","timestamp":"2026-01-24T11:57:01.404Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 711ms","timestamp":"2026-01-24T11:57:58.486Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:03:37.681Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 720ms","timestamp":"2026-01-24T12:03:37.689Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:04:37.520Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 139ms","timestamp":"2026-01-24T12:04:37.522Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:07:41.530Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 831ms","timestamp":"2026-01-24T12:07:41.535Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:08:19.217Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 726ms","timestamp":"2026-01-24T12:08:19.223Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/signup - 849ms","timestamp":"2026-01-24T12:14:31.032Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/signup - 521ms","timestamp":"2026-01-24T12:21:34.719Z"}
+{"level":"error","message":"[500] POST  /interactions/api/reviews/create - 492ms","timestamp":"2026-01-24T13:05:25.136Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 1229ms","timestamp":"2026-01-24T14:30:08.612Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 310ms","timestamp":"2026-01-24T14:31:02.590Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 252ms","timestamp":"2026-01-24T14:32:02.451Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 808ms","timestamp":"2026-01-24T14:33:38.377Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 761ms","timestamp":"2026-01-24T14:35:14.223Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 166ms","timestamp":"2026-01-24T14:35:31.313Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 150ms","timestamp":"2026-01-24T14:35:50.476Z"}
