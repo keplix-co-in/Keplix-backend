@@ -724,267 +724,269 @@
 {"level":"http","message":"[201] POST  /accounts/auth/signup - 585ms","timestamp":"2026-01-20T12:08:51.391Z"}
 {"level":"info","message":"Incoming: POST /service-api/vendor/payments/order/create from 127.0.0.1","timestamp":"2026-01-20T12:14:41.103Z"}
 {"level":"http","message":"[200] POST  /service-api/vendor/payments/order/create - 869ms","timestamp":"2026-01-20T12:14:41.969Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:26:13.086Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:26:13.087Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/order/create from 127.0.0.1","timestamp":"2026-01-22T14:27:06.265Z"}
-{"level":"http","message":"[200] POST  /service-api/payments/order/create - 1676ms","timestamp":"2026-01-22T14:27:07.939Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:27:43.451Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 104ms","timestamp":"2026-01-22T14:27:43.554Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:28:18.696Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 119ms","timestamp":"2026-01-22T14:28:18.816Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:28:40.643Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 105ms","timestamp":"2026-01-22T14:28:40.747Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:32:00.216Z"}
-{"level":"error","message":"[500] POST  /service-api/payments/verify - 417ms","timestamp":"2026-01-22T14:32:00.628Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:32:09.239Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 541ms","timestamp":"2026-01-22T14:32:09.779Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:33:34.250Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 118ms","timestamp":"2026-01-22T14:33:34.368Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:02.639Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:02.641Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:04.087Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:04.087Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:09.728Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:09.729Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:34:12.345Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:34:12.345Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:34:18.500Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 460ms","timestamp":"2026-01-22T14:34:18.960Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T14:35:42.338Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T14:35:42.339Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:35:43.556Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 719ms","timestamp":"2026-01-22T14:35:44.275Z"}
-{"level":"info","message":"Incoming: POST /service-api/payments/verify from 127.0.0.1","timestamp":"2026-01-22T14:36:12.064Z"}
-{"level":"warn","message":"[400] POST  /service-api/payments/verify - 195ms","timestamp":"2026-01-22T14:36:12.253Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:00:26.986Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:00:26.986Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-23T10:02:54.016Z"}
-{"level":"http","message":"[201] POST  /accounts/auth/signup - 1035ms","timestamp":"2026-01-23T10:02:55.048Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-23T10:03:37.679Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/login - 143ms","timestamp":"2026-01-23T10:03:37.821Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from 127.0.0.1","timestamp":"2026-01-23T10:04:04.970Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/token/refresh - 80ms","timestamp":"2026-01-23T10:04:05.049Z"}
-{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:04:47.738Z"}
-{"level":"error","message":"[500] PUT  /accounts/vendor/ - 4159ms","timestamp":"2026-01-23T10:04:51.897Z"}
-{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:05:31.298Z"}
-{"level":"http","message":"[200] PUT  /accounts/vendor/ - 22429ms","timestamp":"2026-01-23T10:05:53.727Z"}
-{"level":"info","message":"Incoming: PUT /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:07:40.778Z"}
-{"level":"http","message":"[200] PUT  /accounts/vendor/ - 3849ms","timestamp":"2026-01-23T10:07:44.626Z"}
-{"level":"info","message":"Incoming: GET /accounts/vendor/ from 127.0.0.1","timestamp":"2026-01-23T10:08:03.962Z"}
-{"level":"http","message":"[200] GET  /accounts/vendor/ - 224ms","timestamp":"2026-01-23T10:08:04.185Z"}
-{"level":"info","message":"Incoming: POST /service_api/vendor/2/services/create from 127.0.0.1","timestamp":"2026-01-23T14:50:07.849Z"}
-{"level":"warn","message":"[404] POST  /service_api/vendor/2/services/create - 53ms","timestamp":"2026-01-23T14:50:07.899Z"}
-{"level":"info","message":"Incoming: POST /service-api/vendor/2/services/create from 127.0.0.1","timestamp":"2026-01-23T14:50:39.537Z"}
-{"level":"http","message":"[201] POST  /service-api/vendor/2/services/create - 1637ms","timestamp":"2026-01-23T14:50:41.175Z"}
-{"level":"info","message":"Incoming: GET /service-api/vendor/2/bookings from 127.0.0.1","timestamp":"2026-01-23T14:56:54.605Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T14:57:48.274Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T14:57:48.274Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T15:11:27.435Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T15:11:27.435Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T19:25:38.924Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T19:25:38.925Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:37:21.063Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:37:21.064Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T10:40:03.164Z"}
-{"level":"http","message":"[201] POST  /accounts/auth/signup - 1062ms","timestamp":"2026-01-24T10:40:04.222Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:42:24.309Z"}
-{"level":"error","message":"[500] POST  /accounts/auth/login - 29ms","timestamp":"2026-01-24T10:42:24.335Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T10:43:19.423Z"}
-{"level":"http","message":"[201] POST  /accounts/auth/signup - 370ms","timestamp":"2026-01-24T10:43:19.792Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:43:38.755Z"}
-{"level":"error","message":"[500] POST  /accounts/auth/login - 8ms","timestamp":"2026-01-24T10:43:38.764Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:51.724Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:51.727Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:54.770Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:54.771Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:55.885Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:55.886Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:48:59.272Z"}
-{"level":"error","message":"[500] POST  /accounts/auth/login - 23ms","timestamp":"2026-01-24T10:48:59.294Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:49:41.052Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:49:41.055Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:52.524Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:52.526Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:57.088Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:57.089Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:58.864Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:58.865Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:04.283Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:04.283Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:15.152Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:15.153Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:18.395Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:18.396Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:20.657Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:20.658Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:51:36.167Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/login - 937ms","timestamp":"2026-01-24T10:51:37.103Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from 127.0.0.1","timestamp":"2026-01-24T10:53:23.063Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/token/refresh - 150ms","timestamp":"2026-01-24T10:53:23.213Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/forgot-password from 127.0.0.1","timestamp":"2026-01-24T10:55:13.137Z"}
-{"level":"info","message":"[Resend] Email sent successfully to akashuser@example.com: undefined","timestamp":"2026-01-24T10:55:13.700Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/forgot-password - 565ms","timestamp":"2026-01-24T10:55:13.701Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/reset-password/7/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NywiaWF0IjoxNzY5MjUyMDAzLCJleHAiOjE3NzE4NDQwMDN9.9kiQCjc3U0D7W1hyYTzsDIXWlhHjRkZ9oqmNFSSGCQg from 127.0.0.1","timestamp":"2026-01-24T11:01:31.266Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/reset-password/7/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NywiaWF0IjoxNzY5MjUyMDAzLCJleHAiOjE3NzE4NDQwMDN9.9kiQCjc3U0D7W1hyYTzsDIXWlhHjRkZ9oqmNFSSGCQg - 25ms","timestamp":"2026-01-24T11:01:31.287Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/logout from 127.0.0.1","timestamp":"2026-01-24T11:06:03.919Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/logout - 23ms","timestamp":"2026-01-24T11:06:03.939Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:16.656Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:16.658Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:21.895Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:21.895Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:25.866Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:25.866Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:28.481Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:28.482Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:31.049Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:31.049Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/services from 127.0.0.1","timestamp":"2026-01-24T11:10:30.015Z"}
-{"level":"http","message":"[200] GET  /service-api/user/services - 746ms","timestamp":"2026-01-24T11:10:30.757Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/services from 127.0.0.1","timestamp":"2026-01-24T11:13:06.697Z"}
-{"level":"http","message":"[200] GET  /service-api/user/services - 214ms","timestamp":"2026-01-24T11:13:06.908Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/services/3 from 127.0.0.1","timestamp":"2026-01-24T11:14:17.998Z"}
-{"level":"http","message":"[200] GET  /service-api/user/services/3 - 313ms","timestamp":"2026-01-24T11:14:18.307Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/categories from 127.0.0.1","timestamp":"2026-01-24T11:15:49.143Z"}
-{"level":"http","message":"[200] GET  /service-api/user/categories - 2400ms","timestamp":"2026-01-24T11:15:51.543Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/search from 127.0.0.1","timestamp":"2026-01-24T11:17:20.415Z"}
-{"level":"warn","message":"[400] GET  /service-api/user/search - 8ms","timestamp":"2026-01-24T11:17:20.419Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/search?latitude=28.6139&longitude=77.2090&radius=10 from 127.0.0.1","timestamp":"2026-01-24T11:21:18.876Z"}
-{"level":"http","message":"[200] GET  /service-api/user/search?latitude=28.6139&longitude=77.2090&radius=10 - 526ms","timestamp":"2026-01-24T11:21:19.401Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/vendors/7/services from 127.0.0.1","timestamp":"2026-01-24T11:48:27.994Z"}
-{"level":"http","message":"[200] GET  /service-api/user/vendors/7/services - 581ms","timestamp":"2026-01-24T11:48:28.560Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/vendors/3/services from 127.0.0.1","timestamp":"2026-01-24T11:48:36.772Z"}
-{"level":"http","message":"[200] GET  /service-api/user/vendors/3/services - 225ms","timestamp":"2026-01-24T11:48:36.996Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T11:55:50.218Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/login - 760ms","timestamp":"2026-01-24T11:55:50.976Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:56:04.073Z"}
-{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 591ms","timestamp":"2026-01-24T11:56:04.664Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/3/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:56:21.778Z"}
-{"level":"error","message":"[500] GET  /service-api/user/3/bookings/create - 161ms","timestamp":"2026-01-24T11:56:21.938Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:57:01.269Z"}
-{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 136ms","timestamp":"2026-01-24T11:57:01.404Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:57:49.404Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:57:49.407Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:57:51.172Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:57:51.172Z"}
-{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:57:57.777Z"}
-{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 711ms","timestamp":"2026-01-24T11:57:58.486Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:58:27.332Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:58:27.333Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:03:36.973Z"}
-{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:03:37.681Z"}
-{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 720ms","timestamp":"2026-01-24T12:03:37.689Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:04:37.384Z"}
-{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:04:37.520Z"}
-{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 139ms","timestamp":"2026-01-24T12:04:37.522Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:07:35.485Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:07:35.486Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:07:40.705Z"}
-{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:07:41.530Z"}
-{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 831ms","timestamp":"2026-01-24T12:07:41.535Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:08:02.110Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:08:02.110Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:08:03.406Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:08:03.406Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:08:18.498Z"}
-{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:08:19.218Z"}
-{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 726ms","timestamp":"2026-01-24T12:08:19.223Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:10:22.448Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:10:22.449Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:10:29.002Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:11:31.452Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:11:31.452Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:11:40.635Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:13:15.159Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:13:15.161Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:13:26.896Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:13:26.897Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:14:30.184Z"}
-{"level":"error","message":"[500] POST  /accounts/auth/signup - 849ms","timestamp":"2026-01-24T12:14:31.032Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:15:52.338Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:20:11.514Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:20:11.515Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:20:18.694Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:21:32.046Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:21:32.046Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:21:34.198Z"}
-{"level":"error","message":"[500] POST  /accounts/auth/signup - 521ms","timestamp":"2026-01-24T12:21:34.719Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:23:37.667Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:23:37.667Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:23:40.447Z"}
-{"level":"warn","message":"[400] POST  /accounts/auth/signup - 331ms","timestamp":"2026-01-24T12:23:40.777Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:23:48.121Z"}
-{"level":"http","message":"[201] POST  /accounts/auth/signup - 240ms","timestamp":"2026-01-24T12:23:48.362Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:24:24.887Z"}
-{"level":"info","message":"[Profile] Updated for user 10","timestamp":"2026-01-24T12:24:25.766Z"}
-{"level":"http","message":"[200] PUT  /service-api/user/10/profile - 883ms","timestamp":"2026-01-24T12:24:25.768Z"}
-{"level":"info","message":"Incoming: PUT /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:41:51.215Z"}
-{"level":"info","message":"[Profile] Updated for user 10","timestamp":"2026-01-24T12:41:52.076Z"}
-{"level":"http","message":"[200] PUT  /service-api/user/10/profile - 873ms","timestamp":"2026-01-24T12:41:52.080Z"}
-{"level":"info","message":"Incoming: PATCH /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:43:23.260Z"}
-{"level":"warn","message":"[404] PATCH  /service-api/user/10/profile - 24ms","timestamp":"2026-01-24T12:43:23.283Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T13:00:43.065Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T13:00:43.066Z"}
-{"level":"info","message":"Incoming: POST /service-api/user/create from 127.0.0.1","timestamp":"2026-01-24T13:00:45.406Z"}
-{"level":"warn","message":"[404] POST  /service-api/user/create - 21ms","timestamp":"2026-01-24T13:00:45.427Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/feedback/create from 127.0.0.1","timestamp":"2026-01-24T13:01:19.363Z"}
-{"level":"http","message":"[201] POST  /interactions/api/feedback/create - 756ms","timestamp":"2026-01-24T13:01:20.118Z"}
-{"level":"info","message":"Incoming: GET /interactions/api/feedback from 127.0.0.1","timestamp":"2026-01-24T13:02:54.955Z"}
-{"level":"http","message":"[200] GET  /interactions/api/feedback - 193ms","timestamp":"2026-01-24T13:02:55.148Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/reviews/create from 127.0.0.1","timestamp":"2026-01-24T13:05:24.647Z"}
-{"level":"error","message":"[500] POST  /interactions/api/reviews/create - 492ms","timestamp":"2026-01-24T13:05:25.136Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:30:07.384Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 1229ms","timestamp":"2026-01-24T14:30:08.612Z"}
-{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T14:30:43.147Z"}
-{"level":"http","message":"[200] POST  /accounts/auth/login - 765ms","timestamp":"2026-01-24T14:30:43.912Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:31:02.280Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 310ms","timestamp":"2026-01-24T14:31:02.590Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:32:02.200Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 252ms","timestamp":"2026-01-24T14:32:02.451Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:19.008Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:19.012Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:24.048Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:24.048Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:33.674Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:33.675Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:33:37.568Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 808ms","timestamp":"2026-01-24T14:33:38.377Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:34:00.260Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:34:00.260Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:01.903Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:01.904Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:04.603Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:04.603Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:07.041Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:07.041Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:13.463Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 761ms","timestamp":"2026-01-24T14:35:14.223Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:31.147Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 166ms","timestamp":"2026-01-24T14:35:31.313Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:50.326Z"}
-{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 150ms","timestamp":"2026-01-24T14:35:50.476Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:36:06.601Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:36:06.601Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:35:58.707Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:35:58.709Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:11.416Z"}
-{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 597ms","timestamp":"2026-01-25T04:36:12.012Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:20.040Z"}
-{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 106ms","timestamp":"2026-01-25T04:36:20.146Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:36.956Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:36.956Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:38.946Z"}
-{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 483ms","timestamp":"2026-01-25T04:36:39.429Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:48.814Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:48.814Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:49.508Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:49.509Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:52.351Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:52.351Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:58.434Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:58.435Z"}
-{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:37:00.938Z"}
-{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 637ms","timestamp":"2026-01-25T04:37:01.574Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:37:08.663Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:37:08.663Z"}
-{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:37:17.190Z"}
-{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:37:17.190Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T18:04:08.204Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T18:04:08.206Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:04:11.736Z"}
+{"level":"http","message":"[200] GET  /service_api/user/services - 1701ms","timestamp":"2026-01-22T18:04:13.437Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:07:28.740Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 255ms","timestamp":"2026-01-22T18:07:28.995Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:08:17.676Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 268ms","timestamp":"2026-01-22T18:08:17.945Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:08:59.189Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 254ms","timestamp":"2026-01-22T18:08:59.444Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:11:42.680Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 1187ms","timestamp":"2026-01-22T18:11:43.867Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:11:44.344Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:11:44.555Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:11:49.817Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 213ms","timestamp":"2026-01-22T18:11:50.030Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:05.701Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 279ms","timestamp":"2026-01-22T18:12:05.980Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:12.881Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 219ms","timestamp":"2026-01-22T18:12:13.100Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:28.234Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 314ms","timestamp":"2026-01-22T18:12:28.579Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:40.848Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 242ms","timestamp":"2026-01-22T18:12:41.091Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:49.863Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 259ms","timestamp":"2026-01-22T18:12:50.123Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:12:52.568Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 243ms","timestamp":"2026-01-22T18:12:52.811Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:13:42.937Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 284ms","timestamp":"2026-01-22T18:13:43.222Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:13:47.794Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 214ms","timestamp":"2026-01-22T18:13:48.008Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:13:52.111Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:13:52.323Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:01.649Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 244ms","timestamp":"2026-01-22T18:14:01.893Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:06.558Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 204ms","timestamp":"2026-01-22T18:14:06.763Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:12.530Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 217ms","timestamp":"2026-01-22T18:14:12.748Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:13.665Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 231ms","timestamp":"2026-01-22T18:14:13.895Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:17.179Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 285ms","timestamp":"2026-01-22T18:14:17.465Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:31.584Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 246ms","timestamp":"2026-01-22T18:14:31.830Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:34.272Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 281ms","timestamp":"2026-01-22T18:14:34.552Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:38.614Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 208ms","timestamp":"2026-01-22T18:14:38.822Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:43.945Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 217ms","timestamp":"2026-01-22T18:14:44.162Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:47.689Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 220ms","timestamp":"2026-01-22T18:14:47.908Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:14:50.971Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 275ms","timestamp":"2026-01-22T18:14:51.246Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:15:46.112Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 284ms","timestamp":"2026-01-22T18:15:46.396Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:16:09.861Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 286ms","timestamp":"2026-01-22T18:16:10.146Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:16:12.044Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 232ms","timestamp":"2026-01-22T18:16:12.276Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:16:32.498Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 284ms","timestamp":"2026-01-22T18:16:32.782Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:18:28.521Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 899ms","timestamp":"2026-01-22T18:18:29.419Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:19:30.113Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 267ms","timestamp":"2026-01-22T18:19:30.379Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:19:38.276Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 228ms","timestamp":"2026-01-22T18:19:38.504Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:19:39.364Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 219ms","timestamp":"2026-01-22T18:19:39.582Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:13.879Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 274ms","timestamp":"2026-01-22T18:20:14.153Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:15.500Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 222ms","timestamp":"2026-01-22T18:20:15.723Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:19.997Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 224ms","timestamp":"2026-01-22T18:20:20.222Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:37.914Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 288ms","timestamp":"2026-01-22T18:20:38.202Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:40.999Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 215ms","timestamp":"2026-01-22T18:20:41.211Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:43.281Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 221ms","timestamp":"2026-01-22T18:20:43.502Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:49.926Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 225ms","timestamp":"2026-01-22T18:20:50.151Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:52.456Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 225ms","timestamp":"2026-01-22T18:20:52.680Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:20:57.580Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 290ms","timestamp":"2026-01-22T18:20:57.871Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:21:03.215Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 221ms","timestamp":"2026-01-22T18:21:03.436Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:21:08.420Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 221ms","timestamp":"2026-01-22T18:21:08.641Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:21:14.310Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 280ms","timestamp":"2026-01-22T18:21:14.590Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:22:22.574Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 290ms","timestamp":"2026-01-22T18:22:22.865Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:22:26.505Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 219ms","timestamp":"2026-01-22T18:22:26.724Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:22:31.883Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:22:32.094Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:22:37.013Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 208ms","timestamp":"2026-01-22T18:22:37.220Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:22:44.812Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 259ms","timestamp":"2026-01-22T18:22:45.070Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:24.804Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:25.465Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 898ms","timestamp":"2026-01-22T18:24:25.703Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 777ms","timestamp":"2026-01-22T18:24:26.242Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:27.179Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 210ms","timestamp":"2026-01-22T18:24:27.388Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:32.209Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 208ms","timestamp":"2026-01-22T18:24:32.417Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:36.477Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 200ms","timestamp":"2026-01-22T18:24:36.677Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:40.541Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 195ms","timestamp":"2026-01-22T18:24:40.737Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:53.517Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 281ms","timestamp":"2026-01-22T18:24:53.798Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:57.452Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:24:57.514Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:24:57.664Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 274ms","timestamp":"2026-01-22T18:24:57.787Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:22.205Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 256ms","timestamp":"2026-01-22T18:25:22.462Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:37.581Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 340ms","timestamp":"2026-01-22T18:25:37.921Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:39.592Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 203ms","timestamp":"2026-01-22T18:25:39.795Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:53.490Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 230ms","timestamp":"2026-01-22T18:25:53.720Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:57.942Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 203ms","timestamp":"2026-01-22T18:25:58.145Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:25:59.633Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 197ms","timestamp":"2026-01-22T18:25:59.830Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:26:06.912Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 199ms","timestamp":"2026-01-22T18:26:07.110Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:26:09.881Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 263ms","timestamp":"2026-01-22T18:26:10.145Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:26:15.659Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 215ms","timestamp":"2026-01-22T18:26:15.875Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:26:38.477Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 249ms","timestamp":"2026-01-22T18:26:38.726Z"}
+{"level":"info","message":"Incoming: GET /accounts/auth/profile from 192.168.31.186","timestamp":"2026-01-22T18:38:33.162Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-22T18:38:44.075Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-22T18:38:44.076Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:39:34.629Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 1080ms","timestamp":"2026-01-22T18:39:35.709Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:46:46.928Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 899ms","timestamp":"2026-01-22T18:46:47.827Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:46:59.341Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 218ms","timestamp":"2026-01-22T18:46:59.558Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:48:35.791Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 369ms","timestamp":"2026-01-22T18:48:36.160Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services?search=Engine from 192.168.31.186","timestamp":"2026-01-22T18:48:41.123Z"}
+{"level":"http","message":"[200] GET  /service_api/user/services?search=Engine - 238ms","timestamp":"2026-01-22T18:48:41.361Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:48:45.794Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 215ms","timestamp":"2026-01-22T18:48:46.008Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:49:05.634Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 269ms","timestamp":"2026-01-22T18:49:05.902Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:18.369Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 271ms","timestamp":"2026-01-22T18:51:18.640Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:20.243Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 224ms","timestamp":"2026-01-22T18:51:20.467Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:27.345Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 210ms","timestamp":"2026-01-22T18:51:27.555Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:31.784Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:51:31.995Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:33.054Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 227ms","timestamp":"2026-01-22T18:51:33.281Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:35.015Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 288ms","timestamp":"2026-01-22T18:51:35.303Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:39.354Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 220ms","timestamp":"2026-01-22T18:51:39.574Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:41.133Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 210ms","timestamp":"2026-01-22T18:51:41.344Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:51:43.202Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 222ms","timestamp":"2026-01-22T18:51:43.425Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:52:03.026Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 869ms","timestamp":"2026-01-22T18:52:03.894Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:52:10.180Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 202ms","timestamp":"2026-01-22T18:52:10.383Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:53:03.109Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 268ms","timestamp":"2026-01-22T18:53:03.377Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:53:13.035Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 217ms","timestamp":"2026-01-22T18:53:13.252Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:53:14.764Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 215ms","timestamp":"2026-01-22T18:53:14.979Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:53:16.976Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 205ms","timestamp":"2026-01-22T18:53:17.181Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:55:08.550Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 315ms","timestamp":"2026-01-22T18:55:08.864Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:55:41.252Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 258ms","timestamp":"2026-01-22T18:55:41.509Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:55:44.542Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 214ms","timestamp":"2026-01-22T18:55:44.756Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:55:46.270Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 215ms","timestamp":"2026-01-22T18:55:46.485Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:55:54.877Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 217ms","timestamp":"2026-01-22T18:55:55.094Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:10.357Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 265ms","timestamp":"2026-01-22T18:56:10.621Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:16.219Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 210ms","timestamp":"2026-01-22T18:56:16.428Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:21.062Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 212ms","timestamp":"2026-01-22T18:56:21.274Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:25.485Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 259ms","timestamp":"2026-01-22T18:56:25.744Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:30.816Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 203ms","timestamp":"2026-01-22T18:56:31.019Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:39.955Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 1284ms","timestamp":"2026-01-22T18:56:41.239Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services/205 from 192.168.31.186","timestamp":"2026-01-22T18:56:48.546Z"}
+{"level":"http","message":"[200] GET  /service_api/user/services/205 - 328ms","timestamp":"2026-01-22T18:56:48.873Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:56:48.880Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 197ms","timestamp":"2026-01-22T18:56:49.077Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:57:06.140Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 895ms","timestamp":"2026-01-22T18:57:07.034Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:57:54.560Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 252ms","timestamp":"2026-01-22T18:57:54.813Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services/204 from 192.168.31.186","timestamp":"2026-01-22T18:57:55.951Z"}
+{"level":"http","message":"[200] GET  /service_api/user/services/204 - 305ms","timestamp":"2026-01-22T18:57:56.255Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:57:56.263Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 205ms","timestamp":"2026-01-22T18:57:56.468Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services/204 from 192.168.31.186","timestamp":"2026-01-22T18:58:06.458Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services/204 - 146ms","timestamp":"2026-01-22T18:58:06.603Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:58:06.614Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 199ms","timestamp":"2026-01-22T18:58:06.813Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services/204 from 192.168.31.186","timestamp":"2026-01-22T18:58:11.583Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services/204 - 190ms","timestamp":"2026-01-22T18:58:11.773Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:58:12.927Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:58:12.947Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services/204 from 192.168.31.186","timestamp":"2026-01-22T18:58:12.956Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 196ms","timestamp":"2026-01-22T18:58:13.123Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 1020ms","timestamp":"2026-01-22T18:58:13.968Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services/204 - 1015ms","timestamp":"2026-01-22T18:58:13.971Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.31.186","timestamp":"2026-01-22T18:58:13.981Z"}
+{"level":"http","message":"[304] GET  /service_api/user/services - 439ms","timestamp":"2026-01-22T18:58:14.420Z"}
+{"level":"info","message":"Incoming: POST /service_api/payments/order/create/ from 192.168.31.186","timestamp":"2026-01-22T18:59:38.792Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T07:38:45.487Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T07:38:45.488Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:19:00.842Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:19:00.843Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:31:45.750Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:31:45.751Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:32:42.625Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:32:42.626Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:32:53.132Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:32:53.135Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:32:59.281Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:32:59.283Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:33:28.230Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:33:28.232Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T10:38:47.354Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T10:38:47.355Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T04:13:27.417Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T04:13:27.419Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T04:25:14.031Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T04:25:14.032Z"}
+{"level":"info","message":"Incoming: GET /service_api/user/services from 192.168.1.10","timestamp":"2026-01-24T05:06:45.208Z"}
+{"level":"info","message":"Incoming: PUT /accounts/auth/push-token from 192.168.1.10","timestamp":"2026-01-24T05:06:45.625Z"}
+{"level":"http","message":"[200] GET  /service_api/user/services - 951ms","timestamp":"2026-01-24T05:06:46.155Z"}
+{"level":"http","message":"[200] PUT  /accounts/auth/push-token - 1131ms","timestamp":"2026-01-24T05:06:46.757Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:47:07.671Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:47:07.671Z"}
