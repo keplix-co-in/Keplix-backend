@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { createServer } from "http";
-import { Server } from "socket.io";
+// import { Server } from "socket.io"; // Moved to socket.js
+import { initSocket } from "./socket.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
@@ -43,13 +44,7 @@ export const authLimiter = rateLimit({
   }
 });
 
-const io = new Server(httpServer, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-});
+const io = initSocket(httpServer);
 
 app.set("io",io); // Make io accessible in routes via req.app.get('io')
 

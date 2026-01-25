@@ -713,6 +713,30 @@ export const updateUserProfileAuth = async (req, res) => {
     });
   }
 };
+// @desc    Update Push Notification Token
+// @route   PUT /accounts/auth/push-token/
+// @access  Private
+export const updatePushToken = async (req, res) => {
+  const { pushToken } = req.body;
+  const userId = req.user.id; // Correct way to access user ID from middleware
+
+  if (!pushToken) {
+    return res.status(400).json({ message: "Push token is required" });
+  }
+
+  try {
+    // Both Users and Vendors are in the User table
+    await prisma.user.update({
+      where: { id: parseInt(userId) },
+      data: { pushToken }
+    });
+
+    res.json({ success: true, message: "Push token updated" });
+  } catch (error) {
+    console.error("Token update error:", error);
+    res.status(500).json({ error: "Failed to update token" });
+  }
+};
 // ======================
 // keplix-backend/server.js
 // ======================
