@@ -781,3 +781,210 @@
 {"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T14:57:48.274Z"}
 {"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T15:11:27.435Z"}
 {"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T15:11:27.435Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-23T19:25:38.924Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-23T19:25:38.925Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:37:21.063Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:37:21.064Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T10:40:03.164Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 1062ms","timestamp":"2026-01-24T10:40:04.222Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:42:24.309Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 29ms","timestamp":"2026-01-24T10:42:24.335Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T10:43:19.423Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 370ms","timestamp":"2026-01-24T10:43:19.792Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:43:38.755Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 8ms","timestamp":"2026-01-24T10:43:38.764Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:51.724Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:51.727Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:54.770Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:54.771Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:48:55.885Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:48:55.886Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:48:59.272Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/login - 23ms","timestamp":"2026-01-24T10:48:59.294Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:49:41.052Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:49:41.055Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:52.524Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:52.526Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:57.088Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:57.089Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:50:58.864Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:50:58.865Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:04.283Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:04.283Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:15.152Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:15.153Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:18.395Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:18.396Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T10:51:20.657Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T10:51:20.658Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T10:51:36.167Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 937ms","timestamp":"2026-01-24T10:51:37.103Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/token/refresh from 127.0.0.1","timestamp":"2026-01-24T10:53:23.063Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/token/refresh - 150ms","timestamp":"2026-01-24T10:53:23.213Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/forgot-password from 127.0.0.1","timestamp":"2026-01-24T10:55:13.137Z"}
+{"level":"info","message":"[Resend] Email sent successfully to akashuser@example.com: undefined","timestamp":"2026-01-24T10:55:13.700Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/forgot-password - 565ms","timestamp":"2026-01-24T10:55:13.701Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/reset-password/7/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NywiaWF0IjoxNzY5MjUyMDAzLCJleHAiOjE3NzE4NDQwMDN9.9kiQCjc3U0D7W1hyYTzsDIXWlhHjRkZ9oqmNFSSGCQg from 127.0.0.1","timestamp":"2026-01-24T11:01:31.266Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/reset-password/7/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NywiaWF0IjoxNzY5MjUyMDAzLCJleHAiOjE3NzE4NDQwMDN9.9kiQCjc3U0D7W1hyYTzsDIXWlhHjRkZ9oqmNFSSGCQg - 25ms","timestamp":"2026-01-24T11:01:31.287Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/logout from 127.0.0.1","timestamp":"2026-01-24T11:06:03.919Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/logout - 23ms","timestamp":"2026-01-24T11:06:03.939Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:16.656Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:16.658Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:21.895Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:21.895Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:25.866Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:25.866Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:28.481Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:28.482Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:09:31.049Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:09:31.049Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/services from 127.0.0.1","timestamp":"2026-01-24T11:10:30.015Z"}
+{"level":"http","message":"[200] GET  /service-api/user/services - 746ms","timestamp":"2026-01-24T11:10:30.757Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/services from 127.0.0.1","timestamp":"2026-01-24T11:13:06.697Z"}
+{"level":"http","message":"[200] GET  /service-api/user/services - 214ms","timestamp":"2026-01-24T11:13:06.908Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/services/3 from 127.0.0.1","timestamp":"2026-01-24T11:14:17.998Z"}
+{"level":"http","message":"[200] GET  /service-api/user/services/3 - 313ms","timestamp":"2026-01-24T11:14:18.307Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/categories from 127.0.0.1","timestamp":"2026-01-24T11:15:49.143Z"}
+{"level":"http","message":"[200] GET  /service-api/user/categories - 2400ms","timestamp":"2026-01-24T11:15:51.543Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/search from 127.0.0.1","timestamp":"2026-01-24T11:17:20.415Z"}
+{"level":"warn","message":"[400] GET  /service-api/user/search - 8ms","timestamp":"2026-01-24T11:17:20.419Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/search?latitude=28.6139&longitude=77.2090&radius=10 from 127.0.0.1","timestamp":"2026-01-24T11:21:18.876Z"}
+{"level":"http","message":"[200] GET  /service-api/user/search?latitude=28.6139&longitude=77.2090&radius=10 - 526ms","timestamp":"2026-01-24T11:21:19.401Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/vendors/7/services from 127.0.0.1","timestamp":"2026-01-24T11:48:27.994Z"}
+{"level":"http","message":"[200] GET  /service-api/user/vendors/7/services - 581ms","timestamp":"2026-01-24T11:48:28.560Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/vendors/3/services from 127.0.0.1","timestamp":"2026-01-24T11:48:36.772Z"}
+{"level":"http","message":"[200] GET  /service-api/user/vendors/3/services - 225ms","timestamp":"2026-01-24T11:48:36.996Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T11:55:50.218Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 760ms","timestamp":"2026-01-24T11:55:50.976Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:56:04.073Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 591ms","timestamp":"2026-01-24T11:56:04.664Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/3/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:56:21.778Z"}
+{"level":"error","message":"[500] GET  /service-api/user/3/bookings/create - 161ms","timestamp":"2026-01-24T11:56:21.938Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:57:01.269Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 136ms","timestamp":"2026-01-24T11:57:01.404Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:57:49.404Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:57:49.407Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:57:51.172Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:57:51.172Z"}
+{"level":"info","message":"Incoming: GET /service-api/user/7/bookings/create from 127.0.0.1","timestamp":"2026-01-24T11:57:57.777Z"}
+{"level":"error","message":"[500] GET  /service-api/user/7/bookings/create - 711ms","timestamp":"2026-01-24T11:57:58.486Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T11:58:27.332Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T11:58:27.333Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:03:36.973Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:03:37.681Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 720ms","timestamp":"2026-01-24T12:03:37.689Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:04:37.384Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:04:37.520Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 139ms","timestamp":"2026-01-24T12:04:37.522Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:07:35.485Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:07:35.486Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:07:40.705Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:07:41.530Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 831ms","timestamp":"2026-01-24T12:07:41.535Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:08:02.110Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:08:02.110Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:08:03.406Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:08:03.406Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:08:18.498Z"}
+{"level":"error","message":"[Profile] Update error: \nInvalid `prisma.userProfile.upsert()` invocation:\n\n{\n  where: {\n    userId: 7\n  },\n  update: {},\n  create: {\n    userId: 7,\n    name: \"User\",\n    phone: null,\n    address: null,\n    profile_picture: null,\n    ~~~~~~~~~~~~~~~\n    id_proof_front: null,\n    id_proof_back: null,\n?   id?: Int\n  }\n}\n\nUnknown argument `profile_picture`. Available options are marked with ?.","timestamp":"2026-01-24T12:08:19.218Z"}
+{"level":"error","message":"[500] PUT  /service-api/user/7/profile - 726ms","timestamp":"2026-01-24T12:08:19.223Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:10:22.448Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:10:22.449Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:10:29.002Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:11:31.452Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:11:31.452Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:11:40.635Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:13:15.159Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:13:15.161Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:13:26.896Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:13:26.897Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:14:30.184Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/signup - 849ms","timestamp":"2026-01-24T12:14:31.032Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:15:52.338Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:20:11.514Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:20:11.515Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/7/profile from 127.0.0.1","timestamp":"2026-01-24T12:20:18.694Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:21:32.046Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:21:32.046Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:21:34.198Z"}
+{"level":"error","message":"[500] POST  /accounts/auth/signup - 521ms","timestamp":"2026-01-24T12:21:34.719Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T12:23:37.667Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T12:23:37.667Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:23:40.447Z"}
+{"level":"warn","message":"[400] POST  /accounts/auth/signup - 331ms","timestamp":"2026-01-24T12:23:40.777Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/signup from 127.0.0.1","timestamp":"2026-01-24T12:23:48.121Z"}
+{"level":"http","message":"[201] POST  /accounts/auth/signup - 240ms","timestamp":"2026-01-24T12:23:48.362Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:24:24.887Z"}
+{"level":"info","message":"[Profile] Updated for user 10","timestamp":"2026-01-24T12:24:25.766Z"}
+{"level":"http","message":"[200] PUT  /service-api/user/10/profile - 883ms","timestamp":"2026-01-24T12:24:25.768Z"}
+{"level":"info","message":"Incoming: PUT /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:41:51.215Z"}
+{"level":"info","message":"[Profile] Updated for user 10","timestamp":"2026-01-24T12:41:52.076Z"}
+{"level":"http","message":"[200] PUT  /service-api/user/10/profile - 873ms","timestamp":"2026-01-24T12:41:52.080Z"}
+{"level":"info","message":"Incoming: PATCH /service-api/user/10/profile from 127.0.0.1","timestamp":"2026-01-24T12:43:23.260Z"}
+{"level":"warn","message":"[404] PATCH  /service-api/user/10/profile - 24ms","timestamp":"2026-01-24T12:43:23.283Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T13:00:43.065Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T13:00:43.066Z"}
+{"level":"info","message":"Incoming: POST /service-api/user/create from 127.0.0.1","timestamp":"2026-01-24T13:00:45.406Z"}
+{"level":"warn","message":"[404] POST  /service-api/user/create - 21ms","timestamp":"2026-01-24T13:00:45.427Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/feedback/create from 127.0.0.1","timestamp":"2026-01-24T13:01:19.363Z"}
+{"level":"http","message":"[201] POST  /interactions/api/feedback/create - 756ms","timestamp":"2026-01-24T13:01:20.118Z"}
+{"level":"info","message":"Incoming: GET /interactions/api/feedback from 127.0.0.1","timestamp":"2026-01-24T13:02:54.955Z"}
+{"level":"http","message":"[200] GET  /interactions/api/feedback - 193ms","timestamp":"2026-01-24T13:02:55.148Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/reviews/create from 127.0.0.1","timestamp":"2026-01-24T13:05:24.647Z"}
+{"level":"error","message":"[500] POST  /interactions/api/reviews/create - 492ms","timestamp":"2026-01-24T13:05:25.136Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:30:07.384Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 1229ms","timestamp":"2026-01-24T14:30:08.612Z"}
+{"level":"info","message":"Incoming: POST /accounts/auth/login from 127.0.0.1","timestamp":"2026-01-24T14:30:43.147Z"}
+{"level":"http","message":"[200] POST  /accounts/auth/login - 765ms","timestamp":"2026-01-24T14:30:43.912Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:31:02.280Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 310ms","timestamp":"2026-01-24T14:31:02.590Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:32:02.200Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 252ms","timestamp":"2026-01-24T14:32:02.451Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:19.008Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:19.012Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:24.048Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:24.048Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:33:33.674Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:33:33.675Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:33:37.568Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 808ms","timestamp":"2026-01-24T14:33:38.377Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:34:00.260Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:34:00.260Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:01.903Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:01.904Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:04.603Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:04.603Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:35:07.041Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:35:07.041Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:13.463Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 761ms","timestamp":"2026-01-24T14:35:14.223Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:31.147Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 166ms","timestamp":"2026-01-24T14:35:31.313Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-24T14:35:50.326Z"}
+{"level":"error","message":"[500] POST  /interactions/api/user/notifications/create - 150ms","timestamp":"2026-01-24T14:35:50.476Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-24T14:36:06.601Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-24T14:36:06.601Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:35:58.707Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:35:58.709Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:11.416Z"}
+{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 597ms","timestamp":"2026-01-25T04:36:12.012Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:20.040Z"}
+{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 106ms","timestamp":"2026-01-25T04:36:20.146Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:36.956Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:36.956Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:36:38.946Z"}
+{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 483ms","timestamp":"2026-01-25T04:36:39.429Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:48.814Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:48.814Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:49.508Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:49.509Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:52.351Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:52.351Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:36:58.434Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:36:58.435Z"}
+{"level":"info","message":"Incoming: POST /interactions/api/user/notifications/create from 127.0.0.1","timestamp":"2026-01-25T04:37:00.938Z"}
+{"level":"warn","message":"[400] POST  /interactions/api/user/notifications/create - 637ms","timestamp":"2026-01-25T04:37:01.574Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:37:08.663Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:37:08.663Z"}
+{"level":"info","message":"http://localhost:8000","timestamp":"2026-01-25T04:37:17.190Z"}
+{"level":"info","message":"Server running in development mode","timestamp":"2026-01-25T04:37:17.190Z"}

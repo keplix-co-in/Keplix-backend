@@ -58,7 +58,7 @@ export const registerUser = async (req, res, next) => {
     if (userExists) {
       return res.status(400).json({
         success: false,
-        message: "User already exists",
+        error: "User already exists with this email.",
         code: "USER_EXISTS",
       });
     }
@@ -114,9 +114,17 @@ export const registerUser = async (req, res, next) => {
 export const authUser = async (req, res) => {
   const { email, password } = req.body;
 
+  console.log(email)
+  console.log(password)
+
+
   try {
     const user = await prisma.user.findUnique({
       where: { email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
     });
 
     if (user) {
@@ -130,10 +138,37 @@ export const authUser = async (req, res) => {
       }
 
       if (isValid) {
-        return res.json({
+        let profileData = {};
+        if (user.role === "vendor" && user.vendorProfile) {
+          profileData = {
+            name: user.vendorProfile.business_name,
+            phone: user.vendorProfile.phone,
+            phone_number: user.vendorProfile.phone,
+            address: user.vendorProfile.address || "",
+            // Add other vendor fields if needed
+            business_name: user.vendorProfile.business_name,
+            profile_picture: user.vendorProfile.image,
+          };
+        } else if (user.userProfile) {
+          profileData = {
+            name: user.userProfile.name,
+            phone: user.userProfile.phone,
+            phone_number: user.userProfile.phone,
+            address: user.userProfile.address || "",
+            profile_picture: user.userProfile.profile_picture,
+          };
+        }
+
+        const userData = {
           id: user.id,
           email: user.email,
           role: user.role,
+          is_active: user.is_active,
+          ...profileData,
+        };
+
+        return res.json({
+          user: userData,
           access: generateToken(user.id),
           refresh: generateToken(user.id),
         });
@@ -155,10 +190,23 @@ export const getUserProfile = async (req, res) => {
 
   if (user) {
     let profileData = {};
-    if (user.role === "vendor") {
-      profileData = user.vendorProfile || {};
-    } else {
-      profileData = user.userProfile || {};
+    if (user.role === "vendor" && user.vendorProfile) {
+      profileData = {
+        name: user.vendorProfile.business_name,
+        phone: user.vendorProfile.phone,
+        phone_number: user.vendorProfile.phone, // For frontend compatibility
+        ...user.vendorProfile,
+      };
+    } else if (user.userProfile) {
+      profileData = {
+        name: user.userProfile.name,
+        phone: user.userProfile.phone,
+        phone_number: user.userProfile.phone, // For frontend compatibility
+        address: user.userProfile.address,
+        profile_picture: user.userProfile.profile_picture,
+        id_proof_front: user.userProfile.id_proof_front,
+        id_proof_back: user.userProfile.id_proof_back,
+      };
     }
 
     res.json({
@@ -205,8 +253,6 @@ export const logoutUser = async (req, res) => {
 
 import { sendEmail, sendSMS } from "../util/communication.js";
 
-// ...existing code...
-
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -224,14 +270,92 @@ export const resetPassword = async (req, res) => {
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
   const { phone_number } = req.body;
-  await sendSMS(phone_number, "Your OTP is 123456");
-  res.json({ message: "OTP sent (mock)" });
+
+  if (!phone_number) {
+    return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  try {
+    const otp = generateOTP();
+    console.log(`[OTP] Generated for ${phone_number}: ${otp}`);
+
+    // Save OTP in database
+    await prisma.phoneOTP.upsert({
+      where: { phone_number },
+      update: {
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        verified: false
+      },
+      create: {
+        phone_number,
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        verified: false
+      },
+    });
+
+    // Send SMS
+    const smsMessage = `Your Keplix verification code is: ${otp}. Valid for 10 minutes.`;
+    const smsSent = await sendSMS(phone_number, smsMessage);
+
+    if (smsSent) {
+      res.json({ status: true, message: "Phone OTP sent successfully" });
+    } else {
+      // SMS service not configured, return OTP in development
+      res.json({ 
+        status: true, 
+        message: "OTP generated (SMS Service Unavailable)", 
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+        warning: "SMS service not configured. Use the code from logs."
+      });
+    }
+  } catch (error) {
+    console.error("sendPhoneOTP error:", error);
+    res.status(500).json({ error: "Failed to send OTP", details: error.message });
+  }
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-  // Verify OTP logic
-  res.json({ message: "OTP verified (mock)" });
+  const { phone_number, otp } = req.body;
+
+  if (!phone_number || !otp) {
+    return res.status(400).json({ error: "Phone number and OTP are required" });
+  }
+
+  try {
+    const otpRecord = await prisma.phoneOTP.findUnique({
+      where: { phone_number },
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({ error: "No OTP found for this phone number" });
+    }
+
+    if (otpRecord.verified) {
+      return res.status(400).json({ error: "OTP already verified" });
+    }
+
+    if (new Date() > otpRecord.expiresAt) {
+      return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    if (otpRecord.otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Mark as verified
+    await prisma.phoneOTP.update({
+      where: { phone_number },
+      data: { verified: true },
+    });
+
+    res.json({ status: true, message: "Phone OTP verified successfully" });
+  } catch (error) {
+    console.error("verifyPhoneOTP error:", error);
+    res.status(500).json({ error: "Failed to verify OTP", details: error.message });
+  }
 };
 
 // @desc    Send Email OTP
@@ -243,7 +367,7 @@ export const sendEmailOTP = async (req, res) => {
   }
   try {
     const otp = generateOTP();
-    //console.log(otp);
+    console.log(`[OTP] Generated for ${email}: ${otp}`);
     //save OTP in database
     // await prisma.emailOTP.upsert({
     //   data: {
@@ -256,35 +380,59 @@ export const sendEmailOTP = async (req, res) => {
   
 
     await prisma.emailOTP.upsert({
-      where: {
-        email: email, // must be UNIQUE in schema
-      },
+      where: { email },
       update: {
         otp,
-        expiresAt: new Date(Date.now() + 5.5 * 60 * 60 * 1000 + 5 * 60 * 1000)
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now (UTC)
+        verified: false
       },
       create: {
         email,
         otp,
-        expiresAt: new Date(Date.now() + 5.5 * 60 * 60 * 1000 + 5 * 60 * 1000)
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        verified: false
       },
     });
 
-    //send Email via resend
-    await resend.emails.send({
-      from: "Keplix <onboarding@resend.dev>",
-      to: email,
-      html: `
-        <h2>Email Verification</h2>
-        <p>Your OTP is:</p>
-        <h1>${otp}</h1>
-        <p>This OTP is valid for 5 minutes.</p>
-      `,
-    });
-
-    res.json({ status: true, message: "Email OTP sent successfully" });
+    // Send Email via Resend
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: "Keplix <onboarding@resend.dev>",
+          to: email,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px;">
+              <h2>Keplix Email Verification</h2>
+              <p>Your verification code is:</p>
+              <h1 style="color: #D82424; letter-spacing: 5px;">${otp}</h1>
+              <p>This code is valid for 10 minutes.</p>
+            </div>
+          `,
+        });
+        res.json({ status: true, message: "Email OTP sent successfully" });
+      } catch (resendError) {
+        // Log the exact error from Resend (e.g., 429 Rate Limit)
+        console.error("Resend API specific error:", resendError);
+        
+        // Return success anyway in development so the user isn't blocked by external API limits
+        res.json({ 
+          status: true, 
+          message: "OTP generated (Resend Limit Hit)", 
+          otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+          warning: "Email service temporarily unavailable. Use the code from logs." 
+        });
+      }
+    } else {
+      console.warn("Resend API client is not initialized. OTP log:", otp);
+      res.json({ 
+        status: true, 
+        message: "OTP generated (Simulation Mode)", 
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined 
+      });
+    }
   } catch (error) {
-    res.status(500).json({ message: "Failed to send OTP" });
+    console.error("sendEmailOTP error:", error);
+    res.status(500).json({ message: "Failed to send OTP", error: error.message });
   }
 };
 
@@ -297,21 +445,22 @@ export const verifyEmailOTP = async (req, res) => {
   }
 
   try {
-
-    const createdAt = new Date(Date.now()+ 5.5 * 60 * 60 *1000); //for IST Timezone
     const record = await prisma.emailOTP.findFirst({
-      where: { email, otp, verified: false },
-      orderBy: { createdAt: createdAt },
+      where: { 
+        email, 
+        otp, 
+        verified: false 
+      },
+      orderBy: { createdAt: 'desc' },
     });
 
-    console.log(record);
-
     if (!record) {
-      return res.status(400).json({ error: "Invalid OTP" });
+      return res.status(400).json({ error: "Invalid OTP or already used" });
     }
 
-    if (!record.expiresAt < new Date()) {
-      return res.status(400).json({ error: "OTP Expired" });
+    // Check expiry
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({ error: "OTP has expired" });
     }
 
     await prisma.emailOTP.update({
@@ -319,9 +468,36 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
-    res.json({ success: true, message: "Email OTP verified successfully" });
+    // Fetch user to return tokens automatically
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        userProfile: true,
+        vendorProfile: true
+      }
+    });
+
+    if (!user) {
+      return res.json({ success: true, message: "Email OTP verified successfully" });
+    }
+
+    res.json({ 
+      success: true, 
+      message: "Email OTP verified successfully",
+      access: generateToken(user.id),
+      refresh: generateToken(user.id),
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.role === 'vendor' ? user.vendorProfile?.business_name : user.userProfile?.name,
+        phone: user.role === 'vendor' ? user.vendorProfile?.phone : user.userProfile?.phone,
+        is_active: user.is_active
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: "OTP Verification Failed" });
+    console.error("verifyEmailOTP error:", error);
+    return res.status(500).json({ message: "OTP Verification Failed", error: error.message });
   }
 };
 // @desc    Google Login
@@ -381,6 +557,162 @@ export const googleLogin = async (req, res) => {
   }
 };
 
+// @desc    Update user profile
+// @route   PUT /accounts/auth/profile/
+// @access  Private
+export const updateUserProfileAuth = async (req, res) => {
+  const userId = req.user.id;
+  const { name, email, phone_number, phone, address, profile_picture, id_proof_front, id_proof_back } = req.body;
+
+  try {
+    // Handle file uploads from multer (Cloudinary URLs)
+    console.log('[UserProfile UPDATE] Request received');
+    console.log('[UserProfile UPDATE] Body:', JSON.stringify(req.body, null, 2));
+    
+    if (req.files) {
+      console.log('[UserProfile UPDATE] Files:', JSON.stringify(req.files, null, 2));
+    } else {
+      console.log('[UserProfile] No files received or multer failed to parse');
+    }
+
+    const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
+    const uploadedIdFront = req.files?.id_proof_front?.[0]?.path;
+    const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
+
+    if (uploadedProfilePicture) {
+      console.log('-> SET: Profile Picture URL:', uploadedProfilePicture);
+    }
+    if (uploadedIdFront) {
+      console.log('-> SET: ID Front URL:', uploadedIdFront);
+    }
+    if (uploadedIdBack) {
+      console.log('-> SET: ID Back URL:', uploadedIdBack);
+    }
+
+    // 1. Check if email is being changed and if it's already taken
+    if (email && email !== req.user.email) {
+      const existingUser = await prisma.user.findUnique({ 
+        where: { email } 
+      });
+      if (existingUser) {
+        return res.status(400).json({ 
+          message: "Email already in use by another account" 
+        });
+      }
+    }
+
+    // 2. Update User (email)
+    const userUpdateData = {};
+    if (email && email !== req.user.email) {
+      userUpdateData.email = email;
+    }
+
+    if (Object.keys(userUpdateData).length > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: userUpdateData,
+      });
+    }
+
+    // 3. Update UserProfile (name, phone, address, images)
+    // Map phone_number from frontend to phone in backend if needed
+    const finalPhone = phone || phone_number;
+
+    // Build update data - only include fields that are provided
+    const profileUpdateData = {};
+    if (name !== undefined && name !== null) profileUpdateData.name = name;
+    if (finalPhone !== undefined && finalPhone !== null) profileUpdateData.phone = finalPhone;
+    if (address !== undefined && address !== null) profileUpdateData.address = address;
+    
+    // Use uploaded files if available, otherwise use the URLs from body
+    if (uploadedProfilePicture) {
+      profileUpdateData.profile_picture = uploadedProfilePicture;
+    } else if (profile_picture !== undefined && profile_picture !== null) {
+      profileUpdateData.profile_picture = profile_picture;
+    }
+    
+    if (uploadedIdFront) {
+      profileUpdateData.id_proof_front = uploadedIdFront;
+    } else if (id_proof_front !== undefined && id_proof_front !== null) {
+      profileUpdateData.id_proof_front = id_proof_front;
+    }
+    
+    if (uploadedIdBack) {
+      profileUpdateData.id_proof_back = uploadedIdBack;
+    } else if (id_proof_back !== undefined && id_proof_back !== null) {
+      profileUpdateData.id_proof_back = id_proof_back;
+    }
+
+    console.log('[UserProfile] Final Update Data:', JSON.stringify(profileUpdateData, null, 2));
+
+    const profile = await prisma.userProfile.upsert({
+      where: { userId: userId },
+      update: profileUpdateData,
+      create: {
+        userId: userId,
+        name: name || "User",
+        phone: finalPhone || null,
+        address: address || null,
+        profile_picture: uploadedProfilePicture || profile_picture || null,
+        id_proof_front: uploadedIdFront || id_proof_front || null,
+        id_proof_back: uploadedIdBack || id_proof_back || null,
+      },
+    });
+
+    console.log('[UserProfile] Profile Updated Successfully:', { 
+      userId, 
+      hasProfilePicture: !!profile.profile_picture 
+    });
+
+    // 4. Return updated profile data (matching getUserProfile format)
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { 
+        userProfile: true,
+        vendorProfile: true 
+      },
+    });
+
+    // Return profile based on role
+    let profileData = {};
+    if (updatedUser.role === "vendor" && updatedUser.vendorProfile) {
+      profileData = {
+        name: updatedUser.vendorProfile.business_name,
+        phone: updatedUser.vendorProfile.phone,
+        phone_number: updatedUser.vendorProfile.phone,
+        ...updatedUser.vendorProfile,
+      };
+    } else if (updatedUser.userProfile) {
+      profileData = {
+        name: updatedUser.userProfile.name,
+        phone: updatedUser.userProfile.phone,
+        phone_number: updatedUser.userProfile.phone,
+        address: updatedUser.userProfile.address,
+        profile_picture: updatedUser.userProfile.profile_picture,
+        id_proof_front: updatedUser.userProfile.id_proof_front,
+        id_proof_back: updatedUser.userProfile.id_proof_back,
+      };
+    }
+
+    res.json({
+      id: updatedUser.id,
+      email: updatedUser.email,
+      roles: updatedUser.role,
+      ...profileData,
+      debug_upload: {
+        files_received: req.files ? Object.keys(req.files) : 'No req.files',
+        profile_picture_file: !!req.files?.profile_picture,
+        body_keys: Object.keys(req.body) 
+      }
+    });
+  } catch (error) {
+    console.error("updateUserProfileAuth error:", error);
+    res.status(500).json({ 
+      message: "Failed to update profile", 
+      error: error.message 
+    });
+  }
+};
 // ======================
 // keplix-backend/server.js
 // ======================
