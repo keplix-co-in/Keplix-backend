@@ -101,6 +101,7 @@ export const getSingleBooking = async (req, res) => {
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
+    console.log("Creating booking for user:", req.user.id);
 
     try {
         const booking = await prisma.booking.create({

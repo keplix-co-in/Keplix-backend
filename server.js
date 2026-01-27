@@ -176,10 +176,10 @@ app.use("/accounts/vendor", vendorProfileRoutes);
 
 // Vendor API Group
 app.use("/accounts/documents", documentRoutes);
-app.use("/service_api/vendor", vendorServiceRoutes); 
-app.use("/service_api/vendor", vendorBookingRoutes); 
-app.use("/service_api", inventoryRoutes); 
-app.use("/service_api", availabilityRoutes); 
+app.use("/service-api/vendor", vendorServiceRoutes); 
+app.use("/service-api/vendor", vendorBookingRoutes); 
+app.use("/service-api", inventoryRoutes); 
+app.use("/service-api", availabilityRoutes); 
 app.use("/interactions/vendors", promotionRoutes); 
 app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); 
 app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); 
