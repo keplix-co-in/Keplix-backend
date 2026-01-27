@@ -193,6 +193,7 @@ export const createPaymentOrder = async (req, res) => {
     if (!amount) {
       return res.status(400).json({ message: "Amount is required" });
     }
+    
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
