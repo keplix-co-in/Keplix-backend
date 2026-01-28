@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+dotenv.config(); // Move this to the very top, immediately after import
+
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -47,7 +49,6 @@ import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
 
 // --- CONFIGURATION ---
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
