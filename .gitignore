@@ -27,5 +27,5 @@ Thumbs.db
 package-lock.json
 
 # logs
-logs
 *.log
+logs/
