@@ -125,6 +125,16 @@ export const createBooking = async (req, res) => {
                 "New Booking Request", 
                 `New booking for ${booking.service.name} on ${booking_date}`
             );
+            
+            // Get socket instance and notify vendor
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`user_${booking.service.vendorId}`).emit("new_booking_request", {
+                    bookingId: booking.id,
+                    service: booking.service.name,
+                    message: "You have a new booking request!"
+                });
+            }
         }
 
         res.status(201).json(booking);
