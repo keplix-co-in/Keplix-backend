@@ -188,11 +188,12 @@ const razorpay = new Razorpay({
  */
 export const createPaymentOrder = async (req, res) => {
   try {
-    const { amount, currency = "INR" } = req.body;
+    const { amount, currency = "INR", gateway } = req.body;
 
     if (!amount) {
       return res.status(400).json({ message: "Amount is required" });
     }
+    
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
@@ -200,15 +201,22 @@ export const createPaymentOrder = async (req, res) => {
       receipt: `order_${Date.now()}`,
     });
 
-    return res.json({
-      orderId: order.id,
+    const responseData = {
+      id: order.id || order.orderId, // This must be present and a string!
+      orderId: order.id, 
       amount: order.amount,
       currency: order.currency,
-      key: process.env.RAZORPAY_KEY_ID,
-    });
+      key_id: process.env.RAZORPAY_KEY_ID, 
+      key: process.env.RAZORPAY_KEY_ID, 
+      gateway: 'razorpay'
+    };
+
+    console.log('✅ [Razorpay] Order created:', responseData);
+
+    return res.json(responseData);
   } catch (error) {
     console.error("Create payment order error:", error);
-    res.status(500).json({ message: "Payment order failed" });
+    res.status(500).json({ message: "Payment order failed", error: error.message });
   }
 };
 
@@ -224,18 +232,21 @@ export const verifyPayment = async (req, res) => {
       signature,
       bookingId,
       amount,
+      gateway
     } = req.body;
 
-    // Signature verification
+    // Verify Razorpay
     const body = orderId + "|" + paymentId;
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
+      //console.log(expectedSignature, signature)
 
     if (expectedSignature !== signature) {
-      return res.status(400).json({ message: "Invalid payment signature" });
+        return res.status(400).json({ message: "Invalid payment signature" });
     }
+    // Verified Razorpay
 
     // Commission calculation
     const totalAmount = Number(amount);
@@ -243,19 +254,32 @@ export const verifyPayment = async (req, res) => {
     const vendorAmount = totalAmount - platformFee;
 
     // Save payment
-    const payment = await prisma.payment.create({
-      data: {
-        bookingId: bookingId ? Number(bookingId) : null,
-        amount: totalAmount,
-        currency: "INR",
-        status: "success",
-        method: "razorpay",
-        transactionId: paymentId,
-        platformFee,
-        vendorAmount,
-        vendorPayoutStatus: "pending",
-      },
-    });
+    const paymentData = {
+      amount: totalAmount,
+      currency: "INR",
+      status: "success",
+      method: "razorpay",
+      transactionId: paymentId,
+      platformFee,
+      vendorAmount,
+      vendorPayoutStatus: "pending",
+    };
+
+    let payment;
+    if (bookingId) {
+      payment = await prisma.payment.upsert({
+        where: { bookingId: Number(bookingId) },
+        update: paymentData,
+        create: {
+          bookingId: Number(bookingId),
+          ...paymentData,
+        },
+      });
+    } else {
+      payment = await prisma.payment.create({
+        data: paymentData,
+      });
+    }
 
     // Update booking
     if (bookingId) {

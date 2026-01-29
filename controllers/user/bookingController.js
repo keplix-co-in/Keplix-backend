@@ -1,6 +1,33 @@
-import { PrismaClient } from "@prisma/client";
 
+import { PrismaClient } from "@prisma/client";
+import { createNotification } from "../../util/notificationHelper.js";
 const prisma = new PrismaClient();
+
+// @desc    Get payment by bookingId
+// @route   GET /service_api/bookings/:bookingId/payment
+export const getPaymentByBooking = async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.bookingId);
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ message: "Invalid bookingId" });
+    }
+    // Only allow if user owns the booking
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, userId: req.user.id },
+      include: { payment: true }
+    });
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found or not authorized" });
+    }
+    if (!booking.payment) {
+      return res.status(404).json({ message: "No payment found for this booking" });
+    }
+    res.json(booking.payment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 
 // @desc    Get bookings for logged in user
 // @route   GET /service_api/user/bookings/
@@ -56,15 +83,7 @@ export const getUserBookings = async (req, res) => {
       },
     }));
 
-    res.json({
-      data: formattedBookings,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(formattedBookings);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -108,6 +127,7 @@ export const getSingleBooking = async (req, res) => {
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
+    console.log("Creating booking for user:", req.user.id);
 
     try {
         const booking = await prisma.booking.create({
@@ -120,8 +140,28 @@ export const createBooking = async (req, res) => {
                 conversation: {
                     create: {} // Automatically create a conversation for this booking
                 }
-            }
+            },
+            include: { service: true }
         });
+
+        // Notify Vendor
+        if (booking.service && booking.service.vendorId) {
+             await createNotification(
+                booking.service.vendorId, 
+                "New Booking Request", 
+                `New booking for ${booking.service.name} on ${booking_date}`
+            );
+            
+            // Get socket instance and notify vendor
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`user_${booking.service.vendorId}`).emit("new_booking_request", {
+                    bookingId: booking.id,
+                    service: booking.service.name,
+                    message: "You have a new booking request!"
+                });
+            }
+        }
 
         res.status(201).json(booking);
     } catch (error) {
@@ -171,7 +211,16 @@ export const updateBooking = async (req, res) => {
         booking_time: booking_time || undefined,
         notes: notes || undefined,
       },
+      include: { service: true }
     });
+
+    if (status === "cancelled") {
+         await createNotification(
+            updatedBooking.service.vendorId,
+            "Booking Cancelled",
+             `Booking for ${updatedBooking.service.name} was cancelled by the user.`
+        );
+    }
 
     res.json(updatedBooking);
   } catch (error) {

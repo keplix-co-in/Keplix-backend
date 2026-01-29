@@ -4,13 +4,52 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 const categories = ["Cleaning", "Plumbing", "Electrical", "Beauty", "Painting", "Moving", "Pest Control", "Carpentry", "Event Planning"];
-const locations = ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Phoenix, AZ", "Philadelphia, PA", "San Antonio, TX", "San Diego, CA"];
-const serviceNames = [
-    "Deep Cleaning", "Standard Cleaning", "Pipe Repair", "Leak Fix", "Wiring Installation", "Switch Replacement",
-    "Haircut", "Manicure", "Wall Painting", "Furniture Moving", "Termite Control", "Table Repair"
+const locations = [
+  { address: "123 Broadway, New York, NY", lat: 40.7128, lng: -74.0060, city: "New York", state: "NY" },
+  { address: "456 Sunset Blvd, Los Angeles, CA", lat: 34.0522, lng: -118.2437, city: "Los Angeles", state: "CA" },
+  { address: "789 Michigan Ave, Chicago, IL", lat: 41.8781, lng: -87.6298, city: "Chicago", state: "IL" },
+  { address: "101 Main St, Houston, TX", lat: 29.7604, lng: -95.3698, city: "Houston", state: "TX" },
 ];
-const firstNames = ["John", "Jane", "Alice", "Bob", "Charlie", "Diana", "Ethan", "Fiona", "George", "Hannah", "Ian", "Julia"];
-const lastNames = ["Smith", "Doe", "Johnson", "Brown", "Williams", "Jones", "Garcia", "Miller", "Davis", "Rodriguez"];
+
+const serviceTemplates = {
+  "Cleaning": [
+    { name: "Deep Home Cleaning", description: "Complete deep cleaning of your home including obscure areas.", price: 150, duration: 240, image: "https://images.unsplash.com/photo-1581578731117-104f2a41272c?q=80&w=600&auto=format&fit=crop" },
+    { name: "Standard Maid Service", description: "Regular cleaning for maintenance.", price: 80, duration: 120, image: "https://images.unsplash.com/photo-1527515673510-813d3143c192?q=80&w=600&auto=format&fit=crop" },
+    { name: "Sofa Vacuuming", description: "Detailed vacuuming to remove dust and allergens from sofas.", price: 45, duration: 60, image: "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?q=80&w=600&auto=format&fit=crop" }
+  ],
+  "Plumbing": [
+    { name: "Leak Repair", description: "Fixing leaking pipes and faucets.", price: 60, duration: 60, image: "https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?q=80&w=600&auto=format&fit=crop" },
+    { name: "Drain Cleaning", description: "Unclogging severe drain blockages.", price: 100, duration: 90, image: "https://images.unsplash.com/photo-1585704032915-c3400ca199e7?q=80&w=600&auto=format&fit=crop" }
+  ],
+  "Electrical": [
+    { name: "Switch & Socket Installation", description: "Safely install or repair electrical switches.", price: 40, duration: 45, image: "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?q=80&w=600&auto=format&fit=crop" },
+    { name: "Fan Installation", description: "Ceiling or wall fan installation service.", price: 50, duration: 60, image: "https://images.unsplash.com/photo-1558402529-d56386620233?q=80&w=600&auto=format&fit=crop" }
+  ],
+  "Beauty": [
+    { name: "Men's Haircut", description: "Expert styling and grooming.", price: 25, duration: 30, image: "https://images.unsplash.com/photo-1599351431202-1e0f0137899a?q=80&w=600&auto=format&fit=crop" },
+    { name: "Manicure & Pedicure", description: "Relaxing nail care treatment.", price: 55, duration: 90, image: "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=600&auto=format&fit=crop" }
+  ]
+};
+
+const vendorNames = ["Reliable Hands", "City Fixers", "Urban Cleaners", "Elite services", "QuickRepair Pro", "Luxe Beauty", "BuildIt Well", "Prime Movers"];
+const firstNames = ["John", "Jane", "Alice", "Bob", "Charlie", "Diana", "Ethan", "Fiona", "George", "Hannah"];
+const lastNames = ["Smith", "Doe", "Johnson", "Brown", "Williams", "Jones", "Garcia", "Miller", "Davis"];
+
+// Real-ish images
+const userAvatars = [
+    "https://randomuser.me/api/portraits/men/1.jpg", "https://randomuser.me/api/portraits/women/2.jpg",
+    "https://randomuser.me/api/portraits/men/3.jpg", "https://randomuser.me/api/portraits/women/4.jpg",
+    "https://randomuser.me/api/portraits/men/5.jpg"
+];
+const vendorLogos = [
+    "https://images.unsplash.com/photo-1599305445671-ac291c95aaa9?w=200&fit=crop", 
+    "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=200&fit=crop",
+    "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=200&fit=crop"
+];
+const vendorCovers = [
+  "https://images.unsplash.com/photo-1556910103-1c02745a30bf?w=800&fit=crop",
+  "https://images.unsplash.com/photo-1581578731117-104f2a41272c?w=800&fit=crop"
+];
 
 function getRandomElement(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -25,29 +64,29 @@ function getRandomDate(start, end) {
 }
 
 async function main() {
-    console.log('Start seeding ...');
+    console.log('🌱 Start seeding ...');
 
     // Cleanup existing data
-    await prisma.feedback.deleteMany();
-    await prisma.notification.deleteMany();
-    await prisma.message.deleteMany();
-    await prisma.conversation.deleteMany();
-    await prisma.review.deleteMany();
-    await prisma.payment.deleteMany();
-    await prisma.booking.deleteMany();
-    await prisma.service.deleteMany();
-    await prisma.inventory.deleteMany();
-    await prisma.availability.deleteMany();
-    await prisma.document.deleteMany();
-    await prisma.promotion.deleteMany();
-    await prisma.vendorProfile.deleteMany();
-    await prisma.userProfile.deleteMany();
-    await prisma.user.deleteMany();
+    console.log('🧹 Cleaning old data...');
+    const deleteOrder = [
+        'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment', 
+        'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion', 
+        'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP'
+    ];
+
+    for (const model of deleteOrder) {
+        try {
+            if (prisma[model]) await prisma[model].deleteMany(); // Case-insensitive check might be needed if model names vary, but here exact match
+            else if (prisma[model.toLowerCase()]) await prisma[model.toLowerCase()].deleteMany();
+        } catch (e) {
+            console.log(`Skipped cleanup for ${model}`);
+        }
+    }
 
     const hashedPassword = await bcrypt.hash('password123', 10);
 
     // --- Create Super Admin ---
-    const adminUser = await prisma.user.create({
+    await prisma.user.create({
       data: {
         email: "admin@keplix.com",
         password: hashedPassword,
@@ -62,13 +101,15 @@ async function main() {
         }
       }
     });
-    console.log("✅ Super Admin created: admin@keplix.com / password123");
-    // --------------------------
+    console.log("✅ Super Admin created: admin@keplix.com");
 
-    // Creates 100 Vendors
+
+    // --- Create Vendors ---
+    console.log('🛠 Creating Vendors...');
     const vendors = [];
-    
-    // Create specific test vendor
+    const locationList = [...locations, ...locations]; // Duplicate for volume
+
+    // 1. Create specific test vendor
     const testVendor = await prisma.user.create({
         data: {
             email: "vendor@example.com",
@@ -79,263 +120,230 @@ async function main() {
                 create: {
                     business_name: "Keplix Official Services",
                     phone: "555-0000",
-                    email: "vendor@example.com",
+                    email: "info@keplixservices.com",
                     address: "123 Tech Park, CA",
+                    city: "San Francisco",
+                    state: "CA",
                     operating_hours: "09:00 AM - 09:00 PM",
                     status: "approved",
                     onboarding_completed: true,
-                    latitude: 40.7128,
-                    longitude: -74.0060,
+                    latitude: 37.7749,
+                    longitude: -122.4194,
+                    description: "Authorized service partner for Keplix.",
+                    image: getRandomElement(vendorLogos),
+                    cover_image: getRandomElement(vendorCovers)
                 }
-            },
-            services: {
-                create: [
-                    {
-                        name: "Premium Full Home Cleaning",
-                        description: "Top tier cleaning service.",
-                        price: 150,
-                        duration: 180,
-                        category: "Cleaning",
-                        image_url: "https://via.placeholder.com/150"
-                    }
-                ]
             }
-        },
-        include: { services: true }
+        }
     });
+    // Add services to test vendor
+    for (const [cat, services] of Object.entries(serviceTemplates)) {
+         for (const s of services) {
+             if (Math.random() > 0.5) { // Randomly pick some services
+                 await prisma.service.create({
+                     data: {
+                         vendorId: testVendor.id,
+                         category: cat,
+                         name: s.name,
+                         description: s.description,
+                         price: s.price,
+                         duration: s.duration,
+                         image_url: s.image,
+                         is_active: true
+                     }
+                 });
+             }
+         }
+    }
     vendors.push(testVendor);
-    console.log("Created test vendor: vendor@example.com");
 
-    for (let i = 1; i <= 100; i++) {
-        const email = `vendor${i}@example.com`;
-        const firstName = getRandomElement(firstNames);
-        const lastName = getRandomElement(lastNames);
-        const businessName = `${lastName} ${getRandomElement(categories)} Services`;
 
+    // 2. Create random vendors
+    for (let i = 0; i < 20; i++) {
+        const busName = getRandomElement(vendorNames) + " " + (i + 1);
+        const loc = getRandomElement(locationList);
+        const category = getRandomElement(Object.keys(serviceTemplates)); // Main specialty
+        
         const vendor = await prisma.user.create({
             data: {
-                email,
+                email: `vendor${i+1}@example.com`,
                 password: hashedPassword,
                 role: 'vendor',
                 is_active: true,
                 vendorProfile: {
                     create: {
-                        business_name: businessName,
-                        phone: `555-01${getRandomInt(10, 99)}`,
-                        email: email,
-                        address: getRandomElement(locations),
-                        operating_hours: "09:00 AM - 06:00 PM",
+                        business_name: busName,
+                        phone: `555-010${i}`,
+                        email: `contact@vendor${i+1}.com`,
+                        address: loc.address,
+                        city: loc.city,
+                        state: loc.state,
+                        operating_hours: "08:00 AM - 06:00 PM",
                         status: "approved",
                         onboarding_completed: true,
-                        latitude: 40.7128 + (Math.random() - 0.5),
-                        longitude: -74.0060 + (Math.random() - 0.5),
-                    }
-                },
-                services: {
-                    create: Array.from({ length: getRandomInt(5, 12) }).map(() => ({
-                        name: getRandomElement(serviceNames),
-                        description: "High quality professional service with satisfaction guaranteed.",
-                        price: getRandomInt(50, 300),
-                        duration: getRandomInt(30, 120),
-                        category: getRandomElement(categories),
-                        image_url: "https://via.placeholder.com/150"
-                    }))
-                },
-                inventory: {
-                    create: {
-                        item_name: "Standard Tools Kit",
-                        stock_level: getRandomInt(5, 50)
-                    }
-                },
-                promotions: {
-                    create: {
-                        title: "Seasonal Discount",
-                        description: "Get 15% off this month",
-                        discount: 15.0,
-                        start_date: new Date(),
-                        end_date: new Date(new Date().setMonth(new Date().getMonth() + 1))
-                    }
-                },
-                Availability: {
-                    createMany: {
-                        data: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(day => ({
-                            day_of_week: day,
-                            start_time: "09:00",
-                            end_time: "18:00",
-                            is_available: true
-                        }))
-                    }
-                },
-                documents: {
-                    create: {
-                        document_type: "Business License",
-                        file_url: "https://example.com/license.pdf",
-                        status: "approved"
+                        latitude: loc.lat + (Math.random() * 0.01), // Slight jitter
+                        longitude: loc.lng + (Math.random() * 0.01),
+                        description: `Professional ${category} services in ${loc.city}.`,
+                        image: getRandomElement(vendorLogos),
+                        cover_image: getRandomElement(vendorCovers),
+                        owner_name: getRandomElement(firstNames) + " " + getRandomElement(lastNames)
                     }
                 }
-            },
-            include: {
-                services: true
             }
         });
+
+        // Add services relevant to their category
+        const templates = serviceTemplates[category];
+        if (templates) {
+            for (const t of templates) {
+                await prisma.service.create({
+                    data: {
+                        vendorId: vendor.id,
+                        name: t.name,
+                        description: t.description,
+                        price: t.price, // Random deviation
+                        duration: t.duration,
+                        category: category,
+                        image_url: t.image,
+                        is_active: true
+                    }
+                });
+            }
+        }
         vendors.push(vendor);
-        console.log(`Created vendor ${i}: ${email}`);
     }
 
-    // Creates 200 Users
+
+    // --- Create Customers ---
+    console.log('👤 Creating Customers...');
     const users = [];
 
-    // Create specific test user
+    // Specific test user
     const testUser = await prisma.user.create({
         data: {
-            email: "priya.sharma@customer.com",
+            email: "user@example.com",
             password: hashedPassword,
             role: 'user',
             is_active: true,
             userProfile: {
                 create: {
-                    name: "Priya Sharma",
-                    phone: "555-0199",
-                    address: "New York, NY"
+                    name: "Test User",
+                    phone: "1234567890",
+                    address: "Some House, Some Street",
+                    profile_picture: "https://randomuser.me/api/portraits/men/99.jpg"
                 }
             }
         }
     });
     users.push(testUser);
-    console.log("Created test user: priya.sharma@customer.com");
 
-    for (let i = 1; i <= 200; i++) {
-        const email = `user${i}@example.com`;
-        const firstName = getRandomElement(firstNames);
-        const lastName = getRandomElement(lastNames);
-
+    for (let i = 0; i < 15; i++) {
         const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                role: 'user',
-                is_active: true,
-                userProfile: {
-                    create: {
-                        name: `${firstName} ${lastName}`,
-                        phone: `555-02${getRandomInt(10, 99)}`,
-                        address: getRandomElement(locations)
-                    }
-                },
-                notifications: {
-                    create: {
-                        title: "Welcome to Keplix!",
-                        message: "Thanks for joining us.",
-                        is_read: false
-                    }
-                },
-                feedbacks: {
-                    create: {
-                        title: "Great App",
-                        message: "I really like the interface.",
-                        category: "UX"
-                    }
-                }
-            }
+             data: {
+                 email: `user${i+1}@example.com`,
+                 password: hashedPassword,
+                 role: 'user',
+                 is_active: true,
+                 userProfile: {
+                     create: {
+                         name: getRandomElement(firstNames) + " " + getRandomElement(lastNames),
+                         phone: `555-020${i}`,
+                         address: `${getRandomInt(10, 999)} Park Ave`,
+                         profile_picture: getRandomElement(userAvatars)
+                     }
+                 }
+             }
         });
         users.push(user);
-        console.log(`Created user ${i}: ${email}`);
     }
 
-    // Create Bookings, Payments, Reviews
-    console.log('Creating Bookings and Interactions...');
+
+    // --- Create Bookings & Reviews ---
+    console.log('📅 Creating Bookings & Reviews...');
+    const statuses = ['pending', 'confirmed', 'completed', 'cancelled'];
     
-    // Ensure every user has some bookings
+    // Get all services
+    const allServices = await prisma.service.findMany();
+
     for (const user of users) {
-        // Each user makes 10-20 bookings
-        const numBookings = getRandomInt(10, 20);
-        
-        for (let j = 0; j < numBookings; j++) {
-            const randomVendor = getRandomElement(vendors);
-            if (randomVendor.services.length === 0) continue;
+        // Each user makes 1-5 bookings
+        const numBookings = getRandomInt(1, 5);
+        for (let b = 0; b < numBookings; b++) {
+            const service = getRandomElement(allServices);
+            const status = getRandomElement(statuses);
             
-            const randomService = getRandomElement(randomVendor.services);
-            await createBookingTransaction(user, randomVendor, randomService);
-        }
-    }
+            // Random date in past or future
+            const bookingDate = status === 'completed' 
+                ? getRandomDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), new Date()) 
+                : getRandomDate(new Date(), new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
 
-    // Ensure every vendor has at least some bookings
-    for (const vendor of vendors) {
-        // Each vendor gets 15-30 guaranteed extra bookings from random users
-        const numExtraBookings = getRandomInt(15, 30);
-        if (vendor.services.length === 0) continue;
-
-        for (let k = 0; k < numExtraBookings; k++) {
-            const randomUser = getRandomElement(users);
-            const randomService = getRandomElement(vendor.services);
-            await createBookingTransaction(randomUser, vendor, randomService);
-        }
-    }
-
-    // Special massive booking set for Test Vendor to ensure they are busy
-    const testVendorRef = vendors.find(v => v.email === "vendor@example.com");
-    if (testVendorRef && testVendorRef.services.length > 0) {
-        console.log("Injecting 50+ extra bookings for Test Vendor...");
-        for (let m = 0; m < 80; m++) {
-            const randomUser = getRandomElement(users);
-            const randomService = getRandomElement(testVendorRef.services);
-            await createBookingTransaction(randomUser, testVendorRef, randomService);
-        }
-    }
-
-    console.log('Seeding finished.');
-}
-
-async function createBookingTransaction(user, vendor, service) {
-    const isCompleted = Math.random() > 0.4; // 60% completed
-    const status = isCompleted ? 'completed' : ((Math.random() > 0.5) ? 'pending' : 'accepted');
-    const bookingDate = getRandomDate(new Date(2025, 0, 1), new Date(2026, 11, 31));
-
-    const booking = await prisma.booking.create({
-        data: {
-            userId: user.id,
-            serviceId: service.id,
-            booking_date: bookingDate,
-            booking_time: `${getRandomInt(9, 17)}:00`,
-            status: status,
-            notes: "Please enter through the side gate.",
-            payment: {
-                create: {
-                    amount: service.price,
-                    status: isCompleted ? 'paid' : 'pending',
-                    method: "Credit Card",
-                    transactionId: isCompleted ? `txn_${getRandomInt(10000, 99999)}` : null
+            // Create Booking
+            const booking = await prisma.booking.create({
+                data: {
+                    userId: user.id,
+                    serviceId: service.id,
+                    booking_date: bookingDate,
+                    booking_time: "10:00 AM",
+                    status: status,
+                    notes: "Please arrive on time."
                 }
-            },
-            conversation: {
-                create: {
-                    messages: {
-                        create: [
-                            {
-                                senderId: user.id,
-                                message_text: "Hi, is this service available?"
-                            },
-                            {
-                                senderId: vendor.id,
-                                message_text: "Yes, we are available!"
-                            }
-                        ]
+            });
+
+            // If non-pending/cancelled, maybe create a payment record
+            if (['confirmed', 'completed'].includes(status)) {
+                await prisma.payment.create({
+                    data: {
+                        bookingId: booking.id,
+                        amount: service.price,
+                        status: status === 'completed' ? 'success' : 'pending',
+                        method: 'stripe',
+                        transactionId: `txn_${getRandomInt(10000, 99999)}`
                     }
-                }
+                });
+            }
+
+            // If completed, add a review
+            if (status === 'completed' && Math.random() > 0.3) {
+                 await prisma.review.create({
+                     data: {
+                         bookingId: booking.id,
+                         userId: user.id,
+                         rating: getRandomInt(3, 5),
+                         comment: getRandomElement(["Great service!", "Very professional.", "Would recommend.", "Good, but late.", "Excellent work!"]),
+                         createdAt: getRandomDate(bookingDate, new Date())
+                     }
+                 });
+            }
+            
+            // If active/recent, maybe create a conversation
+            if (status !== 'cancelled' && Math.random() > 0.7) {
+                const conv = await prisma.conversation.create({
+                    data: {
+                        bookingId: booking.id,
+                        updatedAt: new Date()
+                    }
+                });
+                
+                await prisma.message.create({
+                    data: {
+                        conversationId: conv.id,
+                        senderId: user.id,
+                        message_text: "Hi, is this slot confirmed?",
+                    }
+                });
+                
+                await prisma.message.create({
+                     data: {
+                         conversationId: conv.id,
+                         senderId: service.vendorId,
+                         message_text: "Yes, we will be there.",
+                     }
+                 });
             }
         }
-    });
-
-    if (isCompleted) {
-        await prisma.review.create({
-            data: {
-                bookingId: booking.id,
-                userId: user.id,
-                rating: getRandomInt(3, 5),
-                comment: "Service was great, would recommend!"
-            }
-        });
     }
+
+    console.log('✅ Seeding finished.');
 }
 
 main()
@@ -346,6 +354,3 @@ main()
     .finally(async () => {
         await prisma.$disconnect();
     });
-
-
-// node prisma/seed.js
