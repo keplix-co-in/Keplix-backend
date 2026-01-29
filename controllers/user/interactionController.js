@@ -15,39 +15,56 @@ export const createConversationId = async (req, res) => {
       return res.status(400).json({ message: "Booking ID is required" });
     }
 
-    // 1. Check if conversation already exists for this booking
-    let conversation = await prisma.conversation.findFirst({
-      where: { bookingId: Number(bookingId) },
-    });
-
-    // 2. If it exists, return it
-    if (conversation) {
-      return res.status(200).json(conversation);
-    }
-
-    // 3. If NOT, verify booking and get Vendor ID
+    // 1. Fetch booking
     const booking = await prisma.booking.findUnique({
       where: { id: Number(bookingId) },
     });
+    
 
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    // 4. Create NEW Conversation
+    // 2. Security: booking must belong to logged-in user
+    if (booking.userId !== userId) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized for this booking" });
+    }
+
+    // 3. Business rule: payment must be completed
+    if (booking.paymentStatus !== "PAID") {
+      return res.status(403).json({
+        message: "Chat is available only after payment completion",
+      });
+    }
+
+    // 4. Check if conversation already exists (idempotent)
+    let conversation = await prisma.conversation.findFirst({
+      where: { bookingId: booking.id },
+    });
+
+    if (conversation) {
+      return res.status(200).json(conversation);
+    }
+
+    // 5. Create new conversation
     conversation = await prisma.conversation.create({
       data: {
-        bookingId: Number(bookingId),
-        userId: userId, // Current User
-        vendorId: booking.vendorId, // Vendor from the booking
+        bookingId: booking.id,
+        userId: booking.userId,
+        vendorId: booking.vendorId,
+        isActive: true,
         updatedAt: new Date(),
       },
     });
 
     return res.status(201).json(conversation);
   } catch (error) {
-    console.error("Init Chat Error:", error);
-    res.status(500).json({ message: "Failed to initiate conversation" });
+    console.error("Create Conversation Error:", error);
+    return res.status(500).json({
+      message: "Failed to create conversation",
+    });
   }
 };
 
