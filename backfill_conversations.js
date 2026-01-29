@@ -18,7 +18,8 @@ async function main() {
       try {
         await prisma.conversation.create({
           data: {
-            bookingId: booking.id
+            bookingId: booking.id,
+            updatedAt: new Date()
           }
         });
         count++;

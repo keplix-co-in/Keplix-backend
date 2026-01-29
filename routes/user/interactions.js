@@ -1,14 +1,15 @@
 import express from 'express';
-import { getConversations, getMessages } from '../../controllers/user/interactionController.js';
+import { createConversationId, getConversations, getMessages, sendMessage } from '../../controllers/user/interactionController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
 router.get('/conversations', protect, getConversations);
-router.get('/messages', protect, getMessages);
+router.get('/chat/:conversationId', protect, getMessages);
+router.post('/chat/conversation/create', protect, createConversationId);
+router.post('/chat/send', protect, sendMessage);
 
 // Aliases
 router.get('/conversations/', protect, getConversations);
-router.get('/messages/', protect, getMessages);
 
 export default router;

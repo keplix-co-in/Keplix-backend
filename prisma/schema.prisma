@@ -16,13 +16,14 @@ model User {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   fcmToken            String?
+  pushToken           String?
   device_type         String?
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
   feedbacks           Feedback[]
   inventory           Inventory[]
-  Message             Message[]
+  sentMessages        Message[]            @relation("UserSentMessages")
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
@@ -35,13 +36,24 @@ model User {
   @@index([role])
 }
 
+model BlacklistedToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+
 model UserProfile {
-  id      Int     @id @default(autoincrement())
-  userId  Int     @unique
-  name    String
-  phone   String?
-  address String?
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              Int     @id @default(autoincrement())
+  userId          Int     @unique
+  name            String
+  phone           String?
+  address         String?
+  profile_picture String?
+  id_proof_front  String?
+  id_proof_back   String?
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VendorProfile {
@@ -167,8 +179,11 @@ model Conversation {
   id        Int       @id @default(autoincrement())
   bookingId Int       @unique
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   messages  Message[]
+
+  @@index([bookingId])
 }
 
 model Message {
@@ -177,9 +192,12 @@ model Message {
   senderId       Int
   message_text   String
   sent_at        DateTime     @default(now())
-  senderType     String?
+  isRead         Boolean      @default(false)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  User           User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  sender         User         @relation("UserSentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
 }
 
 model Review {
@@ -237,6 +255,15 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model PhoneOTP {
+  id           Int      @id @default(autoincrement())
+  phone_number String   @unique
+  otp          String
+  expiresAt    DateTime
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now())
 }
 
 model VendorPayoutAccount {
