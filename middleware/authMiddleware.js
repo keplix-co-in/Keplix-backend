@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
-
 const prisma = new PrismaClient();
+
 const JWT_SECRET =
   process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
 
@@ -32,16 +32,15 @@ export const protect = async (req, res, next) => {
         include: { userProfile: true, vendorProfile: true },
       });
 
-      if (!req.user) {
-        res.status(401);
-        throw new Error("Not authorized, user not found");
-      }
-
-      // Check for activity if needed (can be separate middleware but good safety net)
-      if (req.user.is_active === false) {
-        res.status(403);
-        throw new Error("Account is inactive");
-      }
+            if (!req.user) {
+                return res.status(401).json({ message: 'Not authorized, user not found' });
+            }
+            
+            // Check for activity if needed (can be separate middleware but good safety net)
+            if (req.user.is_active === false) {
+                 res.status(403);
+                 throw new Error('Account is inactive');
+            }
 
       next();
     } catch (error) {
