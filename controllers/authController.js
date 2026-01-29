@@ -33,7 +33,7 @@ const verifyDjangoPassword = (password, hash) => {
       salt,
       parseInt(iterations),
       keyLen,
-      "sha256"
+      "sha256",
     );
     const derivedHash = derivedKey.toString("base64");
 
@@ -243,8 +243,26 @@ export const refreshToken = async (req, res) => {
 // @desc    Logout user
 // @route   POST /accounts/auth/logout/
 export const logoutUser = async (req, res) => {
-  // Client side just clears token.
-  res.json({ message: "Logged out successfully" });
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+
+    if (!token) {
+      return res.status(400).json({ message: "Token missing" });
+    }
+
+    const decoded = jwt.decode(token);
+
+    await prisma.blacklistedToken.create({
+      data: {
+        token,
+        expiresAt: new Date(decoded.exp * 1000),
+      },
+    });
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Logout failed" });
+  }
 };
 
 import { sendEmail, sendSMS } from "../util/communication.js";
@@ -281,13 +299,13 @@ export const sendPhoneOTP = async (req, res) => {
       update: {
         otp,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-        verified: false
+        verified: false,
       },
       create: {
         phone_number,
         otp,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        verified: false
+        verified: false,
       },
     });
 
@@ -299,16 +317,18 @@ export const sendPhoneOTP = async (req, res) => {
       res.json({ status: true, message: "Phone OTP sent successfully" });
     } else {
       // SMS service not configured, return OTP in development
-      res.json({ 
-        status: true, 
-        message: "OTP generated (SMS Service Unavailable)", 
-        otp: process.env.NODE_ENV === 'development' ? otp : undefined,
-        warning: "SMS service not configured. Use the code from logs."
+      res.json({
+        status: true,
+        message: "OTP generated (SMS Service Unavailable)",
+        otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        warning: "SMS service not configured. Use the code from logs.",
       });
     }
   } catch (error) {
     console.error("sendPhoneOTP error:", error);
-    res.status(500).json({ error: "Failed to send OTP", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Failed to send OTP", details: error.message });
   }
 };
 
@@ -326,7 +346,9 @@ export const verifyPhoneOTP = async (req, res) => {
     });
 
     if (!otpRecord) {
-      return res.status(400).json({ error: "No OTP found for this phone number" });
+      return res
+        .status(400)
+        .json({ error: "No OTP found for this phone number" });
     }
 
     if (otpRecord.verified) {
@@ -350,7 +372,9 @@ export const verifyPhoneOTP = async (req, res) => {
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
     console.error("verifyPhoneOTP error:", error);
-    res.status(500).json({ error: "Failed to verify OTP", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Failed to verify OTP", details: error.message });
   }
 };
 
@@ -373,20 +397,18 @@ export const sendEmailOTP = async (req, res) => {
     //   },
     // });
 
-  
-
     await prisma.emailOTP.upsert({
       where: { email },
       update: {
         otp,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now (UTC)
-        verified: false
+        verified: false,
       },
       create: {
         email,
         otp,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        verified: false
+        verified: false,
       },
     });
 
@@ -409,26 +431,29 @@ export const sendEmailOTP = async (req, res) => {
       } catch (resendError) {
         // Log the exact error from Resend (e.g., 429 Rate Limit)
         console.error("Resend API specific error:", resendError);
-        
+
         // Return success anyway in development so the user isn't blocked by external API limits
-        res.json({ 
-          status: true, 
-          message: "OTP generated (Resend Limit Hit)", 
-          otp: process.env.NODE_ENV === 'development' ? otp : undefined,
-          warning: "Email service temporarily unavailable. Use the code from logs." 
+        res.json({
+          status: true,
+          message: "OTP generated (Resend Limit Hit)",
+          otp: process.env.NODE_ENV === "development" ? otp : undefined,
+          warning:
+            "Email service temporarily unavailable. Use the code from logs.",
         });
       }
     } else {
       console.warn("Resend API client is not initialized. OTP log:", otp);
-      res.json({ 
-        status: true, 
-        message: "OTP generated (Simulation Mode)", 
-        otp: process.env.NODE_ENV === 'development' ? otp : undefined 
+      res.json({
+        status: true,
+        message: "OTP generated (Simulation Mode)",
+        otp: process.env.NODE_ENV === "development" ? otp : undefined,
       });
     }
   } catch (error) {
     console.error("sendEmailOTP error:", error);
-    res.status(500).json({ message: "Failed to send OTP", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed to send OTP", error: error.message });
   }
 };
 
@@ -442,12 +467,12 @@ export const verifyEmailOTP = async (req, res) => {
 
   try {
     const record = await prisma.emailOTP.findFirst({
-      where: { 
-        email, 
-        otp, 
-        verified: false 
+      where: {
+        email,
+        otp,
+        verified: false,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     if (!record) {
@@ -469,16 +494,19 @@ export const verifyEmailOTP = async (req, res) => {
       where: { email },
       include: {
         userProfile: true,
-        vendorProfile: true
-      }
+        vendorProfile: true,
+      },
     });
 
     if (!user) {
-      return res.json({ success: true, message: "Email OTP verified successfully" });
+      return res.json({
+        success: true,
+        message: "Email OTP verified successfully",
+      });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: "Email OTP verified successfully",
       access: generateToken(user.id),
       refresh: generateToken(user.id),
@@ -486,14 +514,22 @@ export const verifyEmailOTP = async (req, res) => {
         id: user.id,
         email: user.email,
         role: user.role,
-        name: user.role === 'vendor' ? user.vendorProfile?.business_name : user.userProfile?.name,
-        phone: user.role === 'vendor' ? user.vendorProfile?.phone : user.userProfile?.phone,
-        is_active: user.is_active
-      }
+        name:
+          user.role === "vendor"
+            ? user.vendorProfile?.business_name
+            : user.userProfile?.name,
+        phone:
+          user.role === "vendor"
+            ? user.vendorProfile?.phone
+            : user.userProfile?.phone,
+        is_active: user.is_active,
+      },
     });
   } catch (error) {
     console.error("verifyEmailOTP error:", error);
-    return res.status(500).json({ message: "OTP Verification Failed", error: error.message });
+    return res
+      .status(500)
+      .json({ message: "OTP Verification Failed", error: error.message });
   }
 };
 // @desc    Google Login
@@ -558,17 +594,32 @@ export const googleLogin = async (req, res) => {
 // @access  Private
 export const updateUserProfileAuth = async (req, res) => {
   const userId = req.user.id;
-  const { name, email, phone_number, phone, address, profile_picture, id_proof_front, id_proof_back } = req.body;
+  const {
+    name,
+    email,
+    phone_number,
+    phone,
+    address,
+    profile_picture,
+    id_proof_front,
+    id_proof_back,
+  } = req.body;
 
   try {
     // Handle file uploads from multer (Cloudinary URLs)
-    console.log('[UserProfile UPDATE] Request received');
-    console.log('[UserProfile UPDATE] Body:', JSON.stringify(req.body, null, 2));
-    
+    console.log("[UserProfile UPDATE] Request received");
+    console.log(
+      "[UserProfile UPDATE] Body:",
+      JSON.stringify(req.body, null, 2),
+    );
+
     if (req.files) {
-      console.log('[UserProfile UPDATE] Files:', JSON.stringify(req.files, null, 2));
+      console.log(
+        "[UserProfile UPDATE] Files:",
+        JSON.stringify(req.files, null, 2),
+      );
     } else {
-      console.log('[UserProfile] No files received or multer failed to parse');
+      console.log("[UserProfile] No files received or multer failed to parse");
     }
 
     const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
@@ -576,23 +627,23 @@ export const updateUserProfileAuth = async (req, res) => {
     const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
 
     if (uploadedProfilePicture) {
-      console.log('-> SET: Profile Picture URL:', uploadedProfilePicture);
+      console.log("-> SET: Profile Picture URL:", uploadedProfilePicture);
     }
     if (uploadedIdFront) {
-      console.log('-> SET: ID Front URL:', uploadedIdFront);
+      console.log("-> SET: ID Front URL:", uploadedIdFront);
     }
     if (uploadedIdBack) {
-      console.log('-> SET: ID Back URL:', uploadedIdBack);
+      console.log("-> SET: ID Back URL:", uploadedIdBack);
     }
 
     // 1. Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {
-      const existingUser = await prisma.user.findUnique({ 
-        where: { email } 
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
       });
       if (existingUser) {
-        return res.status(400).json({ 
-          message: "Email already in use by another account" 
+        return res.status(400).json({
+          message: "Email already in use by another account",
         });
       }
     }
@@ -617,29 +668,34 @@ export const updateUserProfileAuth = async (req, res) => {
     // Build update data - only include fields that are provided
     const profileUpdateData = {};
     if (name !== undefined && name !== null) profileUpdateData.name = name;
-    if (finalPhone !== undefined && finalPhone !== null) profileUpdateData.phone = finalPhone;
-    if (address !== undefined && address !== null) profileUpdateData.address = address;
-    
+    if (finalPhone !== undefined && finalPhone !== null)
+      profileUpdateData.phone = finalPhone;
+    if (address !== undefined && address !== null)
+      profileUpdateData.address = address;
+
     // Use uploaded files if available, otherwise use the URLs from body
     if (uploadedProfilePicture) {
       profileUpdateData.profile_picture = uploadedProfilePicture;
     } else if (profile_picture !== undefined && profile_picture !== null) {
       profileUpdateData.profile_picture = profile_picture;
     }
-    
+
     if (uploadedIdFront) {
       profileUpdateData.id_proof_front = uploadedIdFront;
     } else if (id_proof_front !== undefined && id_proof_front !== null) {
       profileUpdateData.id_proof_front = id_proof_front;
     }
-    
+
     if (uploadedIdBack) {
       profileUpdateData.id_proof_back = uploadedIdBack;
     } else if (id_proof_back !== undefined && id_proof_back !== null) {
       profileUpdateData.id_proof_back = id_proof_back;
     }
 
-    console.log('[UserProfile] Final Update Data:', JSON.stringify(profileUpdateData, null, 2));
+    console.log(
+      "[UserProfile] Final Update Data:",
+      JSON.stringify(profileUpdateData, null, 2),
+    );
 
     const profile = await prisma.userProfile.upsert({
       where: { userId: userId },
@@ -655,17 +711,17 @@ export const updateUserProfileAuth = async (req, res) => {
       },
     });
 
-    console.log('[UserProfile] Profile Updated Successfully:', { 
-      userId, 
-      hasProfilePicture: !!profile.profile_picture 
+    console.log("[UserProfile] Profile Updated Successfully:", {
+      userId,
+      hasProfilePicture: !!profile.profile_picture,
     });
 
     // 4. Return updated profile data (matching getUserProfile format)
     const updatedUser = await prisma.user.findUnique({
       where: { id: userId },
-      include: { 
+      include: {
         userProfile: true,
-        vendorProfile: true 
+        vendorProfile: true,
       },
     });
 
@@ -696,16 +752,16 @@ export const updateUserProfileAuth = async (req, res) => {
       roles: updatedUser.role,
       ...profileData,
       debug_upload: {
-        files_received: req.files ? Object.keys(req.files) : 'No req.files',
+        files_received: req.files ? Object.keys(req.files) : "No req.files",
         profile_picture_file: !!req.files?.profile_picture,
-        body_keys: Object.keys(req.body) 
-      }
+        body_keys: Object.keys(req.body),
+      },
     });
   } catch (error) {
     console.error("updateUserProfileAuth error:", error);
-    res.status(500).json({ 
-      message: "Failed to update profile", 
-      error: error.message 
+    res.status(500).json({
+      message: "Failed to update profile",
+      error: error.message,
     });
   }
 };
@@ -724,7 +780,7 @@ export const updatePushToken = async (req, res) => {
     // Both Users and Vendors are in the User table
     await prisma.user.update({
       where: { id: parseInt(userId) },
-      data: { pushToken }
+      data: { pushToken },
     });
 
     res.json({ success: true, message: "Push token updated" });
