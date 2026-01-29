@@ -254,19 +254,32 @@ export const verifyPayment = async (req, res) => {
     const vendorAmount = totalAmount - platformFee;
 
     // Save payment
-    const payment = await prisma.payment.create({
-      data: {
-        bookingId: bookingId ? Number(bookingId) : null,
-        amount: totalAmount,
-        currency: "INR",
-        status: "success",
-        method: "razorpay",
-        transactionId: paymentId,
-        platformFee,
-        vendorAmount,
-        vendorPayoutStatus: "pending",
-      },
-    });
+    const paymentData = {
+      amount: totalAmount,
+      currency: "INR",
+      status: "success",
+      method: "razorpay",
+      transactionId: paymentId,
+      platformFee,
+      vendorAmount,
+      vendorPayoutStatus: "pending",
+    };
+
+    let payment;
+    if (bookingId) {
+      payment = await prisma.payment.upsert({
+        where: { bookingId: Number(bookingId) },
+        update: paymentData,
+        create: {
+          bookingId: Number(bookingId),
+          ...paymentData,
+        },
+      });
+    } else {
+      payment = await prisma.payment.create({
+        data: paymentData,
+      });
+    }
 
     // Update booking
     if (bookingId) {

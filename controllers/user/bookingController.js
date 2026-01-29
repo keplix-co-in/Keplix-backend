@@ -1,3 +1,8 @@
+
+import { PrismaClient } from "@prisma/client";
+import { createNotification } from "../../util/notificationHelper.js";
+const prisma = new PrismaClient();
+
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
 export const getPaymentByBooking = async (req, res) => {
@@ -23,10 +28,6 @@ export const getPaymentByBooking = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
-import { PrismaClient } from "@prisma/client";
-import { createNotification } from "../../util/notificationHelper.js";
-
-const prisma = new PrismaClient();
 
 // @desc    Get bookings for logged in user
 // @route   GET /service_api/user/bookings/

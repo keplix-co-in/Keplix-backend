@@ -146,30 +146,31 @@ app.get('/health', (req, res) => {
 app.use("/accounts/auth", authLimiter, authRoutes);
 app.use("/accounts/auth", logoutRouter);
 
+
 // 2. Vendor
-app.use("/accounts/vendor", vendorProfileRoutes);
-app.use("/accounts/documents", documentRoutes);
-app.use("/service-api/vendor", vendorServiceRoutes); 
-app.use("/service-api/vendor", vendorBookingRoutes); 
-app.use("/service-api", inventoryRoutes); 
-app.use("/service-api", availabilityRoutes); 
-app.use("/interactions/vendors", promotionRoutes); 
-app.use("/interactions/api/vendor/reviews", vendorReviewRoutes); 
-app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes); 
-app.use("/interactions/api/vendor", vendorInteractionRoutes); 
-app.use("/interactions/api/vendor", vendorNotificationRoutes); 
+app.use("/service_api/vendor", vendorServiceRoutes);
+app.use("/service_api/vendor", vendorBookingRoutes);
+app.use("/service_api", inventoryRoutes); // Keeps original path
+app.use("/service_api", availabilityRoutes); // Keeps original path
+app.use("/interactions/vendors", promotionRoutes);
+app.use("/interactions/api/vendor/reviews", vendorReviewRoutes);
+app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes);
+app.use("/interactions/api/vendor", vendorInteractionRoutes);
+app.use("/interactions/api/vendor", vendorNotificationRoutes);
 
-// User API Group
-app.use("/service-api/user", userServiceRoutes); 
-app.use("/service-api/user", userBookingRoutes); 
-app.use("/service-api/user", userProfileRoutes); 
-app.use("/service-api", userPaymentRoutes); // matches /service_api/payments/...
-app.use("/service-api", userServiceRoutes); // matches /service_api/services/:id
+// 3. User
+app.use("/service_api/user", userServiceRoutes);
+app.use("/service_api/user", userBookingRoutes);
+app.use("/service_api/user", userProfileRoutes);
 
-app.use("/interactions/api/feedback", feedbackRoutes); 
-app.use("/interactions/api", reviewRoutes); 
-app.use("/interactions/api/user", userNotificationRoutes);
-app.use("/interactions/api/user", userInteractionRoutes);
+// 4. Shared / Other
+app.use("/service_api", userServiceRoutes); // Original comment: matches /service_api/services/:id
+app.use("/service_api", userPaymentRoutes);
+app.use("/service_api", vendorPaymentRoutes);
+
+// 5. Interactions
+app.use("/interactions/api/feedback", feedbackRoutes);
+app.use("/interactions/api", reviewRoutes);
 
 
 // --- ERROR HANDLING ---
