@@ -193,6 +193,7 @@ export const createPaymentOrder = async (req, res) => {
     if (!amount) {
       return res.status(400).json({ message: "Amount is required" });
     }
+    
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
@@ -237,9 +238,10 @@ export const verifyPayment = async (req, res) => {
     // Verify Razorpay
     const body = orderId + "|" + paymentId;
     const expectedSignature = crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-    .update(body)
-    .digest("hex");
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest("hex");
+      //console.log(expectedSignature, signature)
 
     if (expectedSignature !== signature) {
         return res.status(400).json({ message: "Invalid payment signature" });
