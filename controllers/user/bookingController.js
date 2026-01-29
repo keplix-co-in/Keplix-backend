@@ -1,3 +1,28 @@
+// @desc    Get payment by bookingId
+// @route   GET /service_api/bookings/:bookingId/payment
+export const getPaymentByBooking = async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.bookingId);
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ message: "Invalid bookingId" });
+    }
+    // Only allow if user owns the booking
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, userId: req.user.id },
+      include: { payment: true }
+    });
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found or not authorized" });
+    }
+    if (!booking.payment) {
+      return res.status(404).json({ message: "No payment found for this booking" });
+    }
+    res.json(booking.payment);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 import { PrismaClient } from "@prisma/client";
 import { createNotification } from "../../util/notificationHelper.js";
 

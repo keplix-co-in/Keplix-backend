@@ -22,8 +22,7 @@ export const protect = async (req, res, next) => {
             });
 
             if (!req.user) {
-                res.status(401);
-                throw new Error('Not authorized, user not found');
+                return res.status(401).json({ message: 'Not authorized, user not found' });
             }
             
             // Check for activity if needed (can be separate middleware but good safety net)
