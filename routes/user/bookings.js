@@ -12,11 +12,16 @@ import {
 
 const router = express.Router();
 
+import { getPaymentByBooking } from '../../controllers/user/bookingController.js';
+
 // Matches GET /service_api/user/:userId/bookings
 router.get('/:userId/bookings', protect, getUserBookings);
 
 // Matches GET /service_api/user/:userId/bookings/:id (Get single booking)
 router.get('/:userId/bookings/:id', protect, getSingleBooking);
+
+// Matches GET /service_api/bookings/:bookingId/payment (fetch payment by bookingId)
+router.get('/bookings/:bookingId/payment', protect, getPaymentByBooking);
 
 // Matches POST /service_api/user/:userId/bookings/create
 router.post('/:userId/bookings/create', protect, validateRequest(createBookingSchema), createBooking);
