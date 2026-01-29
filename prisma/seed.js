@@ -319,7 +319,8 @@ async function main() {
             if (status !== 'cancelled' && Math.random() > 0.7) {
                 const conv = await prisma.conversation.create({
                     data: {
-                        bookingId: booking.id
+                        bookingId: booking.id,
+                        updatedAt: new Date()
                     }
                 });
                 
@@ -328,7 +329,6 @@ async function main() {
                         conversationId: conv.id,
                         senderId: user.id,
                         message_text: "Hi, is this slot confirmed?",
-                        senderType: "user"
                     }
                 });
                 
@@ -337,7 +337,6 @@ async function main() {
                          conversationId: conv.id,
                          senderId: service.vendorId,
                          message_text: "Yes, we will be there.",
-                         senderType: "vendor"
                      }
                  });
             }
