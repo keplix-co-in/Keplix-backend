@@ -47,6 +47,7 @@ import userInteractionRoutes from "./routes/user/interactions.js";
 import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
+import { protect } from "./middleware/authMiddleware.js";
 
 // --- CONFIGURATION ---
 
@@ -148,6 +149,8 @@ app.use("/accounts/auth", logoutRouter);
 
 
 // 2. Vendor
+app.use("/accounts/vendor", vendorProfileRoutes);
+app.use("/accounts/documents", documentRoutes)
 app.use("/service_api/vendor", vendorServiceRoutes);
 app.use("/service_api/vendor", vendorBookingRoutes);
 app.use("/service_api", inventoryRoutes); // Keeps original path
@@ -169,6 +172,8 @@ app.use("/service_api", userPaymentRoutes);
 app.use("/service_api", vendorPaymentRoutes);
 
 // 5. Interactions
+app.use("/interactions/api/user", userInteractionRoutes);
+app.use("/interactions/api/user/notifications", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
