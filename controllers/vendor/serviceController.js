@@ -64,6 +64,7 @@ export const updateService = async (req, res) => {
                 category
             }
         });
+        console.log(service)
         res.json(service);
     } catch (error) {
         console.error(error);
