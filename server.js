@@ -47,7 +47,6 @@ import userInteractionRoutes from "./routes/user/interactions.js";
 import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
-import { protect } from "./middleware/authMiddleware.js";
 
 // --- CONFIGURATION ---
 
@@ -173,7 +172,7 @@ app.use("/service_api", vendorPaymentRoutes);
 
 // 5. Interactions
 app.use("/interactions/api/user", userInteractionRoutes);
-app.use("/interactions/api/user/notifications", userNotificationRoutes);
+app.use("/interactions/api/user/", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
