@@ -1,4 +1,5 @@
 export const validateRequest = (schema) => async (req, res, next) => {
+  console.log('Validation middleware called for path:', req.path, 'body:', req.body);
   try {
     // Validate request body against the schema
     // parse will throw an error if validation fails
