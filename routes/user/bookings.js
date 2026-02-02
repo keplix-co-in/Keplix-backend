@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserBookings, getSingleBooking, createBooking, updateBooking } from '../../controllers/user/bookingController.js';
+import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment } from '../../controllers/user/bookingController.js';
 import { confirmServiceCompletion, disputeServiceCompletion } from '../../controllers/user/serviceConfirmationController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -19,6 +19,9 @@ router.get('/:userId/bookings', protect, getUserBookings);
 
 // Matches GET /service_api/user/:userId/bookings/:id (Get single booking)
 router.get('/:userId/bookings/:id', protect, getSingleBooking);
+
+// Matches GET /service_api/user/:userId/bookings/:id/can-pay (Check if vendor accepted)
+router.get('/:userId/bookings/:id/can-pay', protect, canProceedToPayment);
 
 // Matches GET /service_api/bookings/:bookingId/payment (fetch payment by bookingId)
 router.get('/bookings/:bookingId/payment', protect, getPaymentByBooking);
