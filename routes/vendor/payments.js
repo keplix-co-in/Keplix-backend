@@ -16,4 +16,7 @@ router.get('/vendor/:vendor_id/earning', protect, getVendorEarnings);
 router.post('/vendor/payments/order/create', protect, createVendorPaymentOrder);
 router.post('/vendor/payments/verify', protect, verifyVendorPayment);
 
+// For Vendor's Earning
+router.get('vendor/payments/earnings', protect, getVendorEarnings);
+
 export default router;
