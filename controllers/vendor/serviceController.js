@@ -53,6 +53,7 @@ export const createService = async (req, res) => {
 // @route   PUT /service_api/vendor/services/:id
 export const updateService = async (req, res) => {
     const { name, description, price, duration, category } = req.body;
+    console.log(req.body)
     try {
         const service = await prisma.service.update({
             where: { id: parseInt(req.params.id), vendorId: req.user.id },
@@ -71,6 +72,10 @@ export const updateService = async (req, res) => {
         res.status(500).json({ message: 'Server Error / Not Found' });
     }
 }
+
+
+
+
 
 // @desc    Delete Service
 // @route   DELETE /service_api/vendor/services/:id
