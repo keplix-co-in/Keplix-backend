@@ -78,6 +78,10 @@ export const authLimiter = rateLimit({
   skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
 });
 
+// Parsing & Sanitization
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 // --- MIDDLEWARE ---
 app.use(loggerMiddleware);
 app.use(helmet());
@@ -122,9 +126,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Parsing & Sanitization
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
