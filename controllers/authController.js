@@ -269,16 +269,99 @@ import { sendEmail, sendSMS } from "../util/communication.js";
 
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
-  const { email } = req.body;
-  // Generate token logic here in future
-  await sendEmail(email, "Reset Password", "Here is your reset link (mock)");
-  res.json({ message: "Password reset link sent (mock)" });
+  try {
+    const { email } = req.body;
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Security: If the email does not exist, do not reveal this information, reply with success message
+    if (!user) {
+      return res.json({
+        message: "If the email exists, a reset link has been sent.",
+      });
+    }
+
+    // In real implementation, generate token and send email
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    // save token for expiry ( 1 minute for now )
+    await prisma.user.update({
+      where: { email },
+      data: {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: new Date(Date.now() + 1 * 60 * 1000),
+      },
+    });
+
+    // create reset link
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${user.id}/${resetToken}`;
+
+    // send email via Resend
+
+    await sendEmail(
+      email,
+      "Reset Your Password",
+      `Click here to reset your password: ${resetLink}`,
+    );
+
+    res.json({ message: "Password Reset Link Sent Successfully" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Server Error" });
+  }
 };
 
 // @desc    Reset Password
 export const resetPassword = async (req, res) => {
-  // Verify token logic here
-  res.json({ message: "Password reset successfully (mock)" });
+  try {
+    const { token } = req.params;
+    const { password, re_password } = req.body;
+
+    if (password !== re_password) {
+      return res.status(400).json({ message: "Password does not match" });
+    }
+
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await prisma.user.findFirst({
+      where: {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    if (!user) {
+      return res
+        .status(400)
+        .json({ message: "Invalid or Expired reset token" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        resetPasswordToken: null,
+        resetPasswordExpires: null,
+      },
+    });
+
+    return res.json({ message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+
+  // // Verify token logic here
+  // res.json({ message: "Password reset successfully (mock)" });
 };
 
 // @desc    Send Phone OTP
