@@ -49,28 +49,180 @@ export const getVendorBookings = async (req, res) => {
   }
 };
 
+// @desc    Accept or reject a service request
+// @route   PATCH /service_api/vendor/bookings/:id/respond
+export const respondToServiceRequest = async (req, res) => {
+  const { vendor_status } = req.body; // 'accepted' or 'rejected'
+  const bookingId = parseInt(req.params.id);
+
+  try {
+    // Verify booking exists and belongs to vendor's services
+    const booking = await prisma.booking.findFirst({
+      where: { 
+        id: bookingId,
+        service: {
+          vendorId: req.user.id
+        }
+      },
+      include: {
+        service: true,
+        user: {
+          include: {
+            userProfile: true
+          }
+        }
+      }
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found or unauthorized" });
+    }
+
+    if (booking.vendor_status !== 'pending') {
+      return res.status(400).json({ 
+        message: `Request already ${booking.vendor_status}` 
+      });
+    }
+
+    // Update vendor_status
+    const updatedBooking = await prisma.booking.update({
+      where: { id: bookingId },
+      data: { 
+        vendor_status,
+        status: vendor_status === 'accepted' ? 'confirmed' : 'cancelled'
+      },
+      include: {
+        service: true,
+        user: {
+          include: {
+            userProfile: true
+          }
+        }
+      }
+    });
+
+    // Get socket instance
+    const io = req.app.get("io");
+
+    // Notify user about vendor's response
+    if (vendor_status === 'accepted') {
+      // Send notification
+      await createNotification(
+        booking.userId,
+        "Request Accepted!",
+        `${booking.service.name} request accepted. You can now proceed with payment.`
+      );
+
+      // Socket notification
+      if (io) {
+        io.to(`user_${booking.userId}`).emit("request_accepted", {
+          bookingId: booking.id,
+          service: booking.service.name,
+          message: "Your service request was accepted! Proceed to payment."
+        });
+      }
+
+      // Push notification
+      const userForPush = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: { fcmToken: true }
+      });
+
+      if (userForPush?.fcmToken) {
+        sendPushNotification(
+          userForPush.fcmToken,
+          "Request Accepted!",
+          `${booking.service.name} request accepted. Tap to proceed with payment.`,
+          { bookingId: booking.id.toString(), action: 'payment' }
+        ).catch(err => console.error("Push Error", err));
+      }
+    } else {
+      // Request rejected
+      await createNotification(
+        booking.userId,
+        "Request Declined",
+        `Sorry, ${booking.service.name} request was declined by the vendor.`
+      );
+
+      if (io) {
+        io.to(`user_${booking.userId}`).emit("request_rejected", {
+          bookingId: booking.id,
+          service: booking.service.name,
+          message: "Your service request was declined."
+        });
+      }
+
+      const userForPush = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: { fcmToken: true }
+      });
+
+      if (userForPush?.fcmToken) {
+        sendPushNotification(
+          userForPush.fcmToken,
+          "Request Declined",
+          `Sorry, ${booking.service.name} request was declined.`,
+          { bookingId: booking.id.toString() }
+        ).catch(err => console.error("Push Error", err));
+      }
+    }
+
+    res.json({
+      ...updatedBooking,
+      message: vendor_status === 'accepted' 
+        ? "Service request accepted. User will be notified to proceed with payment."
+        : "Service request declined."
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 // @desc    Update booking status
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
-  const { status } = req.body;
+  console.log('updateBookingStatus called with params:', req.params);
+  const { status, notes } = req.body;
+  const files = req.files || [];
+
   try {
+    console.log('About to update booking with id:', req.params.id, 'status:', status);
+    
+    // Prepare update data
+    const updateData = { status };
+    if (notes) {
+      updateData.notes = notes;
+    }
+
+    if (files.length > 0) {
+        const imageUrls = files.map(file => file.path); // Cloudinary uses 'path' or 'secure_url'
+        updateData.completion_images = imageUrls;
+    }
+
     const booking = await prisma.booking.update({
       where: { id: parseInt(req.params.id) },
-      data: { status },
+      data: updateData,
       // Include service relation so we can find vendor for payout
       include: {
         service: true
       }
     });
+    console.log('Booking updated successfully:', booking.id, 'Files received:', files.length);
+    console.log('Booking updated successfully:', booking.id);
 
     //socket.io instance
     const io = req.app.get("io");   
     // Notify user about booking status update
-    io.to(`user_${booking.userId}`).emit("booking_updated", {
-      bookingId: booking.id,
-      status: booking.status,
-      message: "Your booking status has been updated",
-    });
+    try {
+      io.to(`user_${booking.userId}`).emit("booking_updated", {
+        bookingId: booking.id,
+        status: booking.status,
+        message: "Your booking status has been updated",
+      });
+    } catch (socketError) {
+      console.error("Socket emit error:", socketError);
+    }
 
     // === PUSH NOTIFICATION ===
     const userForPush = await prisma.user.findUnique({
@@ -85,7 +237,7 @@ export const updateBookingStatus = async (req, res) => {
         if (status === 'confirmed') {
             title = "Booking Accepted!";
             body = "The vendor has accepted your booking request.";
-        } else if (status === 'service_completed') {
+        } else if (status === 'completed') {
             title = "Service Completed";
             body = "The vendor has marked your service as completed. Please confirm to release payment.";
         } else if (status === 'cancelled') {
@@ -104,7 +256,7 @@ export const updateBookingStatus = async (req, res) => {
          if (status === 'confirmed') {
             title = "Booking Accepted!";
             body = "The vendor has accepted your booking request.";
-        } else if (status === 'service_completed') {
+        } else if (status === 'completed') {
              title = "Service Completed";
              body = "The vendor has marked your service as completed. Please confirm to release payment.";
         }
