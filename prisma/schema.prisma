@@ -250,7 +250,7 @@ model Feedback {
 
 model EmailOTP {
   id        Int      @id @default(autoincrement())
-  email     String   @unique
+  email     String   
   otp       String
   expiresAt DateTime
   verified  Boolean  @default(false)
