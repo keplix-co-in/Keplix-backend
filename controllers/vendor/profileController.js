@@ -14,7 +14,52 @@ export const getVendorProfile = async (req, res) => {
         });
 
         if (vendorProfile) {
-            res.json(vendorProfile);
+            // Calculate dynamic statistics
+            const vendorId = req.user.id;
+            
+            // 1. Get all services by this vendor
+            const services = await prisma.service.findMany({
+                where: { vendorId },
+                select: { id: true }
+            });
+            const serviceIds = services.map(s => s.id);
+            
+            // 2. Get all bookings for vendor's services
+            const bookings = await prisma.booking.findMany({
+                where: { 
+                    serviceId: { in: serviceIds },
+                    status: { in: ['completed', 'confirmed', 'ongoing'] }
+                },
+                include: { 
+                    payment: true,
+                    review: true 
+                }
+            });
+            
+            // 3. Calculate total orders
+            const total_orders = bookings.length;
+            
+            // 4. Calculate total earnings from completed payments
+            const total_earnings = bookings.reduce((sum, booking) => {
+                if (booking.payment && booking.payment.status === 'success') {
+                    return sum + parseFloat(booking.payment.vendorAmount || booking.payment.amount || 0);
+                }
+                return sum;
+            }, 0);
+            
+            // 5. Calculate average rating from reviews
+            const reviews = bookings.filter(b => b.review).map(b => b.review);
+            const average_rating = reviews.length > 0 
+                ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+                : "0.0";
+            
+            // Return profile with calculated stats
+            res.json({
+                ...vendorProfile,
+                rating: average_rating,
+                total_orders,
+                total_earnings: total_earnings.toFixed(2)
+            });
         } else {
             res.status(404).json({ message: 'Vendor profile not found' });
         }
