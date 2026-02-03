@@ -3,6 +3,58 @@ import { getIO } from '../../socket.js';
 
 const prisma = new PrismaClient();
 
+// @desc    Create a conversation for a booking (Vendor Side)
+// @route   POST /interactions/api/vendor/chat/create
+export const createVendorConversation = async (req, res) => {
+    try {
+        const { bookingId } = req.body;
+        const vendorId = req.user.id;
+
+        if (!bookingId) {
+            return res.status(400).json({ message: "Booking ID is required" });
+        }
+
+        // 1. Fetch booking and verify it belongs to vendor's service
+        const booking = await prisma.booking.findUnique({
+            where: { id: Number(bookingId) },
+            include: { service: true }
+        });
+
+        if (!booking) {
+            return res.status(404).json({ message: "Booking not found" });
+        }
+
+        // 2. Security: booking must be for vendor's service
+        if (booking.service.vendorId !== vendorId) {
+            return res.status(403).json({ message: "Not authorized for this booking" });
+        }
+
+        // 3. Check if conversation already exists (idempotent)
+        let conversation = await prisma.conversation.findFirst({
+            where: { bookingId: booking.id }
+        });
+
+        if (conversation) {
+            return res.status(200).json(conversation);
+        }
+
+        // 4. Create new conversation
+        conversation = await prisma.conversation.create({
+            data: {
+                bookingId: booking.id,
+                updatedAt: new Date()
+            }
+        });
+
+        return res.status(201).json(conversation);
+    } catch (error) {
+        console.error("Create Vendor Conversation Error:", error);
+        return res.status(500).json({
+            message: "Failed to create conversation"
+        });
+    }
+};
+
 // @desc    Get all conversations for Vendor
 // @route   GET /interactions/api/vendor/conversations/
 export const getVendorConversations = async (req, res) => {
@@ -113,7 +165,9 @@ export const sendVendorMessage = async (req, res) => {
         // Socket.io Emit
         try {
             const io = getIO();
+            console.log(`[Socket] Emitting message to room ${conversationId}:`, message.id);
             io.to(String(conversationId)).emit("receive_message", message);
+            console.log(`[Socket] Message emitted successfully`);
         } catch (socketError) {
              console.error("Socket emit failed:", socketError);
         }
