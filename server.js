@@ -53,6 +53,23 @@ import { protect } from "./middleware/authMiddleware.js";
 
 const app = express();
 const httpServer = createServer(app);
+
+httpServer.on('connection', (socket) => {
+    // console.log(`New TCP connection from ${socket.remoteAddress}`);
+});
+
+httpServer.on('request', (req, res) => {
+    if (req.method !== 'GET') {
+       console.log(`[HTTP-RAW] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+    }
+});
+
+// --- RAW REQUEST LOGGER (BEFORE BODY PARSERS) ---
+app.use((req, res, next) => {
+    console.log(`[RAW-DEBUG] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -131,7 +148,7 @@ app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
 // Apply Global Rate Limiter
-app.use(limiter);
+// app.use(limiter);
 
 // --- HEALTH CHECK ---
 app.get("/", (req, res) => res.json({ message: "Keplix Backend (Node.js) is running!", status: "running" }));
@@ -204,3 +221,11 @@ const gracefulShutdown = () => {
 };
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  Logger.error('Uncaught Exception:', error);
+});
