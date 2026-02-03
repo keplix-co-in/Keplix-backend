@@ -18,7 +18,7 @@ const checkFileType = (file, cb) => {
                      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
                      file.mimetype === 'application/octet-stream';
 
-    if (extname) { // Prioritize extension check as mimetype can be fickle in formData
+    if (extname || mimetype) { 
         return cb(null, true);
     } else {
         cb(new Error(`Images/Docs only. Got: ${file.mimetype} / ${path.extname(file.originalname)}`));

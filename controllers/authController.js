@@ -146,6 +146,8 @@ export const authUser = async (req, res) => {
             // Add other vendor fields if needed
             business_name: user.vendorProfile.business_name,
             profile_picture: user.vendorProfile.image,
+            cover_image: user.vendorProfile.cover_image, // Add this!
+            image: user.vendorProfile.image, // Ensure raw field is also there
           };
         } else if (user.userProfile) {
           profileData = {
