@@ -418,9 +418,17 @@ export const sendPhoneOTP = async (req, res) => {
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
+  console.log('🔐 [verifyPhoneOTP] Called');
+  console.log('🔐 [verifyPhoneOTP] Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('🔐 [verifyPhoneOTP] Body:', JSON.stringify(req.body, null, 2));
+  console.log('🔐 [verifyPhoneOTP] Query:', JSON.stringify(req.query, null, 2));
+  
   const { phone_number, otp } = req.body;
+  
+  console.log('🔐 [verifyPhoneOTP] Extracted - phone_number:', phone_number, 'otp:', otp);
 
   if (!phone_number || !otp) {
+    console.error('❌ [verifyPhoneOTP] Missing required fields');
     return res.status(400).json({ error: "Phone number and OTP are required" });
   }
 
@@ -530,19 +538,29 @@ export const sendEmailOTP = async (req, res) => {
 };
 
 export const verifyEmailOTP = async (req, res) => {
-  const { otpId, otp } = req.body;
+  const { email, otp } = req.body;
 
-  if (!otpId || !otp) {
-    return res.status(400).json({ error: "OTP is required" });
+  console.log('verifyEmailOTP - Received:', { email, otp, bodyKeys: Object.keys(req.body) });
+
+  if (!email || !otp) {
+    return res.status(400).json({ error: "Email and OTP are required" });
   }
 
   try {
-    const record = await prisma.emailOTP.findUnique({
-      where: { id: otpId },
+    // Find the most recent OTP record for this email
+    const record = await prisma.emailOTP.findFirst({
+      where: { 
+        email: email.toLowerCase().trim()
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
 
+    console.log('verifyEmailOTP - Found record:', record ? { id: record.id, email: record.email, verified: record.verified, expiresAt: record.expiresAt } : 'null');
+
     if (!record) {
-      return res.status(400).json({ error: "Invalid OTP request" });
+      return res.status(400).json({ error: "No OTP found for this email" });
     }
 
     if (record.verified) {
@@ -550,6 +568,7 @@ export const verifyEmailOTP = async (req, res) => {
     }
 
     if (record.otp !== otp) {
+      console.log('verifyEmailOTP - OTP mismatch:', { expected: record.otp, received: otp });
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
@@ -559,9 +578,11 @@ export const verifyEmailOTP = async (req, res) => {
     }
 
     await prisma.emailOTP.update({
-      where: { id: otpId },
+      where: { id: record.id },
       data: { verified: true },
     });
+
+    console.log('verifyEmailOTP - OTP verified successfully');
 
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
