@@ -38,6 +38,7 @@ export const getVendorBookings = async (req, res) => {
       include: {
         user: { include: { userProfile: true } },
         service: true,
+        conversation: true, // Include conversation to get conversationId for chat
       },
       orderBy: { booking_date: "desc" },
     });
