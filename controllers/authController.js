@@ -6,6 +6,8 @@ import admin from "../util/firebase.js"; // Use shared instance
 import crypto from "crypto";
 import { resend } from "../util/resend.js";
 import { generateOTP } from "../util/otp.js";
+import { otpEmailTemplate } from "../util/emailTemplate.js";
+import { getISTDate } from "../util/time.js";
 
 const require = createRequire(import.meta.url);
 
@@ -313,7 +315,7 @@ export const forgotPassword = async (req, res) => {
 
     res.json({ message: "Password Reset Link Sent Successfully" });
   } catch (error) {
-    console.log(error);
+    console.error(error);
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -361,9 +363,6 @@ export const resetPassword = async (req, res) => {
     console.error("Reset Password Error:", error);
     res.status(500).json({ message: "Server Error" });
   }
-
-  // // Verify token logic here
-  // res.json({ message: "Password reset successfully (mock)" });
 };
 
 // @desc    Send Phone OTP
@@ -463,120 +462,110 @@ export const verifyPhoneOTP = async (req, res) => {
   }
 };
 
-// @desc    Send Email OTP
 export const sendEmailOTP = async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
-    return res.status(400).json({ error: "Email is required" });
+    return res.status(400).json({ message: "Email is required" });
   }
+
   try {
     const otp = generateOTP();
-    console.log(`[OTP] Generated for ${email}: ${otp}`);
-    //save OTP in database
-    // await prisma.emailOTP.upsert({
-    //   data: {
-    //     email,
-    //     otp,
-    //     expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
-    //   },
-    // });
 
-    await prisma.emailOTP.upsert({
-      where: { email },
-      update: {
-        otp,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now (UTC)
+    const istNow = getISTDate();
+    const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
+
+    // OPTIONAL: invalidate previous OTPs for same email
+    await prisma.emailOTP.updateMany({
+      where: {
+        email,
         verified: false,
       },
-      create: {
+      data: {
+        verified: true,
+      },
+    });
+
+    // Create NEW OTP record
+    const record = await prisma.emailOTP.create({
+      data: {
         email,
         otp,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        expiresAt,
         verified: false,
       },
     });
 
-    // Send Email via Resend
-    if (resend) {
-      try {
-        await resend.emails.send({
-          from: "Keplix <onboarding@resend.dev>",
-          to: email,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px;">
-              <h2>Keplix Email Verification</h2>
-              <p>Your verification code is:</p>
-              <h1 style="color: #D82424; letter-spacing: 5px;">${otp}</h1>
-              <p>This code is valid for 10 minutes.</p>
-            </div>
-          `,
-        });
-        res.json({ status: true, message: "Email OTP sent successfully" });
-      } catch (resendError) {
-        // Log the exact error from Resend (e.g., 429 Rate Limit)
-        console.error("Resend API specific error:", resendError);
+    try {
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Keplix <noreply@keplix.co.in>",
+        to: email,
+        subject: "Your Keplix Verification Code",
+        html: otpEmailTemplate({ otp }),
+      });
 
-        // Return success anyway in development so the user isn't blocked by external API limits
-        res.json({
-          status: true,
-          message: "OTP generated (Resend Limit Hit)",
-          otp: process.env.NODE_ENV === "development" ? otp : undefined,
-          warning:
-            "Email service temporarily unavailable. Use the code from logs.",
-        });
-      }
-    } else {
-      console.warn("Resend API client is not initialized. OTP log:", otp);
-      res.json({
-        status: true,
-        message: "OTP generated (Simulation Mode)",
+      return res.json({
+        success: true,
+        message: "OTP sent successfully (valid for 2 minutes)",
+        otpId: record.id,
+      });
+    } catch (emailError) {
+      console.error("Resend error:", emailError);
+
+      return res.json({
+        success: true,
+        message: "OTP generated but email service failed",
+        otpId: record.id,
         otp: process.env.NODE_ENV === "development" ? otp : undefined,
+        warning: "Email provider issue",
       });
     }
   } catch (error) {
     console.error("sendEmailOTP error:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to send OTP", error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+    });
   }
 };
 
-// @desc    Verify Email OTP
 export const verifyEmailOTP = async (req, res) => {
-  const { email, otp } = req.body;
+  const { otpId, otp } = req.body;
 
-  if (!email || !otp) {
-    return res.status(400).json({ error: "Email or OTP is required" });
+  if (!otpId || !otp) {
+    return res.status(400).json({ error: "OTP is required" });
   }
 
   try {
-    const record = await prisma.emailOTP.findFirst({
-      where: {
-        email,
-        otp,
-        verified: false,
-      },
-      orderBy: { createdAt: "desc" },
+    const record = await prisma.emailOTP.findUnique({
+      where: { id: otpId },
     });
 
     if (!record) {
-      return res.status(400).json({ error: "Invalid OTP or already used" });
+      return res.status(400).json({ error: "Invalid OTP request" });
     }
 
-    // Check expiry
+    if (record.verified) {
+      return res.status(400).json({ error: "OTP already used" });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Expiry check
     if (new Date() > record.expiresAt) {
       return res.status(400).json({ error: "OTP has expired" });
     }
 
     await prisma.emailOTP.update({
-      where: { id: record.id },
+      where: { id: otpId },
       data: { verified: true },
     });
 
-    // Fetch user to return tokens automatically
+    // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: record.email },
       include: {
         userProfile: true,
         vendorProfile: true,
@@ -590,7 +579,7 @@ export const verifyEmailOTP = async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Email OTP verified successfully",
       access: generateToken(user.id),
@@ -612,11 +601,10 @@ export const verifyEmailOTP = async (req, res) => {
     });
   } catch (error) {
     console.error("verifyEmailOTP error:", error);
-    return res
-      .status(500)
-      .json({ message: "OTP Verification Failed", error: error.message });
+    return res.status(500).json({ message: "OTP Verification Failed" });
   }
 };
+
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;

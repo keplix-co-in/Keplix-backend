@@ -45,6 +45,6 @@ export const requestOtpSchema = z.object({
 
 export const verifyOtpSchema = z.object({
     phone_number: z.string().optional(),
-    email: z.string().optional(),
+    otpId: z.int().optional(),
     otp: z.string().length(6, { message: "OTP must be 6 digits" })
 });
