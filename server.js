@@ -47,11 +47,29 @@ import userInteractionRoutes from "./routes/user/interactions.js";
 import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
+import { protect } from "./middleware/authMiddleware.js";
 
 // --- CONFIGURATION ---
 
 const app = express();
 const httpServer = createServer(app);
+
+httpServer.on('connection', (socket) => {
+    // console.log(`New TCP connection from ${socket.remoteAddress}`);
+});
+
+httpServer.on('request', (req, res) => {
+    if (req.method !== 'GET') {
+       console.log(`[HTTP-RAW] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+    }
+});
+
+// --- RAW REQUEST LOGGER (BEFORE BODY PARSERS) ---
+app.use((req, res, next) => {
+    console.log(`[RAW-DEBUG] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,6 +94,10 @@ export const authLimiter = rateLimit({
   message: { message: "Too many authentication attempts, please try again in a few minutes." },
   skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
 });
+
+// Parsing & Sanitization
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // --- MIDDLEWARE ---
 app.use(loggerMiddleware);
@@ -121,14 +143,12 @@ app.use(cors({
   credentials: true
 }));
 
-// Parsing & Sanitization
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
 // Apply Global Rate Limiter
-app.use(limiter);
+// app.use(limiter);
 
 // --- HEALTH CHECK ---
 app.get("/", (req, res) => res.json({ message: "Keplix Backend (Node.js) is running!", status: "running" }));
@@ -148,6 +168,8 @@ app.use("/accounts/auth", logoutRouter);
 
 
 // 2. Vendor
+app.use("/accounts/vendor", vendorProfileRoutes);
+app.use("/accounts/documents", documentRoutes)
 app.use("/service_api/vendor", vendorServiceRoutes);
 app.use("/service_api/vendor", vendorBookingRoutes);
 app.use("/service_api", inventoryRoutes); // Keeps original path
@@ -169,6 +191,8 @@ app.use("/service_api", userPaymentRoutes);
 app.use("/service_api", vendorPaymentRoutes);
 
 // 5. Interactions
+app.use("/interactions/api/user", userInteractionRoutes);
+app.use("/interactions/api/user/notifications", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
@@ -197,3 +221,11 @@ const gracefulShutdown = () => {
 };
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  Logger.error('Uncaught Exception:', error);
+});

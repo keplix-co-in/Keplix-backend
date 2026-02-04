@@ -65,10 +65,15 @@ export const getServiceById = async (req, res) => {
       const enrichedService = {
         ...service,
         image_url: service.image_url
-          ? `${req.protocol}://${req.get("host")}${service.image_url}`
+          ? service.image_url.startsWith("http")
+            ? service.image_url
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
           : null,
+
         image: service.image_url
-          ? `${req.protocol}://${req.get("host")}${service.image_url}`
+          ? service.image_url.startsWith("http")
+            ? service.image_url
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
           : null,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
@@ -92,6 +97,41 @@ export const getServiceCategories = async (req, res) => {
     });
     const formatted = categories.map((c) => ({ name: c.category }));
     res.json(formatted);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Get Featured Services (for user homepage)
+// @route   GET /service_api/user/services/featured
+export const getFeaturedServices = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const services = await prisma.service.findMany({
+      where: {
+        is_active: true,
+        is_featured: true
+      },
+      take: Number(limit),
+      include: { vendor: { include: { vendorProfile: true } } },
+      orderBy: { id: "desc" },
+    });
+
+    const enrichedServices = services.map((service) => ({
+      ...service,
+      image_url: service.image_url
+        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        : null,
+      image: service.image_url
+        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        : null,
+      vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
+      vendor_image: service.vendor?.vendorProfile?.image || null,
+    }));
+
+    res.json(enrichedServices);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -169,16 +209,16 @@ export const searchVendorsByLocation = async (req, res) => {
 export const getServicesByVendor = async (req, res) => {
   try {
     const { vendorId } = req.params;
-    
+
     // Check if vendor exists first? Optional but good.
     // The link is via vendorId (Int) -> Service.vendorId (Int)
     // Note: In schema, Service.vendorId refers to userId of the vendor.
     // Ensure the frontend passes the correct ID (User ID of the vendor).
-    
+
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
-       include: { vendor: { include: { vendorProfile: true } } },
-       orderBy: { id: "desc" },
+      include: { vendor: { include: { vendorProfile: true } } },
+      orderBy: { id: "desc" },
     });
 
     const enrichedServices = services.map((service) => ({
@@ -194,7 +234,6 @@ export const getServicesByVendor = async (req, res) => {
     }));
 
     res.json(enrichedServices);
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
