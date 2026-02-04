@@ -17,7 +17,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "prisma": "^6.19.2"
+  },
   "dependencies": {
+    "@prisma/client": "^6.19.2",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.41.3",
     "compression": "^1.8.1",
@@ -41,10 +47,5 @@
     "winston": "^3.19.0",
     "xss": "^1.0.15",
     "zod": "^4.3.5"
-  },
-  "devDependencies": {
-    "@prisma/client": "^6.19.2",
-    "nodemon": "^3.1.0",
-    "prisma": "^6.19.2"
   }
 }
