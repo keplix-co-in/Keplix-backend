@@ -14,7 +14,7 @@ router.get('/:vendorId/services', protect, getVendorServices);
 router.post('/:vendorId/services/create', protect, upload.single('image'), validateRequest(createServiceSchema), createService);
 
 // Matches PUT /service_api/vendor/:vendorId/services/update/:id
-router.put('/:vendorId/services/update/:id', protect, validateRequest(updateServiceSchema), updateService);
+router.put('/:vendorId/services/update/:id', protect,upload.single('image'),  validateRequest(updateServiceSchema), updateService);
 
 // Matches DELETE /service_api/vendor/:vendorId/services/delete/:id
 router.delete('/:vendorId/services/delete/:id', protect, deleteService);
