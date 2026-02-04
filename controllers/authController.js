@@ -630,15 +630,27 @@ export const verifyEmailOTP = async (req, res) => {
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
 
+  console.log('Google Login - Received role:', role, 'idToken length:', idToken?.length);
+
   try {
     // Verify token with Firebase Admin
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const email = decodedToken.email;
     const name = decodedToken.name || email.split("@")[0];
 
-    let user = await prisma.user.findUnique({ where: { email } });
+    console.log('Google Login - Decoded email:', email, 'name:', name);
+
+    let user = await prisma.user.findUnique({ 
+      where: { email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      }
+    });
 
     if (!user) {
+      console.log('Google Login - Creating new user with role:', role || 'user');
+      
       // Register new user
       user = await prisma.user.create({
         data: {
@@ -668,14 +680,46 @@ export const googleLogin = async (req, res) => {
           },
         });
       }
+
+      // Re-fetch user with profile
+      user = await prisma.user.findUnique({ 
+        where: { id: user.id },
+        include: {
+          userProfile: true,
+          vendorProfile: true,
+        }
+      });
     }
 
-    res.json({
+    console.log('Google Login - User found/created, role:', user.role);
+
+    // Build response with profile data
+    const userData = {
       id: user.id,
       email: user.email,
       role: user.role,
+      is_active: user.is_active,
+    };
+
+    if (user.role === "vendor" && user.vendorProfile) {
+      userData.business_name = user.vendorProfile.business_name;
+      userData.phone = user.vendorProfile.phone;
+      userData.address = user.vendorProfile.address;
+      userData.image = user.vendorProfile.image;
+      userData.cover_image = user.vendorProfile.cover_image;
+      userData.onboarding_completed = user.vendorProfile.onboarding_completed;
+      userData.status = user.vendorProfile.status;
+    } else if (user.userProfile) {
+      userData.name = user.userProfile.name;
+      userData.phone = user.userProfile.phone;
+      userData.address = user.userProfile.address;
+      userData.profile_picture = user.userProfile.profile_picture;
+    }
+
+    res.json({
       access: generateToken(user.id),
       refresh: generateToken(user.id),
+      user: userData,
     });
   } catch (error) {
     console.error("Google Login Error:", error);
