@@ -483,14 +483,11 @@ export const sendEmailOTP = async (req, res) => {
     const istNow = getISTDate();
     const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
 
-    // OPTIONAL: invalidate previous OTPs for same email
-    await prisma.emailOTP.updateMany({
+    // Delete any existing unverified OTPs for this email first
+    await prisma.emailOTP.deleteMany({
       where: {
         email,
         verified: false,
-      },
-      data: {
-        verified: true,
       },
     });
 
