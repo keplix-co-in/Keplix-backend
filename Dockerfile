@@ -10,21 +10,20 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies first (needed for Prisma generation)
-# Using npm install since package-lock.json may not exist
-RUN npm install --legacy-peer-deps
+# Install production dependencies only
+RUN npm install --omit=dev --legacy-peer-deps
+
+# Install Prisma CLI as a dev dependency for generation
+RUN npm install -D prisma@6.19.2
 
 # Copy prisma schema
 COPY prisma ./prisma/
 
-# Generate Prisma Client with the correct version from package.json
-RUN npx prisma@5.22.0 generate
+# Generate Prisma Client using the installed version from node_modules
+RUN npx prisma generate
 
 # Copy application code
 COPY . .
-
-# Remove dev dependencies to reduce image size
-RUN npm prune --omit=dev --legacy-peer-deps
 
 # Expose port 8080 (Cloud Run default)
 EXPOSE 8080
@@ -32,8 +31,9 @@ EXPOSE 8080
 # Set environment to production
 ENV NODE_ENV=production
 
-# Start the application with logging
-CMD echo "Starting server..." && \
-    echo "PORT=${PORT}" && \
-    echo "NODE_ENV=${NODE_ENV}" && \
-    node server.js
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 8080) + '/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1);})"
+
+# Start the application
+CMD ["node", "server.js"]
