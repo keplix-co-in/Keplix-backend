@@ -41,7 +41,59 @@ jobs:
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
 
-      - name: Deploy to Cloud Run
+      - name: Create/Update secrets in Google Cloud Secret Manager
+        run: |
+          # Function to create or update secret
+          create_or_update_secret() {
+            local secret_name=$1
+            local secret_value=$2
+            if gcloud secrets describe $secret_name >/dev/null 2>&1; then
+              echo "Updating existing secret: $secret_name"
+              echo -n "$secret_value" | gcloud secrets versions add $secret_name --data-file=-
+            else
+              echo "Creating new secret: $secret_name"
+              echo -n "$secret_value" | gcloud secrets create $secret_name --data-file=-
+            fi
+          }
+
+          # Create secrets from GitHub secrets
+          create_or_update_secret "KEPLIX_DATABASE_URL" "${{ secrets.DATABASE_URL }}"
+          create_or_update_secret "KEPLIX_JWT_SECRET" "${{ secrets.JWT_SECRET }}"
+          create_or_update_secret "KEPLIX_JWT_REFRESH_SECRET" "${{ secrets.JWT_REFRESH_SECRET }}"
+          create_or_update_secret "KEPLIX_ALLOWED_ORIGINS" "${{ secrets.ALLOWED_ORIGINS }}"
+          create_or_update_secret "KEPLIX_RAZORPAY_KEY_ID" "${{ secrets.RAZORPAY_KEY_ID }}"
+          create_or_update_secret "KEPLIX_RAZORPAY_KEY_SECRET" "${{ secrets.RAZORPAY_KEY_SECRET }}"
+          create_or_update_secret "KEPLIX_RAZORPAY_WEBHOOK_SECRET" "${{ secrets.RAZORPAY_WEBHOOK_SECRET }}"
+          create_or_update_secret "KEPLIX_RAZORPAYX_KEY_ID" "${{ secrets.RAZORPAYX_KEY_ID }}"
+          create_or_update_secret "KEPLIX_RAZORPAYX_KEY_SECRET" "${{ secrets.RAZORPAYX_KEY_SECRET }}"
+          create_or_update_secret "KEPLIX_RAZORPAYX_ACCOUNT_NUMBER" "${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }}"
+          create_or_update_secret "KEPLIX_RAZORPAYX_WEBHOOK_SECRET" "${{ secrets.RAZORPAYX_WEBHOOK_SECRET }}"
+          create_or_update_secret "KEPLIX_STRIPE_SECRET_KEY" "${{ secrets.STRIPE_SECRET_KEY }}"
+          create_or_update_secret "KEPLIX_RESEND_API_KEY" "${{ secrets.RESEND_API_KEY }}"
+          create_or_update_secret "KEPLIX_EMAIL_FROM" "${{ secrets.EMAIL_FROM }}"
+          create_or_update_secret "KEPLIX_TWILIO_ACCOUNT_SID" "${{ secrets.TWILIO_ACCOUNT_SID }}"
+          create_or_update_secret "KEPLIX_TWILIO_AUTH_TOKEN" "${{ secrets.TWILIO_AUTH_TOKEN }}"
+          create_or_update_secret "KEPLIX_TWILIO_PHONE_NUMBER" "${{ secrets.TWILIO_PHONE_NUMBER }}"
+          create_or_update_secret "KEPLIX_FIREBASE_PROJECT_ID" "${{ secrets.FIREBASE_PROJECT_ID }}"
+          create_or_update_secret "KEPLIX_CLOUDINARY_CLOUD_NAME" "${{ secrets.CLOUDINARY_CLOUD_NAME }}"
+          create_or_update_secret "KEPLIX_CLOUDINARY_API_KEY" "${{ secrets.CLOUDINARY_API_KEY }}"
+          create_or_update_secret "KEPLIX_CLOUDINARY_API_SECRET" "${{ secrets.CLOUDINARY_API_SECRET }}"
+          create_or_update_secret "KEPLIX_FIREBASE_SERVICE_ACCOUNT_BASE64" "${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}"
+
+      - name: Grant permissions to Cloud Run service account
+        run: |
+          SERVICE_ACCOUNT="${PROJECT_ID}@appspot.gserviceaccount.com"
+
+          # Grant access to all secrets
+          for secret in KEPLIX_DATABASE_URL KEPLIX_JWT_SECRET KEPLIX_JWT_REFRESH_SECRET KEPLIX_ALLOWED_ORIGINS KEPLIX_RAZORPAY_KEY_ID KEPLIX_RAZORPAY_KEY_SECRET KEPLIX_RAZORPAY_WEBHOOK_SECRET KEPLIX_RAZORPAYX_KEY_ID KEPLIX_RAZORPAYX_KEY_SECRET KEPLIX_RAZORPAYX_ACCOUNT_NUMBER KEPLIX_RAZORPAYX_WEBHOOK_SECRET KEPLIX_STRIPE_SECRET_KEY KEPLIX_RESEND_API_KEY KEPLIX_EMAIL_FROM KEPLIX_TWILIO_ACCOUNT_SID KEPLIX_TWILIO_AUTH_TOKEN KEPLIX_TWILIO_PHONE_NUMBER KEPLIX_FIREBASE_PROJECT_ID KEPLIX_CLOUDINARY_CLOUD_NAME KEPLIX_CLOUDINARY_API_KEY KEPLIX_CLOUDINARY_API_SECRET KEPLIX_FIREBASE_SERVICE_ACCOUNT_BASE64; do
+            echo "Granting access to $secret"
+            gcloud secrets add-iam-policy-binding $secret \
+              --member="serviceAccount:$SERVICE_ACCOUNT" \
+              --role="roles/secretmanager.secretAccessor" \
+              --quiet
+          done
+
+      - name: Deploy to Cloud Run with secure secrets
         run: |
           gcloud run deploy $SERVICE_NAME \
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
@@ -49,7 +101,29 @@ jobs:
             --region $REGION \
             --project $PROJECT_ID \
             --port 8080 \
-            --set-env-vars="NODE_ENV=production,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }},CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }},CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }},FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}" \
+            --set-env-vars="NODE_ENV=production" \
+            --set-secrets="DATABASE_URL=KEPLIX_DATABASE_URL:latest" \
+            --set-secrets="JWT_SECRET=KEPLIX_JWT_SECRET:latest" \
+            --set-secrets="JWT_REFRESH_SECRET=KEPLIX_JWT_REFRESH_SECRET:latest" \
+            --set-secrets="ALLOWED_ORIGINS=KEPLIX_ALLOWED_ORIGINS:latest" \
+            --set-secrets="RAZORPAY_KEY_ID=KEPLIX_RAZORPAY_KEY_ID:latest" \
+            --set-secrets="RAZORPAY_KEY_SECRET=KEPLIX_RAZORPAY_KEY_SECRET:latest" \
+            --set-secrets="RAZORPAY_WEBHOOK_SECRET=KEPLIX_RAZORPAY_WEBHOOK_SECRET:latest" \
+            --set-secrets="RAZORPAYX_KEY_ID=KEPLIX_RAZORPAYX_KEY_ID:latest" \
+            --set-secrets="RAZORPAYX_KEY_SECRET=KEPLIX_RAZORPAYX_KEY_SECRET:latest" \
+            --set-secrets="RAZORPAYX_ACCOUNT_NUMBER=KEPLIX_RAZORPAYX_ACCOUNT_NUMBER:latest" \
+            --set-secrets="RAZORPAYX_WEBHOOK_SECRET=KEPLIX_RAZORPAYX_WEBHOOK_SECRET:latest" \
+            --set-secrets="STRIPE_SECRET_KEY=KEPLIX_STRIPE_SECRET_KEY:latest" \
+            --set-secrets="RESEND_API_KEY=KEPLIX_RESEND_API_KEY:latest" \
+            --set-secrets="EMAIL_FROM=KEPLIX_EMAIL_FROM:latest" \
+            --set-secrets="TWILIO_ACCOUNT_SID=KEPLIX_TWILIO_ACCOUNT_SID:latest" \
+            --set-secrets="TWILIO_AUTH_TOKEN=KEPLIX_TWILIO_AUTH_TOKEN:latest" \
+            --set-secrets="TWILIO_PHONE_NUMBER=KEPLIX_TWILIO_PHONE_NUMBER:latest" \
+            --set-secrets="FIREBASE_PROJECT_ID=KEPLIX_FIREBASE_PROJECT_ID:latest" \
+            --set-secrets="CLOUDINARY_CLOUD_NAME=KEPLIX_CLOUDINARY_CLOUD_NAME:latest" \
+            --set-secrets="CLOUDINARY_API_KEY=KEPLIX_CLOUDINARY_API_KEY:latest" \
+            --set-secrets="CLOUDINARY_API_SECRET=KEPLIX_CLOUDINARY_API_SECRET:latest" \
+            --set-secrets="FIREBASE_SERVICE_ACCOUNT_BASE64=KEPLIX_FIREBASE_SERVICE_ACCOUNT_BASE64:latest" \
             --memory 2Gi \
             --cpu 2 \
             --max-instances 10 \
@@ -60,12 +134,22 @@ jobs:
 
       - name: Show deployment URL
         run: |
-          echo "Deployment successful!"
-          gcloud run services describe $SERVICE_NAME \
+          echo "🚀 Deployment successful!"
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME \
             --region $REGION \
             --project $PROJECT_ID \
-            --format 'value(status.url)'
+            --format 'value(status.url)')
+          echo "🌐 Service URL: $SERVICE_URL"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
 
-      - name: Show deployment URL
-        run: |
-          gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)'
+      - name: Comment deployment URL on commit
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `🚀 **Deployment Successful!**\n\n✅ Service deployed to: ${{ env.SERVICE_URL }}\n\n**Changes in this commit:**\n- Backend service updated\n- Image: \`gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}\``
+            })
