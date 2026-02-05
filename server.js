@@ -147,6 +147,15 @@ app.use(cors({
 app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
+// Health Check Endpoint (before rate limiter)
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Apply Global Rate Limiter
 // app.use(limiter);
 
