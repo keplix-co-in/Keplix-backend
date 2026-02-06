@@ -478,7 +478,10 @@ export const sendEmailOTP = async (req, res) => {
   }
 
   try {
+    const normalizedEmail = email.toLowerCase().trim();
     const otp = generateOTP();
+
+    console.log('[sendEmailOTP] Generating OTP:', { email: normalizedEmail, otp });
 
     const istNow = getISTDate();
     const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
@@ -486,7 +489,7 @@ export const sendEmailOTP = async (req, res) => {
     // Delete any existing unverified OTPs for this email first
     await prisma.emailOTP.deleteMany({
       where: {
-        email,
+        email: normalizedEmail,
         verified: false,
       },
     });
@@ -494,12 +497,14 @@ export const sendEmailOTP = async (req, res) => {
     // Create NEW OTP record
     const record = await prisma.emailOTP.create({
       data: {
-        email,
+        email: normalizedEmail,
         otp,
         expiresAt,
         verified: false,
       },
     });
+
+    console.log('[sendEmailOTP] OTP record created:', { id: record.id, email: record.email, otp: record.otp, expiresAt: record.expiresAt });
 
     try {
       await resend.emails.send({
@@ -544,17 +549,30 @@ export const verifyEmailOTP = async (req, res) => {
   }
 
   try {
+    // Normalize inputs
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedOtp = String(otp).trim();
+
+    console.log('verifyEmailOTP - Normalized:', { normalizedEmail, normalizedOtp });
+
     // Find the most recent OTP record for this email
     const record = await prisma.emailOTP.findFirst({
       where: { 
-        email: email.toLowerCase().trim()
+        email: normalizedEmail
       },
       orderBy: {
         createdAt: 'desc'
       }
     });
 
-    console.log('verifyEmailOTP - Found record:', record ? { id: record.id, email: record.email, verified: record.verified, expiresAt: record.expiresAt } : 'null');
+    console.log('verifyEmailOTP - Found record:', record ? { 
+      id: record.id, 
+      email: record.email, 
+      otp: record.otp,
+      verified: record.verified, 
+      expiresAt: record.expiresAt,
+      createdAt: record.createdAt 
+    } : 'null');
 
     if (!record) {
       return res.status(400).json({ error: "No OTP found for this email" });
@@ -564,14 +582,19 @@ export const verifyEmailOTP = async (req, res) => {
       return res.status(400).json({ error: "OTP already used" });
     }
 
-    if (record.otp !== otp) {
-      console.log('verifyEmailOTP - OTP mismatch:', { expected: record.otp, received: otp });
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
-
-    // Expiry check
+    // Expiry check (before OTP comparison)
     if (new Date() > record.expiresAt) {
       return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    if (record.otp !== normalizedOtp) {
+      console.log('verifyEmailOTP - OTP mismatch:', { 
+        expected: record.otp, 
+        expectedType: typeof record.otp,
+        received: normalizedOtp,
+        receivedType: typeof normalizedOtp 
+      });
+      return res.status(400).json({ error: "Invalid OTP" });
     }
 
     await prisma.emailOTP.update({
