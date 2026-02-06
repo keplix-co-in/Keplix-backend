@@ -74,7 +74,7 @@ export const getVendorProfile = async (req, res) => {
 // @access  Private (Vendor)
 export const updateVendorProfile = async (req, res) => {
     // Destructure all possible fields from the validated body
-    const { 
+    let { 
         business_name, business_type, description,
         phone, alternate_phone, email,
         owner_name, date_of_birth,
@@ -85,19 +85,54 @@ export const updateVendorProfile = async (req, res) => {
         onboarding_completed // if sent by frontend
     } = req.body;
 
-    const updates = { 
-        business_name, business_type, description,
-        phone, alternate_phone, email,
-        owner_name, date_of_birth,
-        address, street, area, city, state, pincode, landmark,
-        latitude, longitude,
-        gst_number, has_gst, tax_type,
-        operating_hours, breaks, holidays
-    };
-
-    if (onboarding_completed !== undefined) {
-        updates.onboarding_completed = onboarding_completed;
+    // Validate JSON strings for breaks/holidays but keep them as strings for Prisma
+    if (typeof breaks === 'string' && breaks) {
+        try {
+            JSON.parse(breaks); // Validate it's valid JSON
+            // Keep as string - Prisma schema expects String type
+        } catch (e) {
+            console.warn('[VendorProfile] Invalid JSON for breaks:', breaks);
+            breaks = null;
+        }
     }
+    
+    if (typeof holidays === 'string' && holidays) {
+        try {
+            JSON.parse(holidays); // Validate it's valid JSON
+            // Keep as string - Prisma schema expects String type
+        } catch (e) {
+            console.warn('[VendorProfile] Invalid JSON for holidays:', holidays);
+            holidays = null;
+        }
+    }
+
+    // Build updates object - only include defined values
+    const updates = {};
+    
+    if (business_name !== undefined) updates.business_name = business_name;
+    if (business_type !== undefined) updates.business_type = business_type;
+    if (description !== undefined) updates.description = description;
+    if (phone !== undefined) updates.phone = phone;
+    if (alternate_phone !== undefined) updates.alternate_phone = alternate_phone;
+    if (email !== undefined) updates.email = email;
+    if (owner_name !== undefined) updates.owner_name = owner_name;
+    if (date_of_birth !== undefined) updates.date_of_birth = date_of_birth;
+    if (address !== undefined) updates.address = address;
+    if (street !== undefined) updates.street = street;
+    if (area !== undefined) updates.area = area;
+    if (city !== undefined) updates.city = city;
+    if (state !== undefined) updates.state = state;
+    if (pincode !== undefined) updates.pincode = pincode;
+    if (landmark !== undefined) updates.landmark = landmark;
+    if (latitude !== undefined) updates.latitude = latitude;
+    if (longitude !== undefined) updates.longitude = longitude;
+    if (gst_number !== undefined) updates.gst_number = gst_number;
+    if (has_gst !== undefined) updates.has_gst = has_gst;
+    if (tax_type !== undefined) updates.tax_type = tax_type;
+    if (operating_hours !== undefined) updates.operating_hours = operating_hours;
+    if (breaks !== undefined && breaks !== null) updates.breaks = breaks;
+    if (holidays !== undefined && holidays !== null) updates.holidays = holidays;
+    if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
 
     // Handle Image uploads
     if (req.files) {
