@@ -292,8 +292,35 @@ async function main() {
         }
     });
 
-    // ...existing code...
-    
+    // Create one more vendor with minimal data
+    await prisma.user.create({
+        data: {
+            email: "vendor2@example.com",
+            password: hashedPassword,
+            role: 'vendor',
+            is_active: true,
+            vendorProfile: {
+                create: {
+                    business_name: "Quick Service Center",
+                    phone: "9123456789",
+                    email: "quickservice@example.com",
+                    address: "Main Road, Near Metro Station",
+                    city: "Delhi",
+                    state: "DL",
+                    operating_hours: "10:00 AM - 8:00 PM",
+                    status: "approved",
+                    onboarding_completed: true,
+                    latitude: 28.6139,
+                    longitude: 77.2090,
+                    description: "Fast and reliable auto services.",
+                    image: getRandomElement(vendorLogos),
+                    cover_image: getRandomElement(vendorCovers),
+                    owner_name: "Quick Service Owner"
+                }
+            }
+        }
+    });
+
     console.log('✅ Seeding finished!');
     console.log('Credentials:');
     console.log('User: user1@example.com / password123');
