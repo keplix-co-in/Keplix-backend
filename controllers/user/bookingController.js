@@ -1,4 +1,3 @@
-
 import { PrismaClient } from "@prisma/client";
 import { createNotification } from "../../util/notificationHelper.js";
 const prisma = new PrismaClient();
@@ -159,7 +158,8 @@ export const createBooking = async (req, res) => {
              await createNotification(
                 booking.service.vendorId, 
                 "New Service Request", 
-                `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`
+                `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
+                { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
             );
             
             // Get socket instance and notify vendor in real-time
@@ -275,6 +275,16 @@ export const updateBooking = async (req, res) => {
             "Booking Cancelled",
              `Booking for ${updatedBooking.service.name} was cancelled by the user.`
         );
+
+        // Socket notify vendor
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_cancelled", {
+                bookingId: updatedBooking.id,
+                service: updatedBooking.service.name,
+                message: "This booking was cancelled by the user."
+            });
+        }
     }
 
     res.json(updatedBooking);

@@ -43,6 +43,11 @@ export const createVendorProfileSchema = z.object({
   // Onboarding status
   onboarding_completed: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
 
+  // Bank Details
+  bank_account_number: z.string().optional(),
+  ifsc_code: z.string().optional(),
+  upi_id: z.string().optional(),
+
   // Image fields (Optional, but allow passing them through if Zod strips keys)
   // Since Zod parse replaces req.body, if we don't include them, they might be lost if they were in body?
   // Actually, files are in req.files, so we don't need them here usually.

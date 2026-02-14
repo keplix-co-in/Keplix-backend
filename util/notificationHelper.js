@@ -4,7 +4,7 @@ import { Expo } from 'expo-server-sdk';
 const prisma = new PrismaClient();
 const expo = new Expo();
 
-export const createNotification = async (userId, title, message) => {
+export const createNotification = async (userId, title, message, metadata = {}) => {
     try {
         // 1. Create DB Record
         await prisma.notification.create({
@@ -26,10 +26,12 @@ export const createNotification = async (userId, title, message) => {
         if (user?.pushToken && Expo.isExpoPushToken(user.pushToken)) {
             const messages = [{
                 to: user.pushToken,
-                sound: 'default',
+                sound: 'default', // Standard beep on iOS
                 title: title,
                 body: message,
-                data: { userId },
+                data: { ...metadata, userId },
+                priority: 'high', // High priority for iOS to beep even when backgrounded
+                channelId: 'booking-alerts', // Loud channel for Android
             }];
 
             // Send the chunks to the Expo push notification service
