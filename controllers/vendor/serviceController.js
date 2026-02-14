@@ -22,8 +22,8 @@ export const createService = async (req, res) => {
   // console.log('BODY:', req.body);
   // console.log('FILE:', req.file);
 
-  const { name, description, price, duration, category, is_active } = req.body;
-  const image = req.file ? req.file.path : null;
+  const { name, description, price, duration, category, is_active, image_url: body_image_url } = req.body;
+  const image = req.file ? req.file.path : (body_image_url || null);
 
   // Handle boolean conversion for FormData strings
   const isActive = is_active === "true" || is_active === true;
@@ -53,10 +53,10 @@ export const createService = async (req, res) => {
 
 export const updateService = async (req, res) => {
   const serviceId = parseInt(req.params.id);
-  const { name, description, price, duration, category, is_active } = req.body;
+  const { name, description, price, duration, category, is_active, image_url: body_image_url } = req.body;
 
   // new image (optional)
-  const image = req.file ? req.file.path : undefined;
+  const image = req.file ? req.file.path : body_image_url;
 
   try {
     // Check service exists & belongs to vendor
