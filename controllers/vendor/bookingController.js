@@ -33,6 +33,15 @@ export const getVendorBookings = async (req, res) => {
     if (serviceName) query.service = { name: { contains: serviceName } };
     if (token) query.id = parseInt(token);
 
+    // For order alerts, exclude past bookings (bookings that have already passed)
+    // Only show future bookings or bookings from today onwards
+    const now = new Date();
+    if (!date && !date_from && !date_to) { // Only apply time filter when no specific date filters are set
+      query.booking_date = {
+        gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
+      };
+    }
+
     const bookings = await prisma.booking.findMany({
       where: query,
       include: {
