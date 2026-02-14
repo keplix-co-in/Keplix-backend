@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { getIO } from "../../socket.js";
+import { createNotification } from "../../util/notificationHelper.js";
 
 const prisma = new PrismaClient();
 
@@ -200,9 +201,33 @@ export const sendMessage = async (req, res) => {
       console.log(`[Socket] Emitting message to room ${conversationId}:`, message.id);
       io.to(String(conversationId)).emit("receive_message", message);
       console.log(`[Socket] Message emitted successfully`);
+      
+      // Notify other participant of the conversation
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: Number(conversationId) },
+        include: {
+          booking: {
+            include: {
+              service: { select: { vendorId: true } }
+            }
+          }
+        }
+      });
+
+      if (conversation && conversation.booking) {
+        const receiverId = senderId === conversation.booking.userId 
+          ? conversation.booking.service.vendorId 
+          : conversation.booking.userId;
+
+        await createNotification(
+          receiverId, 
+          "New Message", 
+          `You have a new message: ${message_text.substring(0, 50)}${message_text.length > 50 ? '...' : ''}`,
+          { type: 'NEW_MESSAGE', conversationId: Number(conversationId) }
+        );
+      }
     } catch (socketError) {
-      console.error("Socket emit failed:", socketError);
-      // Don't fail the request if socket fails, message is saved
+      console.error("Socket emit/notify failed:", socketError);
     }
 
     res.status(201).json(message);

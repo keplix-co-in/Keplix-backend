@@ -1,5 +1,7 @@
 
-import { PrismaClient } from '@prisma/client';
+
+import { PrismaClient } from "@prisma/client";
+import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 
 const prisma = new PrismaClient();
 
@@ -82,6 +84,7 @@ export const updateVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
+        bank_account_number, ifsc_code, upi_id,
         onboarding_completed // if sent by frontend
     } = req.body;
 
@@ -132,6 +135,9 @@ export const updateVendorProfile = async (req, res) => {
     if (operating_hours !== undefined) updates.operating_hours = operating_hours;
     if (breaks !== undefined && breaks !== null) updates.breaks = breaks;
     if (holidays !== undefined && holidays !== null) updates.holidays = holidays;
+    if (bank_account_number !== undefined) updates.bank_account_number = bank_account_number;
+    if (ifsc_code !== undefined) updates.ifsc_code = ifsc_code;
+    if (upi_id !== undefined) updates.upi_id = upi_id;
     if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
 
     // Handle Image uploads
@@ -177,6 +183,18 @@ export const updateVendorProfile = async (req, res) => {
             });
         }
 
+        // Setup or update payout account if bank/UPI details were provided
+        if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
+            updates.upi_id !== undefined) {
+            try {
+                await updateVendorPayoutAccount(req.user.id, vendorProfile);
+                console.log('[VendorProfile] Payout account updated for vendor:', req.user.id);
+            } catch (payoutError) {
+                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
+                // Don't fail the profile update if payout setup fails
+            }
+        }
+
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
         res.json({ ...vendorProfile, user: vendorProfile.userId });
     } catch (error) {
@@ -202,7 +220,8 @@ export const createVendorProfile = async (req, res) => {
         address, street, area, city, state, pincode, landmark,
         latitude, longitude,
         gst_number, has_gst, tax_type,
-        operating_hours, breaks, holidays
+        operating_hours, breaks, holidays,
+        bank_account_number, ifsc_code
     } = req.body;
 
 
@@ -233,6 +252,9 @@ export const createVendorProfile = async (req, res) => {
         operating_hours, 
         breaks, 
         holidays,
+        bank_account_number,
+        ifsc_code,
+        upi_id,
         onboarding_completed: true 
     };
 
@@ -268,6 +290,17 @@ export const createVendorProfile = async (req, res) => {
             where: { id: req.user.id },
             data: { role: 'vendor' }
         });
+
+        // Setup payout account if bank/UPI details were provided
+        if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
+            try {
+                await setupVendorPayoutAccount(req.user.id, vendorProfile);
+                console.log('[VendorProfile] Payout account created for vendor:', req.user.id);
+            } catch (payoutError) {
+                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
+                // Don't fail the profile creation if payout setup fails
+            }
+        }
 
         res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
     } catch (error) {
