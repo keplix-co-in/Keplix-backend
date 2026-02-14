@@ -173,6 +173,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
+import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
 
 const prisma = new PrismaClient();
@@ -283,10 +284,32 @@ export const verifyPayment = async (req, res) => {
 
     // Update booking
     if (bookingId) {
-      await prisma.booking.update({
+      const updatedBooking = await prisma.booking.update({
         where: { id: Number(bookingId) },
         data: { status: "confirmed" },
+        include: { service: true }
       });
+
+      // Notify Vendor about successful payment
+      if (updatedBooking.service && updatedBooking.service.vendorId) {
+        await createNotification(
+          updatedBooking.service.vendorId,
+          "💰 New Payment Received!",
+          `A user has paid for ${updatedBooking.service.name}. You can now start the service.`,
+          { type: 'PAYMENT_RECEIVED', bookingId: updatedBooking.id }
+        );
+
+        // Notify vendor via socket
+        const io = req.app.get("io");
+        if (io) {
+          io.to(`user_${updatedBooking.service.vendorId}`).emit("payment_received", {
+            bookingId: updatedBooking.id,
+            service: updatedBooking.service.name,
+            amount: payment.amount,
+            message: "Payment received! You can now start the service."
+          });
+        }
+      }
     }
 
     res.json({

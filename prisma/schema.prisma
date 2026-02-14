@@ -86,6 +86,9 @@ model VendorProfile {
   onboarding_completed Boolean @default(false)
   image                String?
   cover_image          String?
+  bank_account_number  String?
+  ifsc_code            String?
+  upi_id               String?
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -123,7 +126,7 @@ model Booking {
   status       String        @default("pending") // pending, confirmed, in_progress, service_completed, user_confirmed, disputed, cancelled, refunded
   vendor_status String       @default("pending") // pending, accepted, rejected
   notes        String?
-  completion_images String[] @default([])
+  completion_images String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
