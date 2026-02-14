@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
-import { sendPushNotification } from "../../util/communication.js";
+import { createNotification } from "../../util/notificationHelper.js";
 
 const prisma = new PrismaClient();
 
@@ -114,19 +114,23 @@ export const confirmServiceCompletion = async (req, res) => {
           console.log(`💰 [ESCROW] Amount: ₹${payment.vendorAmount} sent to vendor ${booking.service.vendorId}`);
 
           // Notify vendor of payment
-          const vendor = await prisma.user.findUnique({
-            where: { id: booking.service.vendorId },
-            select: { fcmToken: true }
-          });
+          await createNotification(
+            booking.service.vendorId,
+            "💰 Payment Received!",
+            `₹${payment.vendorAmount} has been transferred to your account for ${booking.service.name}`
+          );
 
-          if (vendor && vendor.fcmToken) {
-            await sendPushNotification(
-              vendor.fcmToken,
-              "💰 Payment Received!",
-              `₹${payment.vendorAmount} has been transferred to your account for ${booking.service.name}`,
-              { bookingId: bookingId.toString(), type: "payout" }
-            );
-          }
+          return res.json({ 
+            success: true,
+            message: "Service confirmed. Vendor payout processed successfully.",
+            booking: {
+              id: bookingId,
+              status: "user_confirmed",
+              payoutStatus: "paid",
+              vendorAmount: payment.vendorAmount,
+              platformFee: payment.platformFee
+            }
+          });
 
         } else {
           // Payout failed - mark as failed
@@ -157,18 +161,6 @@ export const confirmServiceCompletion = async (req, res) => {
           error: payoutError.message 
         });
       }
-
-      return res.json({
-        success: true,
-        message: "Service confirmed. Vendor payout processed successfully.",
-        booking: {
-          id: bookingId,
-          status: "user_confirmed",
-          payoutStatus: "paid",
-          vendorAmount: payment.vendorAmount,
-          platformFee: payment.platformFee
-        }
-      });
 
     } else {
       // User is not satisfied - this should trigger dispute flow
