@@ -1,6 +1,6 @@
 ﻿// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
-// import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+// import prisma from "../../util/prisma.js";
 
 // 
 
@@ -171,7 +171,7 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";

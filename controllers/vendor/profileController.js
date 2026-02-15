@@ -1,5 +1,5 @@
 ﻿
-import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 
 

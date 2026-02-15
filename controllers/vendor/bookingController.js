@@ -1,4 +1,4 @@
-﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+﻿import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";

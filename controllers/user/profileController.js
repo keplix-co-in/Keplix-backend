@@ -1,4 +1,4 @@
-﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+﻿import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
 
 

@@ -81,7 +81,7 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
+import prisma from "../../util/prisma.js";
 
 
 
