@@ -1,6 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { createNotification } from "../../util/notificationHelper.js";
-const prisma = new PrismaClient();
+
 
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
@@ -300,3 +300,4 @@ export const updateBooking = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
