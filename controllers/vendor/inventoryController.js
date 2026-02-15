@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../util/prisma.js';
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get Vendor Inventory
 // @route   GET /service_api/vendor/:vendorId/inventory
@@ -53,3 +53,4 @@ export const updateInventory = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 }
+

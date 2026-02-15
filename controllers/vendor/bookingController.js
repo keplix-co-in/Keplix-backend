@@ -1,9 +1,9 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get bookings for logged in vendor
 // @route   GET /service_api/vendor/bookings/
@@ -230,3 +230,4 @@ export const updateBookingStatus = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+

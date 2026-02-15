@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
-const prisma = new PrismaClient();
+
 
 /**
  * @desc    User confirms service completion
@@ -267,3 +267,4 @@ export const disputeServiceCompletion = async (req, res) => {
     });
   }
 };
+
