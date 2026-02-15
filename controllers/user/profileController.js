@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
 
 
@@ -81,5 +81,6 @@ export const updateUserProfile = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
 
 

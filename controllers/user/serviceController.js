@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from "../../util/prisma.js";
 
 
 
@@ -292,4 +292,5 @@ export const getServicesByVendor = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
 

@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from "../util/prisma.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { createRequire } from "module";
@@ -14,7 +14,13 @@ const require = createRequire(import.meta.url);
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required');
+  const errorMsg = 'JWT_SECRET environment variable is required';
+  console.error(errorMsg);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMsg);
+  } else {
+    console.warn('Using fallback JWT_SECRET for development');
+  }
 }
 
 const generateToken = (id) => {
@@ -420,17 +426,17 @@ export const sendPhoneOTP = async (req, res) => {
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-  console.log('🔐 [verifyPhoneOTP] Called');
-  console.log('🔐 [verifyPhoneOTP] Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('🔐 [verifyPhoneOTP] Body:', JSON.stringify(req.body, null, 2));
-  console.log('🔐 [verifyPhoneOTP] Query:', JSON.stringify(req.query, null, 2));
+  console.log('ðŸ” [verifyPhoneOTP] Called');
+  console.log('ðŸ” [verifyPhoneOTP] Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('ðŸ” [verifyPhoneOTP] Body:', JSON.stringify(req.body, null, 2));
+  console.log('ðŸ” [verifyPhoneOTP] Query:', JSON.stringify(req.query, null, 2));
   
   const { phone_number, otp } = req.body;
   
-  console.log('🔐 [verifyPhoneOTP] Extracted - phone_number:', phone_number, 'otp:', otp);
+  console.log('ðŸ” [verifyPhoneOTP] Extracted - phone_number:', phone_number, 'otp:', otp);
 
   if (!phone_number || !otp) {
-    console.error('❌ [verifyPhoneOTP] Missing required fields');
+    console.error('âŒ [verifyPhoneOTP] Missing required fields');
     return res.status(400).json({ error: "Phone number and OTP are required" });
   }
 
@@ -931,21 +937,22 @@ export const updatePushToken = async (req, res) => {
     const { pushToken } = req.body;
     const userId = req.user.id; // Assuming auth middleware sets req.user
 
-    console.log('📱 Updating push token for user:', userId, 'Token:', pushToken?.substring(0, 20) + '...');
+    console.log('ðŸ“± Updating push token for user:', userId, 'Token:', pushToken?.substring(0, 20) + '...');
 
     await prisma.user.update({
       where: { id: userId },
       data: { pushToken }
     });
 
-    console.log('✅ Push token updated successfully');
+    console.log('âœ… Push token updated successfully');
 
     res.json({ success: true, message: 'Push token updated' });
   } catch (error) {
-    console.error('❌ Update push token error:', error);
+    console.error('âŒ Update push token error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 // ======================
 // keplix-backend/server.js
 // ======================
+

@@ -1,5 +1,5 @@
-import Razorpay from "razorpay";
-import prisma from "../util/prisma.js";
+﻿import Razorpay from "razorpay";
+import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 
 
@@ -26,7 +26,7 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
-     * 1️Payment fetch with booking and service details
+     * 1ï¸Payment fetch with booking and service details
      */
     const payment = await prisma.payment.findUnique({
       where: { id: Number(paymentId) },
@@ -55,7 +55,7 @@ export const triggerVendorPayout = async (req, res) => {
 
     /**
      * Vendor ID fetch
-     * Booking → Service → vendorId (User.id)
+     * Booking â†’ Service â†’ vendorId (User.id)
      */
     const vendorId = payment.booking?.service?.vendorId;
 
@@ -113,4 +113,7 @@ export const triggerVendorPayout = async (req, res) => {
     });
   }
 };
+
+
+
 
