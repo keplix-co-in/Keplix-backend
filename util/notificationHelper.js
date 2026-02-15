@@ -1,11 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import { Expo } from 'expo-server-sdk';
+import Logger from './logger.js';
 
 const prisma = new PrismaClient();
 const expo = new Expo();
 
 export const createNotification = async (userId, title, message, metadata = {}) => {
-    console.log(`🔔 Creating notification for user ${userId}: ${title}`);
+    Logger.debug(`Creating notification for user ${userId}: ${title}`);
     try {
         // 1. Create DB Record
         await prisma.notification.create({
@@ -23,7 +24,7 @@ export const createNotification = async (userId, title, message, metadata = {}) 
             select: { pushToken: true }
         });
 
-        console.log(`👤 User ${userId} pushToken: ${user?.pushToken ? 'present' : 'missing'}`);
+        Logger.debug(`User ${userId} pushToken: ${user?.pushToken ? 'present' : 'missing'}`);
 
         // 3. Send Push if token exists
         if (user?.pushToken && Expo.isExpoPushToken(user.pushToken)) {
@@ -41,25 +42,25 @@ export const createNotification = async (userId, title, message, metadata = {}) 
                 }
             }];
 
-            console.log('📤 Message payload:', JSON.stringify(messages, null, 2));
+            Logger.debug('Message payload:', messages);
             const chunks = expo.chunkPushNotifications(messages);
             for (let chunk of chunks) {
                 try {
-                console.log(`📤 Sending internal push chunk to ${user.pushToken}`);
+                Logger.debug(`Sending internal push chunk to ${user.pushToken}`);
                 let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-                console.log("✅ Expo Ticket:", JSON.stringify(ticketChunk));
+                Logger.debug("Expo Ticket:", ticketChunk);
                 } catch (error) {
-                console.error("Error sending push notification chunk:", error);
+                Logger.error("Error sending push notification chunk:", error);
                 }
             }
         }
     } catch (error) {
-        console.error("Error creating notification:", error);
+        Logger.error("Error creating notification:", error);
     }
 };
 
 export const sendPushNotification = async (expoPushToken, title, body, data = {}) => {
-  console.log('📤 Sending push notification to token:', expoPushToken?.substring(0, 20) + '...');
+  Logger.debug('Sending push notification to token:', expoPushToken?.substring(0, 20) + '...');
   
   const message = {
     to: expoPushToken,
@@ -77,16 +78,16 @@ export const sendPushNotification = async (expoPushToken, title, body, data = {}
 
   try {
     const ticket = await expo.sendPushNotificationsAsync([message]);
-    console.log('✅ Push notification sent successfully:', ticket);
+    Logger.info('Push notification sent successfully:', ticket);
     
     // Check for errors in the ticket
     if (ticket[0]?.status === 'error') {
-      console.error('❌ Push notification error:', ticket[0].message);
+      Logger.error('Push notification error:', ticket[0].message);
     }
     
     return ticket;
   } catch (error) {
-    console.error('❌ Failed to send push notification:', error);
+    Logger.error('Failed to send push notification:', error);
     throw error;
   }
 };

@@ -1,6 +1,8 @@
 // @desc    Centralized Error Handling Middleware
 // @access  Public
 
+import Logger from '../util/logger.js';
+
 // 404 Not Found Handler
 export const notFound = (req, res, next) => {
     const error = new Error(`Not Found - ${req.originalUrl}`);
@@ -34,9 +36,9 @@ export const errorHandler = (err, req, res, next) => {
     }
 
     // Server-side logging
-    console.error(`[Error] ${req.method} ${req.url}: ${err.message}`);
+    Logger.error(`[Error] ${req.method} ${req.url}: ${err.message}`);
     if (process.env.NODE_ENV === 'development') {
-        console.error(err.stack);
+        Logger.error(err.stack);
     }
 
     res.json({
