@@ -12,8 +12,11 @@ import { getISTDate } from "../util/time.js";
 const require = createRequire(import.meta.url);
 
 const prisma = new PrismaClient();
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 const generateToken = (id) => {
   return jwt.sign({ id }, JWT_SECRET, {
