@@ -12,8 +12,11 @@ import { getISTDate } from "../util/time.js";
 const require = createRequire(import.meta.url);
 
 const prisma = new PrismaClient();
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 const generateToken = (id) => {
   return jwt.sign({ id }, JWT_SECRET, {
@@ -923,28 +926,25 @@ export const updateUserProfileAuth = async (req, res) => {
     });
   }
 };
-// @desc    Update Push Notification Token
-// @route   PUT /accounts/auth/push-token/
-// @access  Private
+// Update push token for logged in user
 export const updatePushToken = async (req, res) => {
-  const { pushToken } = req.body;
-  const userId = req.user.id; // Correct way to access user ID from middleware
-
-  if (!pushToken) {
-    return res.status(400).json({ message: "Push token is required" });
-  }
-
   try {
-    // Both Users and Vendors are in the User table
+    const { pushToken } = req.body;
+    const userId = req.user.id; // Assuming auth middleware sets req.user
+
+    console.log('📱 Updating push token for user:', userId, 'Token:', pushToken?.substring(0, 20) + '...');
+
     await prisma.user.update({
-      where: { id: parseInt(userId) },
-      data: { pushToken },
+      where: { id: userId },
+      data: { pushToken }
     });
 
-    res.json({ success: true, message: "Push token updated" });
+    console.log('✅ Push token updated successfully');
+
+    res.json({ success: true, message: 'Push token updated' });
   } catch (error) {
-    console.error("Token update error:", error);
-    res.status(500).json({ error: "Failed to update token" });
+    console.error('❌ Update push token error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 // ======================
