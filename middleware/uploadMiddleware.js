@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import cloudinary from '../util/cloudinary.js';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { CloudinaryStorage } from '@fluidjs/multer-cloudinary';
 
 
 const checkFileType = (file, cb) => {
