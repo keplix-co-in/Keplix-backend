@@ -13,9 +13,6 @@ COPY package*.json ./
 # Install production dependencies only
 RUN npm install --omit=dev --legacy-peer-deps
 
-# Install Prisma CLI as a dev dependency for generation
-RUN npm install -D prisma@6.19.2
-
 # Copy prisma schema
 COPY prisma ./prisma/
 
