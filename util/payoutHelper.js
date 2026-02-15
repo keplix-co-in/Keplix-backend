@@ -1,9 +1,9 @@
 import Stripe from 'stripe';
 import Razorpay from 'razorpay';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../util/prisma.js';
 import Logger from './logger.js';
 
-const prisma = new PrismaClient();
+
 
 // Initialize with Env Vars
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
@@ -225,3 +225,4 @@ export const initiateVendorPayout = async (payment, vendorId) => {
         return { success: false, error: error.message };
     }
 };
+

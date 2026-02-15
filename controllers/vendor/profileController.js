@@ -1,9 +1,9 @@
 
 
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get vendor profile
 // @route   GET /accounts/vendor/profile/
@@ -330,3 +330,4 @@ export const createVendorProfile = async (req, res) => {
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
+

@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../../util/prisma.js';
 
 // @desc    Get reviews for this vendor's services
 // @route   GET /interactions/api/vendor/reviews/
