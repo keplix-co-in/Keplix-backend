@@ -155,12 +155,19 @@ export const createBooking = async (req, res) => {
 
         // Notify Vendor about new request
         if (booking.service && booking.service.vendorId) {
-             await createNotification(
-                booking.service.vendorId, 
-                "New Service Request", 
-                `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
-                { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
-            );
+            console.log(`📨 [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
+            
+            try {
+                await createNotification(
+                    booking.service.vendorId, 
+                    "New Service Request", 
+                    `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
+                    { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
+                );
+                console.log(`✅ [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
+            } catch (notifError) {
+                console.error(`❌ [BOOKING] Failed to send notification:`, notifError);
+            }
             
             // Get socket instance and notify vendor in real-time
             const io = req.app.get("io");

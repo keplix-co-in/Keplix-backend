@@ -138,7 +138,29 @@ export const updateVendorProfile = async (req, res) => {
     if (bank_account_number !== undefined) updates.bank_account_number = bank_account_number;
     if (ifsc_code !== undefined) updates.ifsc_code = ifsc_code;
     if (upi_id !== undefined) updates.upi_id = upi_id;
-    if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
+    // If any address components were updated, also update the combined address field
+    const addressComponents = [street, area, city, state, pincode].filter(val => val !== undefined && val !== null && val !== '');
+    if (addressComponents.length > 0) {
+        // Get current profile to combine with existing address components
+        const currentProfile = await prisma.vendorProfile.findUnique({
+            where: { userId: req.user.id },
+            select: { street: true, area: true, city: true, state: true, pincode: true, address: true }
+        });
+        
+        if (currentProfile) {
+            const combinedAddress = [
+                updates.street !== undefined ? updates.street : currentProfile.street,
+                updates.area !== undefined ? updates.area : currentProfile.area, 
+                updates.city !== undefined ? updates.city : currentProfile.city,
+                updates.state !== undefined ? updates.state : currentProfile.state,
+                updates.pincode !== undefined ? updates.pincode : currentProfile.pincode
+            ].filter(Boolean).join(', ');
+            
+            if (combinedAddress.trim()) {
+                updates.address = combinedAddress;
+            }
+        }
+    }
 
     // Handle Image uploads
     if (req.files) {
