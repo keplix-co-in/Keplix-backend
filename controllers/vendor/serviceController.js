@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from "../../util/prisma.js";
 
 
 
@@ -114,4 +114,7 @@ export const deleteService = async (req, res) => {
   }
 };
 //
+
+
+
 

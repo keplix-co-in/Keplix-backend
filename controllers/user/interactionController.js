@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
@@ -236,4 +236,5 @@ export const sendMessage = async (req, res) => {
     res.status(500).json({ message: "Failed to send message" });
   }
 };
+
 

@@ -1,6 +1,5 @@
-
-
-import prisma from "../util/prisma.js";
+﻿
+import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 
 
@@ -330,4 +329,7 @@ export const createVendorProfile = async (req, res) => {
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
+
+
+
 
