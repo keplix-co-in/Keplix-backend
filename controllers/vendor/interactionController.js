@@ -1,4 +1,4 @@
-import prisma from '../util/prisma.js';
+﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
 import { getIO } from '../../socket.js';
 
 
@@ -179,4 +179,7 @@ export const sendVendorMessage = async (req, res) => {
         res.status(500).json({ message: 'Failed to send message' });
     }
 };
+
+
+
 

@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
 
 
 
@@ -149,4 +149,7 @@ export const deletePromotion = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
+
 

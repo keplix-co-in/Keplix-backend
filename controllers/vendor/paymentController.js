@@ -1,4 +1,4 @@
-// import Razorpay from 'razorpay';
+﻿// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
 
 // const razorpay = new Razorpay({
@@ -81,7 +81,7 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import prisma from "../util/prisma.js";
+import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
 
 
 
@@ -94,7 +94,7 @@ const razorpay = new Razorpay({
 /**
  * @desc    Create Vendor Payment Order (Subscription / Ads / Promotion)
  * @route   POST /service_api/vendor/payments/order/create
- * Vendor → Keplix
+ * Vendor â†’ Keplix
  */
 export const createVendorPaymentOrder = async (req, res) => {
   try {
@@ -274,4 +274,7 @@ export const getVendorEarnings = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
   }
 };
+
+
+
 

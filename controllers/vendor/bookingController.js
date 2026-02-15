@@ -1,4 +1,4 @@
-import prisma from "../util/prisma.js";
+﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
@@ -230,4 +230,7 @@ export const updateBookingStatus = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
+
 

@@ -1,4 +1,4 @@
-import prisma from '../util/prisma.js';
+﻿import prisma from 'file:///C:/keplix-frontend-master/keplix-backend/util/prisma.js';
 
 
 
@@ -143,4 +143,5 @@ export const getVendorReviews = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
