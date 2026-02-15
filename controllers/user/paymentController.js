@@ -1,8 +1,8 @@
 // import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
-// import { PrismaClient } from "@prisma/client";
+// import prisma from "../util/prisma.js";
 
-// const prisma = new PrismaClient();
+// 
 
 // const razorpay = new Razorpay({
 //     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
@@ -171,12 +171,12 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
 
-const prisma = new PrismaClient();
+
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -427,4 +427,5 @@ async function handlePaymentFailed(payment) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
   }
 }
+
 

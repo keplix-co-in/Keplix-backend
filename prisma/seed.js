@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../util/prisma.js';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
 
 // Fixed Service Categories - matching frontend constants
 const FIXED_CATEGORIES = [

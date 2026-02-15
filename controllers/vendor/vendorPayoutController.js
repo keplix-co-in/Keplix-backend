@@ -1,8 +1,8 @@
 import Razorpay from "razorpay";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 
-const prisma = new PrismaClient();
+
 
 /**
  * RazorpayX instance
@@ -113,3 +113,4 @@ export const triggerVendorPayout = async (req, res) => {
     });
   }
 };
+

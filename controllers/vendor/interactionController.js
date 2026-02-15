@@ -1,7 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../util/prisma.js';
 import { getIO } from '../../socket.js';
 
-const prisma = new PrismaClient();
+
 
 // @desc    Create a conversation for a booking (Vendor Side)
 // @route   POST /interactions/api/vendor/chat/create
@@ -179,3 +179,4 @@ export const sendVendorMessage = async (req, res) => {
         res.status(500).json({ message: 'Failed to send message' });
     }
 };
+

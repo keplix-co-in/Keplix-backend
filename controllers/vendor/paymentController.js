@@ -81,9 +81,9 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_placeholder",
@@ -274,3 +274,4 @@ export const getVendorEarnings = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
   }
 };
+

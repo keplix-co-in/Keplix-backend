@@ -1,6 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get Vendor Services (My Services)
 // @route   GET /service_api/vendor/services
@@ -114,3 +114,4 @@ export const deleteService = async (req, res) => {
   }
 };
 //
+
