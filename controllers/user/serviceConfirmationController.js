@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
-const prisma = new PrismaClient();
+
 
 /**
  * @desc    User confirms service completion
@@ -12,7 +12,7 @@ const prisma = new PrismaClient();
  * CRITICAL ESCROW ENDPOINT:
  * - User confirms vendor completed service satisfactorily
  * - This triggers the payout to vendor
- * - Money moves from escrow → vendor account
+ * - Money moves from escrow â†’ vendor account
  */
 export const confirmServiceCompletion = async (req, res) => {
   try {
@@ -96,7 +96,7 @@ export const confirmServiceCompletion = async (req, res) => {
 
       // Initiate payout to vendor
       try {
-        console.log(`🔄 [ESCROW] User confirmed booking ${bookingId}. Initiating payout...`);
+        console.log(`ðŸ”„ [ESCROW] User confirmed booking ${bookingId}. Initiating payout...`);
         
         const payoutResult = await initiateVendorPayout(payment, booking.service.vendorId);
         
@@ -110,14 +110,14 @@ export const confirmServiceCompletion = async (req, res) => {
             }
           });
 
-          console.log(`✅ [ESCROW] Payout successful! PayoutID: ${payoutResult.payoutId}`);
-          console.log(`💰 [ESCROW] Amount: ₹${payment.vendorAmount} sent to vendor ${booking.service.vendorId}`);
+          console.log(`âœ… [ESCROW] Payout successful! PayoutID: ${payoutResult.payoutId}`);
+          console.log(`ðŸ’° [ESCROW] Amount: â‚¹${payment.vendorAmount} sent to vendor ${booking.service.vendorId}`);
 
           // Notify vendor of payment
           await createNotification(
             booking.service.vendorId,
-            "💰 Payment Received!",
-            `₹${payment.vendorAmount} has been transferred to your account for ${booking.service.name}`
+            "ðŸ’° Payment Received!",
+            `â‚¹${payment.vendorAmount} has been transferred to your account for ${booking.service.name}`
           );
 
           return res.json({ 
@@ -139,7 +139,7 @@ export const confirmServiceCompletion = async (req, res) => {
             data: { vendorPayoutStatus: "failed" }
           });
 
-          console.error(`❌ [ESCROW] Payout failed: ${payoutResult.error || payoutResult.message}`);
+          console.error(`âŒ [ESCROW] Payout failed: ${payoutResult.error || payoutResult.message}`);
           
           return res.status(500).json({ 
             message: "Service confirmed but payout failed. Admin will review.",
@@ -148,7 +148,7 @@ export const confirmServiceCompletion = async (req, res) => {
         }
 
       } catch (payoutError) {
-        console.error(`❌ [ESCROW] Payout error:`, payoutError);
+        console.error(`âŒ [ESCROW] Payout error:`, payoutError);
         
         // Mark payout as failed
         await prisma.payment.update({
@@ -239,15 +239,15 @@ export const disputeServiceCompletion = async (req, res) => {
     if (vendor && vendor.fcmToken) {
       await sendPushNotification(
         vendor.fcmToken,
-        "⚠️ Service Disputed",
+        "âš ï¸ Service Disputed",
         `A customer has raised a dispute for ${booking.service.name}. Admin will review.`,
         { bookingId: bookingId.toString(), type: "dispute" }
       );
     }
 
-    console.log(`⚠️  [DISPUTE] Booking ${bookingId} disputed by user ${userId}`);
-    console.log(`📝 [DISPUTE] Reason: ${reason}`);
-    console.log(`🔒 [DISPUTE] Payout blocked. Admin review required.`);
+    console.log(`âš ï¸  [DISPUTE] Booking ${bookingId} disputed by user ${userId}`);
+    console.log(`ðŸ“ [DISPUTE] Reason: ${reason}`);
+    console.log(`ðŸ”’ [DISPUTE] Payout blocked. Admin review required.`);
 
     return res.json({
       success: true,
@@ -267,3 +267,5 @@ export const disputeServiceCompletion = async (req, res) => {
     });
   }
 };
+
+

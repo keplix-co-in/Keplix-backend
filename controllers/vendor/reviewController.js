@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+﻿import prisma from "../../util/prisma.js";
 
 // @desc    Get reviews for this vendor's services
 // @route   GET /interactions/api/vendor/reviews/
@@ -86,3 +84,6 @@ export const replyToReview = async (req, res) => {
     res.status(500).json({ message: 'Server Error' });
   }
 };
+
+
+

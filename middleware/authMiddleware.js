@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import prisma from "../util/prisma.js";
+
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
@@ -58,3 +58,4 @@ export const protect = async (req, res, next) => {
     return res.status(401).json({ message: "Not authorized, no token" });
   }
 };
+

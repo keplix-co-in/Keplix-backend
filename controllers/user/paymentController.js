@@ -1,8 +1,8 @@
-// import Razorpay from 'razorpay';
+﻿// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
-// import { PrismaClient } from "@prisma/client";
+// import prisma from "../../util/prisma.js";
 
-// const prisma = new PrismaClient();
+// 
 
 // const razorpay = new Razorpay({
 //     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
@@ -47,7 +47,7 @@
 
 //             const order = await razorpay.orders.create(options);
 
-//             console.log('✅ [Razorpay] Order created successfully:', {
+//             console.log('âœ… [Razorpay] Order created successfully:', {
 //                 orderId: order.id,
 //                 amount: order.amount,
 //                 currency: order.currency,
@@ -123,7 +123,7 @@
 //             data: paymentData
 //         });
 
-//         console.log('✅ [Payment Verify] Payment saved to database:', {
+//         console.log('âœ… [Payment Verify] Payment saved to database:', {
 //             paymentId: payment.id,
 //             amount: payment.amount,
 //             status: payment.status,
@@ -137,9 +137,9 @@
 //                     where: { id: parseInt(bookingId) },
 //                     data: { status: 'confirmed' }
 //                 });
-//                 console.log('✅ [Payment Verify] Booking status updated to confirmed');
+//                 console.log('âœ… [Payment Verify] Booking status updated to confirmed');
 //             } catch (bookingError) {
-//                 console.warn('⚠️  [Payment Verify] Could not update booking:', bookingError.message);
+//                 console.warn('âš ï¸  [Payment Verify] Could not update booking:', bookingError.message);
 //             }
 //         }
 
@@ -171,12 +171,12 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
 
-const prisma = new PrismaClient();
+
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -212,7 +212,7 @@ export const createPaymentOrder = async (req, res) => {
       gateway: 'razorpay'
     };
 
-    console.log('✅ [Razorpay] Order created:', responseData);
+    console.log('âœ… [Razorpay] Order created:', responseData);
 
     return res.json(responseData);
   } catch (error) {
@@ -294,7 +294,7 @@ export const verifyPayment = async (req, res) => {
       if (updatedBooking.service && updatedBooking.service.vendorId) {
         await createNotification(
           updatedBooking.service.vendorId,
-          "💰 New Payment Received!",
+          "ðŸ’° New Payment Received!",
           `A user has paid for ${updatedBooking.service.name}. You can now start the service.`,
           { type: 'PAYMENT_RECEIVED', bookingId: updatedBooking.id }
         );
@@ -427,4 +427,6 @@ async function handlePaymentFailed(payment) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
   }
 }
+
+
 
