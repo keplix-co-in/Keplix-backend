@@ -1,7 +1,8 @@
+﻿
+import prisma from "../../util/prisma.js";
+import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
 // @desc    Get vendor profile
 // @route   GET /accounts/vendor/profile/
@@ -74,7 +75,7 @@ export const getVendorProfile = async (req, res) => {
 // @access  Private (Vendor)
 export const updateVendorProfile = async (req, res) => {
     // Destructure all possible fields from the validated body
-    const { 
+    let { 
         business_name, business_type, description,
         phone, alternate_phone, email,
         owner_name, date_of_birth,
@@ -82,21 +83,82 @@ export const updateVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
+        bank_account_number, ifsc_code, upi_id,
         onboarding_completed // if sent by frontend
     } = req.body;
 
-    const updates = { 
-        business_name, business_type, description,
-        phone, alternate_phone, email,
-        owner_name, date_of_birth,
-        address, street, area, city, state, pincode, landmark,
-        latitude, longitude,
-        gst_number, has_gst, tax_type,
-        operating_hours, breaks, holidays
-    };
+    // Validate JSON strings for breaks/holidays but keep them as strings for Prisma
+    if (typeof breaks === 'string' && breaks) {
+        try {
+            JSON.parse(breaks); // Validate it's valid JSON
+            // Keep as string - Prisma schema expects String type
+        } catch (e) {
+            console.warn('[VendorProfile] Invalid JSON for breaks:', breaks);
+            breaks = null;
+        }
+    }
+    
+    if (typeof holidays === 'string' && holidays) {
+        try {
+            JSON.parse(holidays); // Validate it's valid JSON
+            // Keep as string - Prisma schema expects String type
+        } catch (e) {
+            console.warn('[VendorProfile] Invalid JSON for holidays:', holidays);
+            holidays = null;
+        }
+    }
 
-    if (onboarding_completed !== undefined) {
-        updates.onboarding_completed = onboarding_completed;
+    // Build updates object - only include defined values
+    const updates = {};
+    
+    if (business_name !== undefined) updates.business_name = business_name;
+    if (business_type !== undefined) updates.business_type = business_type;
+    if (description !== undefined) updates.description = description;
+    if (phone !== undefined) updates.phone = phone;
+    if (alternate_phone !== undefined) updates.alternate_phone = alternate_phone;
+    if (email !== undefined) updates.email = email;
+    if (owner_name !== undefined) updates.owner_name = owner_name;
+    if (date_of_birth !== undefined) updates.date_of_birth = date_of_birth;
+    if (address !== undefined) updates.address = address;
+    if (street !== undefined) updates.street = street;
+    if (area !== undefined) updates.area = area;
+    if (city !== undefined) updates.city = city;
+    if (state !== undefined) updates.state = state;
+    if (pincode !== undefined) updates.pincode = pincode;
+    if (landmark !== undefined) updates.landmark = landmark;
+    if (latitude !== undefined) updates.latitude = latitude;
+    if (longitude !== undefined) updates.longitude = longitude;
+    if (gst_number !== undefined) updates.gst_number = gst_number;
+    if (has_gst !== undefined) updates.has_gst = has_gst;
+    if (tax_type !== undefined) updates.tax_type = tax_type;
+    if (operating_hours !== undefined) updates.operating_hours = operating_hours;
+    if (breaks !== undefined && breaks !== null) updates.breaks = breaks;
+    if (holidays !== undefined && holidays !== null) updates.holidays = holidays;
+    if (bank_account_number !== undefined) updates.bank_account_number = bank_account_number;
+    if (ifsc_code !== undefined) updates.ifsc_code = ifsc_code;
+    if (upi_id !== undefined) updates.upi_id = upi_id;
+    // If any address components were updated, also update the combined address field
+    const addressComponents = [street, area, city, state, pincode].filter(val => val !== undefined && val !== null && val !== '');
+    if (addressComponents.length > 0) {
+        // Get current profile to combine with existing address components
+        const currentProfile = await prisma.vendorProfile.findUnique({
+            where: { userId: req.user.id },
+            select: { street: true, area: true, city: true, state: true, pincode: true, address: true }
+        });
+        
+        if (currentProfile) {
+            const combinedAddress = [
+                updates.street !== undefined ? updates.street : currentProfile.street,
+                updates.area !== undefined ? updates.area : currentProfile.area, 
+                updates.city !== undefined ? updates.city : currentProfile.city,
+                updates.state !== undefined ? updates.state : currentProfile.state,
+                updates.pincode !== undefined ? updates.pincode : currentProfile.pincode
+            ].filter(Boolean).join(', ');
+            
+            if (combinedAddress.trim()) {
+                updates.address = combinedAddress;
+            }
+        }
     }
 
     // Handle Image uploads
@@ -142,6 +204,18 @@ export const updateVendorProfile = async (req, res) => {
             });
         }
 
+        // Setup or update payout account if bank/UPI details were provided
+        if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
+            updates.upi_id !== undefined) {
+            try {
+                await updateVendorPayoutAccount(req.user.id, vendorProfile);
+                console.log('[VendorProfile] Payout account updated for vendor:', req.user.id);
+            } catch (payoutError) {
+                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
+                // Don't fail the profile update if payout setup fails
+            }
+        }
+
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
         res.json({ ...vendorProfile, user: vendorProfile.userId });
     } catch (error) {
@@ -167,7 +241,8 @@ export const createVendorProfile = async (req, res) => {
         address, street, area, city, state, pincode, landmark,
         latitude, longitude,
         gst_number, has_gst, tax_type,
-        operating_hours, breaks, holidays
+        operating_hours, breaks, holidays,
+        bank_account_number, ifsc_code
     } = req.body;
 
 
@@ -198,6 +273,9 @@ export const createVendorProfile = async (req, res) => {
         operating_hours, 
         breaks, 
         holidays,
+        bank_account_number,
+        ifsc_code,
+        upi_id,
         onboarding_completed: true 
     };
 
@@ -234,9 +312,24 @@ export const createVendorProfile = async (req, res) => {
             data: { role: 'vendor' }
         });
 
+        // Setup payout account if bank/UPI details were provided
+        if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
+            try {
+                await setupVendorPayoutAccount(req.user.id, vendorProfile);
+                console.log('[VendorProfile] Payout account created for vendor:', req.user.id);
+            } catch (payoutError) {
+                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
+                // Don't fail the profile creation if payout setup fails
+            }
+        }
+
         res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
     } catch (error) {
         console.error("Create Vendor Profile Error:", error); // Added detailed logging
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
+
+
+
+

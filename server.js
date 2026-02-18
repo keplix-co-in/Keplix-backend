@@ -18,6 +18,7 @@ import loggerMiddleware from "./middleware/loggerMiddleware.js";
 import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
+import prisma from "./util/prisma.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -53,6 +54,22 @@ import { protect } from "./middleware/authMiddleware.js";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Check required environment variables
+console.log('Checking environment variables...');
+const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'CLOUDINARY_URL'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars.join(', '));
+  console.error('Please set these environment variables in Cloud Run');
+  // Don't exit in production, let the app start with warnings
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('Starting with missing environment variables - some features may not work');
+  }
+} else {
+  console.log('All required environment variables are set');
+}
 
 httpServer.on('connection', (socket) => {
     // console.log(`New TCP connection from ${socket.remoteAddress}`);
@@ -147,6 +164,26 @@ app.use(cors({
 app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
+// Health Check Endpoint (before rate limiter)
+app.get('/health', async (req, res) => {
+  try {
+    // Basic health check - just check if server is running
+    res.status(200).json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      database: !!prisma ? 'configured' : 'not configured'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Apply Global Rate Limiter
 // app.use(limiter);
 
@@ -203,6 +240,10 @@ app.use(errorHandler);
 
 // --- SERVER START ---
 const PORT = process.env.PORT || 8000;
+console.log(`Starting server on port ${PORT}...`);
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
+
 httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
   Logger.info(`🚀  Keplix Backend Running`);

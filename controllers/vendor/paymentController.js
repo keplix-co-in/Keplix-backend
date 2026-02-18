@@ -1,4 +1,4 @@
-// import Razorpay from 'razorpay';
+﻿// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
 
 // const razorpay = new Razorpay({
@@ -81,9 +81,9 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_placeholder",
@@ -94,7 +94,7 @@ const razorpay = new Razorpay({
 /**
  * @desc    Create Vendor Payment Order (Subscription / Ads / Promotion)
  * @route   POST /service_api/vendor/payments/order/create
- * Vendor → Keplix
+ * Vendor â†’ Keplix
  */
 export const createVendorPaymentOrder = async (req, res) => {
   try {
@@ -274,3 +274,7 @@ export const getVendorEarnings = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
   }
 };
+
+
+
+

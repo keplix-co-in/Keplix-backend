@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../util/prisma.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { createRequire } from "module";
@@ -11,9 +11,17 @@ import { getISTDate } from "../util/time.js";
 
 const require = createRequire(import.meta.url);
 
-const prisma = new PrismaClient();
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  const errorMsg = 'JWT_SECRET environment variable is required';
+  console.error(errorMsg);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMsg);
+  } else {
+    console.warn('Using fallback JWT_SECRET for development');
+  }
+}
 
 const generateToken = (id) => {
   return jwt.sign({ id }, JWT_SECRET, {
@@ -418,9 +426,17 @@ export const sendPhoneOTP = async (req, res) => {
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
+  console.log('ðŸ” [verifyPhoneOTP] Called');
+  console.log('ðŸ” [verifyPhoneOTP] Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('ðŸ” [verifyPhoneOTP] Body:', JSON.stringify(req.body, null, 2));
+  console.log('ðŸ” [verifyPhoneOTP] Query:', JSON.stringify(req.query, null, 2));
+  
   const { phone_number, otp } = req.body;
+  
+  console.log('ðŸ” [verifyPhoneOTP] Extracted - phone_number:', phone_number, 'otp:', otp);
 
   if (!phone_number || !otp) {
+    console.error('âŒ [verifyPhoneOTP] Missing required fields');
     return res.status(400).json({ error: "Phone number and OTP are required" });
   }
 
@@ -470,31 +486,33 @@ export const sendEmailOTP = async (req, res) => {
   }
 
   try {
+    const normalizedEmail = email.toLowerCase().trim();
     const otp = generateOTP();
+
+    console.log('[sendEmailOTP] Generating OTP:', { email: normalizedEmail, otp });
 
     const istNow = getISTDate();
     const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
 
-    // OPTIONAL: invalidate previous OTPs for same email
-    await prisma.emailOTP.updateMany({
+    // Delete any existing unverified OTPs for this email first
+    await prisma.emailOTP.deleteMany({
       where: {
-        email,
+        email: normalizedEmail,
         verified: false,
-      },
-      data: {
-        verified: true,
       },
     });
 
     // Create NEW OTP record
     const record = await prisma.emailOTP.create({
       data: {
-        email,
+        email: normalizedEmail,
         otp,
         expiresAt,
         verified: false,
       },
     });
+
+    console.log('[sendEmailOTP] OTP record created:', { id: record.id, email: record.email, otp: record.otp, expiresAt: record.expiresAt });
 
     try {
       await resend.emails.send({
@@ -530,38 +548,69 @@ export const sendEmailOTP = async (req, res) => {
 };
 
 export const verifyEmailOTP = async (req, res) => {
-  const { otpId, otp } = req.body;
+  const { email, otp } = req.body;
 
-  if (!otpId || !otp) {
-    return res.status(400).json({ error: "OTP is required" });
+  console.log('verifyEmailOTP - Received:', { email, otp, bodyKeys: Object.keys(req.body) });
+
+  if (!email || !otp) {
+    return res.status(400).json({ error: "Email and OTP are required" });
   }
 
   try {
-    const record = await prisma.emailOTP.findUnique({
-      where: { id: otpId },
+    // Normalize inputs
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedOtp = String(otp).trim();
+
+    console.log('verifyEmailOTP - Normalized:', { normalizedEmail, normalizedOtp });
+
+    // Find the most recent OTP record for this email
+    const record = await prisma.emailOTP.findFirst({
+      where: { 
+        email: normalizedEmail
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
 
+    console.log('verifyEmailOTP - Found record:', record ? { 
+      id: record.id, 
+      email: record.email, 
+      otp: record.otp,
+      verified: record.verified, 
+      expiresAt: record.expiresAt,
+      createdAt: record.createdAt 
+    } : 'null');
+
     if (!record) {
-      return res.status(400).json({ error: "Invalid OTP request" });
+      return res.status(400).json({ error: "No OTP found for this email" });
     }
 
     if (record.verified) {
       return res.status(400).json({ error: "OTP already used" });
     }
 
-    if (record.otp !== otp) {
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
-
-    // Expiry check
+    // Expiry check (before OTP comparison)
     if (new Date() > record.expiresAt) {
       return res.status(400).json({ error: "OTP has expired" });
     }
 
+    if (record.otp !== normalizedOtp) {
+      console.log('verifyEmailOTP - OTP mismatch:', { 
+        expected: record.otp, 
+        expectedType: typeof record.otp,
+        received: normalizedOtp,
+        receivedType: typeof normalizedOtp 
+      });
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
     await prisma.emailOTP.update({
-      where: { id: otpId },
+      where: { id: record.id },
       data: { verified: true },
     });
+
+    console.log('verifyEmailOTP - OTP verified successfully');
 
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
@@ -609,15 +658,27 @@ export const verifyEmailOTP = async (req, res) => {
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
 
+  console.log('Google Login - Received role:', role, 'idToken length:', idToken?.length);
+
   try {
     // Verify token with Firebase Admin
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const email = decodedToken.email;
     const name = decodedToken.name || email.split("@")[0];
 
-    let user = await prisma.user.findUnique({ where: { email } });
+    console.log('Google Login - Decoded email:', email, 'name:', name);
+
+    let user = await prisma.user.findUnique({ 
+      where: { email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      }
+    });
 
     if (!user) {
+      console.log('Google Login - Creating new user with role:', role || 'user');
+      
       // Register new user
       user = await prisma.user.create({
         data: {
@@ -647,14 +708,46 @@ export const googleLogin = async (req, res) => {
           },
         });
       }
+
+      // Re-fetch user with profile
+      user = await prisma.user.findUnique({ 
+        where: { id: user.id },
+        include: {
+          userProfile: true,
+          vendorProfile: true,
+        }
+      });
     }
 
-    res.json({
+    console.log('Google Login - User found/created, role:', user.role);
+
+    // Build response with profile data
+    const userData = {
       id: user.id,
       email: user.email,
       role: user.role,
+      is_active: user.is_active,
+    };
+
+    if (user.role === "vendor" && user.vendorProfile) {
+      userData.business_name = user.vendorProfile.business_name;
+      userData.phone = user.vendorProfile.phone;
+      userData.address = user.vendorProfile.address;
+      userData.image = user.vendorProfile.image;
+      userData.cover_image = user.vendorProfile.cover_image;
+      userData.onboarding_completed = user.vendorProfile.onboarding_completed;
+      userData.status = user.vendorProfile.status;
+    } else if (user.userProfile) {
+      userData.name = user.userProfile.name;
+      userData.phone = user.userProfile.phone;
+      userData.address = user.userProfile.address;
+      userData.profile_picture = user.userProfile.profile_picture;
+    }
+
+    res.json({
       access: generateToken(user.id),
       refresh: generateToken(user.id),
+      user: userData,
     });
   } catch (error) {
     console.error("Google Login Error:", error);
@@ -838,30 +931,28 @@ export const updateUserProfileAuth = async (req, res) => {
     });
   }
 };
-// @desc    Update Push Notification Token
-// @route   PUT /accounts/auth/push-token/
-// @access  Private
+// Update push token for logged in user
 export const updatePushToken = async (req, res) => {
-  const { pushToken } = req.body;
-  const userId = req.user.id; // Correct way to access user ID from middleware
-
-  if (!pushToken) {
-    return res.status(400).json({ message: "Push token is required" });
-  }
-
   try {
-    // Both Users and Vendors are in the User table
+    const { pushToken } = req.body;
+    const userId = req.user.id; // Assuming auth middleware sets req.user
+
+    console.log('ðŸ“± Updating push token for user:', userId, 'Token:', pushToken?.substring(0, 20) + '...');
+
     await prisma.user.update({
-      where: { id: parseInt(userId) },
-      data: { pushToken },
+      where: { id: userId },
+      data: { pushToken }
     });
 
-    res.json({ success: true, message: "Push token updated" });
+    console.log('âœ… Push token updated successfully');
+
+    res.json({ success: true, message: 'Push token updated' });
   } catch (error) {
-    console.error("Token update error:", error);
-    res.status(500).json({ error: "Failed to update token" });
+    console.error('âŒ Update push token error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 // ======================
 // keplix-backend/server.js
 // ======================
+

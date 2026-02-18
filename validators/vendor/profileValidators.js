@@ -35,6 +35,19 @@ export const createVendorProfileSchema = z.object({
   has_gst: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
   tax_type: z.string().optional(),
 
+  // Operating hours and schedule
+  operating_hours: z.string().optional(),
+  breaks: z.union([z.string(), z.array(z.any())]).optional(),
+  holidays: z.union([z.string(), z.array(z.any())]).optional(),
+  
+  // Onboarding status
+  onboarding_completed: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
+
+  // Bank Details
+  bank_account_number: z.string().optional(),
+  ifsc_code: z.string().optional(),
+  upi_id: z.string().optional(),
+
   // Image fields (Optional, but allow passing them through if Zod strips keys)
   // Since Zod parse replaces req.body, if we don't include them, they might be lost if they were in body?
   // Actually, files are in req.files, so we don't need them here usually.
@@ -42,5 +55,7 @@ export const createVendorProfileSchema = z.object({
   image: z.any().optional(),
   cover_image: z.any().optional(),
 });
+
+export default createVendorProfileSchema;
 
 export const updateVendorProfileSchema = createVendorProfileSchema.partial();

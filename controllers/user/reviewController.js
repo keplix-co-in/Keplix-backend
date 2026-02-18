@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+﻿import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get Reviews
 // @route   GET /interactions/api/reviews/
@@ -143,3 +143,5 @@ export const getVendorReviews = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+

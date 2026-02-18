@@ -1,9 +1,9 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get bookings for logged in vendor
 // @route   GET /service_api/vendor/bookings/
@@ -32,6 +32,15 @@ export const getVendorBookings = async (req, res) => {
     }
     if (serviceName) query.service = { name: { contains: serviceName } };
     if (token) query.id = parseInt(token);
+
+    // For order alerts, exclude past bookings (bookings that have already passed)
+    // Only show future bookings or bookings from today onwards
+    const now = new Date();
+    if (!date && !date_from && !date_to) { // Only apply time filter when no specific date filters are set
+      query.booking_date = {
+        gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
+      };
+    }
 
     const bookings = await prisma.booking.findMany({
       where: query,
@@ -107,7 +116,7 @@ export const respondToServiceRequest = async (req, res) => {
 
     // Notify user about vendor's response
     if (vendor_status === 'accepted') {
-      // Send notification
+      // Send notification (DB + Push)
       await createNotification(
         booking.userId,
         "Request Accepted!",
@@ -121,21 +130,6 @@ export const respondToServiceRequest = async (req, res) => {
           service: booking.service.name,
           message: "Your service request was accepted! Proceed to payment."
         });
-      }
-
-      // Push notification
-      const userForPush = await prisma.user.findUnique({
-        where: { id: booking.userId },
-        select: { fcmToken: true }
-      });
-
-      if (userForPush?.fcmToken) {
-        sendPushNotification(
-          userForPush.fcmToken,
-          "Request Accepted!",
-          `${booking.service.name} request accepted. Tap to proceed with payment.`,
-          { bookingId: booking.id.toString(), action: 'payment' }
-        ).catch(err => console.error("Push Error", err));
       }
     } else {
       // Request rejected
@@ -151,20 +145,6 @@ export const respondToServiceRequest = async (req, res) => {
           service: booking.service.name,
           message: "Your service request was declined."
         });
-      }
-
-      const userForPush = await prisma.user.findUnique({
-        where: { id: booking.userId },
-        select: { fcmToken: true }
-      });
-
-      if (userForPush?.fcmToken) {
-        sendPushNotification(
-          userForPush.fcmToken,
-          "Request Declined",
-          `Sorry, ${booking.service.name} request was declined.`,
-          { bookingId: booking.id.toString() }
-        ).catch(err => console.error("Push Error", err));
       }
     }
 
@@ -212,65 +192,45 @@ export const updateBookingStatus = async (req, res) => {
     console.log('Booking updated successfully:', booking.id, 'Files received:', files.length);
     console.log('Booking updated successfully:', booking.id);
 
-    //socket.io instance
-    const io = req.app.get("io");   
-    // Notify user about booking status update
-    try {
-      io.to(`user_${booking.userId}`).emit("booking_updated", {
-        bookingId: booking.id,
-        status: booking.status,
-        message: "Your booking status has been updated",
-      });
-    } catch (socketError) {
-      console.error("Socket emit error:", socketError);
-    }
-
-    // === PUSH NOTIFICATION ===
-    const userForPush = await prisma.user.findUnique({
-        where: { id: booking.userId },
-        select: { fcmToken: true }
-    });
-
-    if (userForPush && userForPush.fcmToken) {
-        let title = "Booking Update";
-        let body = `Your booking is now ${status}`;
-        
-        if (status === 'confirmed') {
-            title = "Booking Accepted!";
-            body = "The vendor has accepted your booking request.";
-        } else if (status === 'completed') {
-            title = "Service Completed";
-            body = "The vendor has marked your service as completed. Please confirm to release payment.";
-        } else if (status === 'cancelled') {
-             title = "Booking Cancelled";
-             body = "Your booking request was cancelled.";
-        }
-
-        // Store in DB
-        await createNotification(booking.userId, title, body);
-
-        sendPushNotification(userForPush.fcmToken, title, body, { bookingId: booking.id.toString() }).catch(err => console.error("Push Error", err));
-    } else {
-        // Even if no FCM token, store in DB
-        let title = "Booking Update";
-        let body = `Your booking is now ${status}`;
-         if (status === 'confirmed') {
-            title = "Booking Accepted!";
-            body = "The vendor has accepted your booking request.";
-        } else if (status === 'completed') {
-             title = "Service Completed";
-             body = "The vendor has marked your service as completed. Please confirm to release payment.";
-        }
-        await createNotification(booking.userId, title, body);
-    }
-
-    // ❌ REMOVED: Auto-payout when vendor marks completed
-    // ✅ NEW FLOW: Payout only happens when USER confirms service completion
-    // User must call POST /user/:userId/bookings/:id/confirm
+    // === NOTIFICATIONS ===
+    let title = "Booking Update";
+    let body = `Your booking for ${booking.service.name} is now ${status}`;
     
+    if (status === 'confirmed') {
+        title = "Booking Accepted!";
+        body = `The vendor has accepted your booking for ${booking.service.name}.`;
+    } else if (status === 'service_completed') {
+        title = "Service Completed";
+        body = `The vendor has marked ${booking.service.name} as completed. Please confirm to release payment.`;
+    } else if (status === 'cancelled') {
+         title = "Booking Cancelled";
+         body = `Your booking for ${booking.service.name} was cancelled.`;
+    }
+
+    // Store in DB & Send Push via Expo
+    await createNotification(booking.userId, title, body);
+
+    // Socket notification
+    const io = req.app.get("io");   
+    if (io) {
+      try {
+        io.to(`user_${booking.userId}`).emit("booking_updated", {
+          bookingId: booking.id,
+          status: booking.status,
+          message: body,
+        });
+      } catch (socketError) {
+        console.error("Socket emit error:", socketError);
+      }
+    }
+
     res.json(booking);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
+
+
