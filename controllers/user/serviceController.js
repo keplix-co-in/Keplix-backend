@@ -1,6 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get All Services (Public)
 // @route   GET /service_api/user/services
@@ -292,3 +292,5 @@ export const getServicesByVendor = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+

@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get conversation by booking ID
 // @route   GET /interactions/api/user/bookings/:bookingId/conversation
@@ -236,3 +236,5 @@ export const sendMessage = async (req, res) => {
     res.status(500).json({ message: "Failed to send message" });
   }
 };
+
+

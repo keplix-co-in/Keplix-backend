@@ -1,6 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get Promotions
 // @route   GET /interactions/api/promotions/vendor/:vendorId
@@ -149,3 +149,7 @@ export const deletePromotion = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
+
+

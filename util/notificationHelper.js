@@ -1,8 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "../util/prisma.js";
 import { Expo } from 'expo-server-sdk';
 import Logger from './logger.js';
 
-const prisma = new PrismaClient();
+
 const expo = new Expo();
 
 export const createNotification = async (userId, title, message, metadata = {}) => {
@@ -91,3 +91,4 @@ export const sendPushNotification = async (expoPushToken, title, body, data = {}
     throw error;
   }
 };
+

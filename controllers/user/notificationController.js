@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+﻿import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get User Notifications
 // @route   GET /interactions/api/users/:user_id/notifications/
@@ -117,3 +117,5 @@ export const createNotification = async (req, res) => {
         res.status(500).json({ message: 'Server Error' });
     }
 }
+
+

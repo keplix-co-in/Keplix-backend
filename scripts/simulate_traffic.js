@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../util/prisma.js';
 
-const prisma = new PrismaClient();
+
 
 async function main() {
     console.log("🚀 Starting Live Traffic Simulation...");
@@ -53,3 +53,4 @@ async function main() {
 }
 
 main().catch(e => console.error(e));
+
