@@ -1,7 +1,8 @@
-import Razorpay from "razorpay";
-import { PrismaClient } from "@prisma/client";
+﻿import Razorpay from "razorpay";
+import prisma from "../../util/prisma.js";
+import { initiateVendorPayout } from "../../util/payoutHelper.js";
 
-const prisma = new PrismaClient();
+
 
 /**
  * RazorpayX instance
@@ -25,7 +26,7 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
-     * 1️Payment fetch with booking and service details
+     * 1ï¸Payment fetch with booking and service details
      */
     const payment = await prisma.payment.findUnique({
       where: { id: Number(paymentId) },
@@ -54,7 +55,7 @@ export const triggerVendorPayout = async (req, res) => {
 
     /**
      * Vendor ID fetch
-     * Booking → Service → vendorId (User.id)
+     * Booking â†’ Service â†’ vendorId (User.id)
      */
     const vendorId = payment.booking?.service?.vendorId;
 
@@ -76,17 +77,16 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
-     * RazorpayX payout create 
+     * Initiate payout using the helper function
      */
-    const payout = await razorpayX.payouts.create({
-      account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER, // Keplix X account
-      fund_account_id: payoutAccount.fundAccountId,
-      amount: Math.round(Number(payment.vendorAmount) * 100), // paise
-      currency: "INR",
-      mode: "IMPS",
-      purpose: "payout",
-      reference_id: `booking_${payment.bookingId}`,
-    });
+    const payoutResult = await initiateVendorPayout(payment, vendorId);
+
+    if (!payoutResult.success) {
+      return res.status(500).json({
+        message: "Vendor payout failed",
+        error: payoutResult.error,
+      });
+    }
 
     /**
      * Payment table update 
@@ -95,14 +95,14 @@ export const triggerVendorPayout = async (req, res) => {
       where: { id: payment.id },
       data: {
         vendorPayoutStatus: "paid",
-        vendorPayoutId: payout.id,
+        vendorPayoutId: payoutResult.payoutId,
       },
     });
 
     res.json({
       success: true,
       message: "Vendor payout successful",
-      payoutId: payout.id,
+      payoutId: payoutResult.payoutId,
       amount: payment.vendorAmount,
     });
   } catch (error) {
@@ -113,3 +113,7 @@ export const triggerVendorPayout = async (req, res) => {
     });
   }
 };
+
+
+
+

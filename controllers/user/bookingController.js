@@ -1,7 +1,6 @@
-
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 import { createNotification } from "../../util/notificationHelper.js";
-const prisma = new PrismaClient();
+
 
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
@@ -156,11 +155,19 @@ export const createBooking = async (req, res) => {
 
         // Notify Vendor about new request
         if (booking.service && booking.service.vendorId) {
-             await createNotification(
-                booking.service.vendorId, 
-                "New Service Request", 
-                `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`
-            );
+            console.log(`ðŸ“¨ [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
+            
+            try {
+                await createNotification(
+                    booking.service.vendorId, 
+                    "New Service Request", 
+                    `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
+                    { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
+                );
+                console.log(`âœ… [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
+            } catch (notifError) {
+                console.error(`âŒ [BOOKING] Failed to send notification:`, notifError);
+            }
             
             // Get socket instance and notify vendor in real-time
             const io = req.app.get("io");
@@ -275,6 +282,16 @@ export const updateBooking = async (req, res) => {
             "Booking Cancelled",
              `Booking for ${updatedBooking.service.name} was cancelled by the user.`
         );
+
+        // Socket notify vendor
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_cancelled", {
+                bookingId: updatedBooking.id,
+                service: updatedBooking.service.name,
+                message: "This booking was cancelled by the user."
+            });
+        }
     }
 
     res.json(updatedBooking);
@@ -283,3 +300,5 @@ export const updateBooking = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
