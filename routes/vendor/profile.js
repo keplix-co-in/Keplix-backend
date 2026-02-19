@@ -1,5 +1,5 @@
 import express from 'express';
-import { getVendorProfile, updateVendorProfile, createVendorProfile } from '../../controllers/vendor/profileController.js';
+import { getVendorProfile, updateVendorProfile, createVendorProfile, updateOnlineStatus } from '../../controllers/vendor/profileController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import upload from '../../middleware/uploadMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -16,6 +16,7 @@ const uploadFields = upload.fields([
 
 router.put('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
 router.patch('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.patch('/online-status', protect, updateOnlineStatus);
 router.post('/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 // Trailing slash support
