@@ -330,6 +330,10 @@ export const createVendorProfile = async (req, res) => {
     }
 };
 
+export const updateOnlineStatus = async (req,res) =>{
+    //empty
+};
+
 
 
 
