@@ -1,8 +1,6 @@
+import 'dotenv/config';
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-dotenv.config(); // Move this to the very top, immediately after import
-
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -239,7 +237,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 // --- SERVER START ---
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8080;
 console.log(`Starting server on port ${PORT}...`);
 console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
 console.log(`DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
@@ -247,8 +245,8 @@ console.log(`DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
 httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
   Logger.info(`🚀  Keplix Backend Running`);
-  Logger.info(`🌍  URL: http://localhost:${PORT}`);
-  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV }`);
+  Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
+  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
   Logger.info(`=================================`);
 });
 

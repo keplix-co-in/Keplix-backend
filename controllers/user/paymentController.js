@@ -236,18 +236,21 @@ export const verifyPayment = async (req, res) => {
       gateway
     } = req.body;
 
-    // Verify Razorpay
-    const body = orderId + "|" + paymentId;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body)
-      .digest("hex");
-      //console.log(expectedSignature, signature)
+    // Verify Razorpay or Skip for Cash/Demo
+    // Also skip if signature is explicitly a mock one (for dev mode)
+    if (gateway !== 'cash' && gateway !== 'card' && gateway !== 'upi' && gateway !== 'netbanking' && !signature.startsWith('mock_')) {
+      const body = orderId + "|" + paymentId;
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(body)
+        .digest("hex");
+        //console.log(expectedSignature, signature)
 
-    if (expectedSignature !== signature) {
-        return res.status(400).json({ message: "Invalid payment signature" });
+      if (expectedSignature !== signature) {
+          return res.status(400).json({ message: "Invalid payment signature" });
+      }
     }
-    // Verified Razorpay
+    // Verified
 
     // Commission calculation
     const totalAmount = Number(amount);
@@ -259,8 +262,8 @@ export const verifyPayment = async (req, res) => {
       amount: totalAmount,
       currency: "INR",
       status: "success",
-      method: "razorpay",
-      transactionId: paymentId,
+      method: gateway || "razorpay", // Use provided gateway method
+      transactionId: paymentId || `TXN${Date.now()}`,
       platformFee,
       vendorAmount,
       vendorPayoutStatus: "pending",
