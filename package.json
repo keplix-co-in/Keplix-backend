@@ -27,6 +27,7 @@
   "dependencies": {
     "@fluidjs/multer-cloudinary": "^1.0.4",
     "@prisma/adapter-pg": "^7.4.0",
+    "@prisma/adapter-ppg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.9.0",
