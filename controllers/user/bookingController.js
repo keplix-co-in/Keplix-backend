@@ -79,6 +79,12 @@ export const getUserBookings = async (req, res) => {
           : null,
         vendor_name:
           booking.service.vendor?.vendorProfile?.business_name || "Vendor",
+        vendor_image: booking.service.vendor?.vendorProfile?.image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.image}`
+          : null,
+        cover_image: booking.service.vendor?.vendorProfile?.cover_image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.cover_image}`
+          : null,
       },
     }));
 

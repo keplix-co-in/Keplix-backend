@@ -169,6 +169,37 @@ export const updateBookingStatus = async (req, res) => {
 
   try {
     console.log('About to update booking with id:', req.params.id, 'status:', status);
+
+    // Validate Status Transitions for "Ongoing" Tab Features
+    const currentBooking = await prisma.booking.findUnique({
+      where: { id: parseInt(req.params.id) },
+      select: { status: true }
+    });
+
+    if (!currentBooking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (status) {
+        // 1. Start Service: confirmed -> in_progress
+        if (status === 'in_progress' && currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
+            return res.status(400).json({ 
+                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}` 
+            });
+        }
+
+        // 2. Complete Service: in_progress -> service_completed
+        if (status === 'service_completed' && currentBooking.status !== 'in_progress') {
+             // Allow skipping in_progress check if it was just confirmed (for quick jobs), but typically we want the flow.
+             // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
+             // User prompt: "in_progress -> service_completed" logic implies flow.
+             if (currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
+                return res.status(400).json({ 
+                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}` 
+                });
+             }
+        }
+    }
     
     // Prepare update data
     const updateData = { status };

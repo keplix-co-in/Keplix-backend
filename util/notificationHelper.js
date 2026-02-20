@@ -28,17 +28,20 @@ export const createNotification = async (userId, title, message, metadata = {}) 
 
         // 3. Send Push if token exists
         if (user?.pushToken && Expo.isExpoPushToken(user.pushToken)) {
+            const isBookingAlert = metadata.type === 'NEW_BOOKING_ALERT';
+            const channelId = isBookingAlert ? 'booking-alerts-v5' : 'default-notifications';
+            
             const messages = [{
                 to: user.pushToken,
-                sound: 'default', 
+                sound: isBookingAlert ? 'alert_beep' : 'default', 
                 title: title,
                 body: message,
                 data: { ...metadata, userId },
-                priority: 'high', 
-                channelId: 'booking-alerts-v5', // Ensure v5
+                priority: isBookingAlert ? 'high' : 'normal', 
+                channelId: channelId, 
                 android: {
-                    channelId: 'booking-alerts-v5', // Ensure v5
-                    sound: 'alert_beep', // Custom sound
+                    channelId: channelId,
+                    sound: isBookingAlert ? 'alert_beep' : 'default', // device default for non-booking
                 }
             }];
 
@@ -62,17 +65,23 @@ export const createNotification = async (userId, title, message, metadata = {}) 
 export const sendPushNotification = async (expoPushToken, title, body, data = {}) => {
   Logger.debug('Sending push notification to token:', expoPushToken?.substring(0, 20) + '...');
   
+  const isBookingAlert = data.type === 'NEW_BOOKING_ALERT';
+  const isChatMessage = data.type === 'NEW_MESSAGE';
+  const channelId = isBookingAlert ? 'booking-alerts-v5' : (isChatMessage ? 'chat-messages' : 'default-notifications');
+
   const message = {
     to: expoPushToken,
     title: title,
     body: body,
     data: { ...data },
-    priority: 'high',
+    priority: isBookingAlert ? 'high' : 'normal',
+    sound: isBookingAlert ? 'alert_beep' : 'default', // device default for chat/other notifications
+    channelId: channelId,
     android: {
-      channelId: 'booking-alerts',
-      sound: 'alert_beep',
-      priority: 'max',
-      vibrate: [0, 250, 250, 250],
+      channelId: channelId,
+      sound: isBookingAlert ? 'alert_beep' : 'default', // device default
+      priority: isBookingAlert ? 'max' : 'default',
+      vibrate: isBookingAlert ? [0, 250, 250, 250] : [],
     }
   };
 

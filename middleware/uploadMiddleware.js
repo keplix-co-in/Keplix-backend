@@ -29,10 +29,12 @@ const checkFileType = (file, cb) => {
 // cloudinary storage setup
 const storage = new CloudinaryStorage({
     cloudinary,
-    params:{
-        folder: "media_uploads",
-        resource_type: "auto",
-        public_id: (req,file)=> `${file.fieldname}-${Date.now()}`
+    params: async (req, file) => {
+        return {
+            folder: "media_uploads",
+            resource_type: "auto",
+            public_id: `${file.fieldname}-${Date.now()}`
+        };
     },
 });
 
