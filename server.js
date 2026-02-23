@@ -1,7 +1,10 @@
+import dotenv from "dotenv";
+dotenv.config(); // Move this to the very top, immediately after import
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-dotenv.config(); // Move this to the very top, immediately after import
+
 
 import { createServer } from "http";
 import path from "path";
@@ -49,6 +52,10 @@ import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
 import { protect } from "./middleware/authMiddleware.js";
+
+
+// Admin Routes
+import authAdmin from "./routes/Admin/authAdmin.js";
 
 // --- CONFIGURATION ---
 
@@ -232,6 +239,9 @@ app.use("/interactions/api/user", userInteractionRoutes);
 app.use("/interactions/api/user/notifications", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
+
+// 6. Admin
+app.use("/admin/auth", authAdmin)
 
 
 // --- ERROR HANDLING ---
