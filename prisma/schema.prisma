@@ -30,7 +30,6 @@ model User {
   userProfile         UserProfile?
   vendorProfile       VendorProfile?
   VendorPayoutAccount VendorPayoutAccount?
-  adminProfile        AdminProfile?
 
   @@index([email])
   @@index([role])
@@ -287,31 +286,21 @@ model VendorPayoutAccount {
   updatedAt DateTime @updatedAt
 }
 
-model AdminProfile {
-id          Int         @id @default(autoincrement())
-userId      Int         @unique
-name        String
-phone       String?
-email       String      @unique
+model Admin {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  phone     String?
 
-role        AdminRole   @default(ADMIN)
-status      AdminStatus @default(ACTIVE)
+  status    AdminStatus @default(ACTIVE)
 
-lastLoginAt DateTime?
-createdAt   DateTime    @default(now())
-updatedAt   DateTime    @updatedAt
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-@@index([userId])
-@@index([role])
-@@index([status])
-}
-
-enum AdminRole {
-SUPER_ADMIN
-ADMIN
-MODERATOR
+  @@index([email])
+  @@index([status])
 }
 
 enum AdminStatus {
