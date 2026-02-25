@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 
 const authAdmin = (req, res, next) => {
-  const authHeader = req.header.authorization;
+  const authHeader = req.headers.authorization;
+  
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Token Missing" });
@@ -29,4 +30,4 @@ const authorizeAdmin = (req, res, next) => {
 
 }
 
-export  default {authAdmin, authorizeAdmin};
+export  {authAdmin, authorizeAdmin};
