@@ -51,7 +51,8 @@ import { protect } from "./middleware/authMiddleware.js";
 
 
 // Admin Routes
-import authAdmin from "./routes/admin/authAdmin.js";
+import authAdminRoutes from './routes/admin/authAdmin.js';
+import dashBoardRoutes from './routes/admin/dashBoard.js';
 
 // --- CONFIGURATION ---
 
@@ -237,7 +238,8 @@ app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
 // 6. Admin
-app.use("/admin/auth", authAdmin)
+app.use("/admin/auth", authAdminRoutes);
+app.use("/admin", dashBoardRoutes);
 
 
 // --- ERROR HANDLING ---
