@@ -1,11 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config(); // Move this to the very top, immediately after import
-
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-
-
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -55,7 +51,7 @@ import { protect } from "./middleware/authMiddleware.js";
 
 
 // Admin Routes
-import authAdmin from "./routes/Admin/authAdmin.js";
+import authAdmin from "./routes/admin/authAdmin.js";
 
 // --- CONFIGURATION ---
 
