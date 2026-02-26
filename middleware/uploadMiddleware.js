@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import cloudinary from '../util/cloudinary.js';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { CloudinaryStorage } from '@fluidjs/multer-cloudinary';
 
 
 const checkFileType = (file, cb) => {
@@ -18,7 +18,7 @@ const checkFileType = (file, cb) => {
                      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
                      file.mimetype === 'application/octet-stream';
 
-    if (extname) { // Prioritize extension check as mimetype can be fickle in formData
+    if (extname || mimetype) { 
         return cb(null, true);
     } else {
         cb(new Error(`Images/Docs only. Got: ${file.mimetype} / ${path.extname(file.originalname)}`));
@@ -29,10 +29,12 @@ const checkFileType = (file, cb) => {
 // cloudinary storage setup
 const storage = new CloudinaryStorage({
     cloudinary,
-    params:{
-        folder: "media_uploads",
-        resource_type: "auto",
-        public_id: (req,file)=> `${file.fieldname}-${Date.now()}`
+    params: async (req, file) => {
+        return {
+            folder: "media_uploads",
+            resource_type: "auto",
+            public_id: `${file.fieldname}-${Date.now()}`
+        };
     },
 });
 

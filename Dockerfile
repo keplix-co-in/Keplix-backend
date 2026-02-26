@@ -2,7 +2,7 @@
 FROM node:20-alpine
 
 # Install OpenSSL for Prisma (required for database connections)
-RUN apk add --no-cache openssl openssl-dev
+RUN apk add --no-cache openssl openssl-dev curl
 
 # Set working directory
 WORKDIR /app
@@ -10,21 +10,20 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies first (needed for Prisma generation)
-# Using npm install since package-lock.json may not exist
+# Install all dependencies (including dev for prisma CLI)
 RUN npm install --legacy-peer-deps
 
 # Copy prisma schema
 COPY prisma ./prisma/
 
-# Generate Prisma Client with the correct version from package.json
-RUN npx prisma@5.22.0 generate
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Prune dev dependencies for production image optimization (optional but recommended)
+# RUN npm prune --production
 
 # Copy application code
 COPY . .
-
-# Remove dev dependencies to reduce image size
-RUN npm prune --omit=dev --legacy-peer-deps
 
 # Expose port 8080 (Cloud Run default)
 EXPOSE 8080
@@ -32,8 +31,9 @@ EXPOSE 8080
 # Set environment to production
 ENV NODE_ENV=production
 
-# Start the application with logging
-CMD echo "Starting server..." && \
-    echo "PORT=${PORT}" && \
-    echo "NODE_ENV=${NODE_ENV}" && \
-    node server.js
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+
+# Start the application
+CMD ["node", "server.js"]

@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -84,8 +83,12 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
+  is_online            Boolean @default(true)
   image                String?
   cover_image          String?
+  bank_account_number  String?
+  ifsc_code            String?
+  upi_id               String?
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -109,6 +112,7 @@ model Service {
   category    String
   image_url   String?
   is_active   Boolean   @default(true)
+  is_featured Boolean   @default(false)
   bookings    Booking[]
   vendor      User      @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
 }
@@ -120,7 +124,9 @@ model Booking {
   booking_date DateTime
   booking_time String
   status       String        @default("pending") // pending, confirmed, in_progress, service_completed, user_confirmed, disputed, cancelled, refunded
+  vendor_status String       @default("pending") // pending, accepted, rejected
   notes        String?
+  completion_images String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
@@ -132,6 +138,7 @@ model Booking {
   @@index([userId])
   @@index([serviceId])
   @@index([status])
+  @@index([vendor_status])
   @@index([booking_date])
 }
 
@@ -250,7 +257,7 @@ model Feedback {
 
 model EmailOTP {
   id        Int      @id @default(autoincrement())
-  email     String   @unique
+  email     String   
   otp       String
   expiresAt DateTime
   verified  Boolean  @default(false)

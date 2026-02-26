@@ -1,7 +1,6 @@
-
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 import { createNotification } from "../../util/notificationHelper.js";
-const prisma = new PrismaClient();
+
 
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
@@ -80,6 +79,12 @@ export const getUserBookings = async (req, res) => {
           : null,
         vendor_name:
           booking.service.vendor?.vendorProfile?.business_name || "Vendor",
+        vendor_image: booking.service.vendor?.vendorProfile?.image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.image}`
+          : null,
+        cover_image: booking.service.vendor?.vendorProfile?.cover_image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.cover_image}`
+          : null,
       },
     }));
 
@@ -122,14 +127,15 @@ export const getSingleBooking = async (req, res) => {
   }
 };
 
-// @desc    Create a new booking
+// @desc    Create a new booking request (vendor must accept before payment)
 // @route   POST /service_api/bookings/
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
-    console.log("Creating booking for user:", req.user.id);
+    console.log("Creating booking request for user:", req.user.id);
 
     try {
+        // Create booking with vendor_status = 'pending' (waiting for vendor acceptance)
         const booking = await prisma.booking.create({
             data: {
                 userId: req.user.id,
@@ -137,38 +143,100 @@ export const createBooking = async (req, res) => {
                 booking_date: new Date(booking_date),
                 booking_time,
                 notes,
+                vendor_status: 'pending', // Vendor must accept/reject
+                status: 'pending', // Overall status
                 conversation: {
                     create: {} // Automatically create a conversation for this booking
                 }
             },
-            include: { service: true }
+            include: { 
+                service: true,
+                user: {
+                    include: {
+                        userProfile: true
+                    }
+                }
+            }
         });
 
-        // Notify Vendor
+        // Notify Vendor about new request
         if (booking.service && booking.service.vendorId) {
-             await createNotification(
-                booking.service.vendorId, 
-                "New Booking Request", 
-                `New booking for ${booking.service.name} on ${booking_date}`
-            );
+            console.log(`ðŸ“¨ [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
             
-            // Get socket instance and notify vendor
+            try {
+                await createNotification(
+                    booking.service.vendorId, 
+                    "New Service Request", 
+                    `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
+                    { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
+                );
+                console.log(`âœ… [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
+            } catch (notifError) {
+                console.error(`âŒ [BOOKING] Failed to send notification:`, notifError);
+            }
+            
+            // Get socket instance and notify vendor in real-time
             const io = req.app.get("io");
             if (io) {
-                io.to(`user_${booking.service.vendorId}`).emit("new_booking_request", {
+                io.to(`user_${booking.service.vendorId}`).emit("new_service_request", {
                     bookingId: booking.id,
                     service: booking.service.name,
-                    message: "You have a new booking request!"
+                    userName: booking.user.userProfile?.name || 'User',
+                    date: booking_date,
+                    time: booking_time,
+                    message: "You have a new service request! Please accept or reject."
                 });
             }
         }
 
-        res.status(201).json(booking);
+        res.status(201).json({
+            ...booking,
+            message: "Service request sent to vendor. Waiting for acceptance."
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 }
+
+// @desc    Check if booking request was accepted by vendor (for payment)
+// @route   GET /service_api/user/:userId/bookings/:id/can-pay
+export const canProceedToPayment = async (req, res) => {
+  const bookingId = parseInt(req.params.id);
+  
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        service: true,
+        payment: true
+      }
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    // Ensure user owns the booking
+    if (booking.userId !== req.user.id) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // Check vendor acceptance status
+    const canPay = booking.vendor_status === 'accepted' && !booking.payment;
+
+    res.json({
+      canPay,
+      vendor_status: booking.vendor_status,
+      status: booking.status,
+      hasPayment: !!booking.payment,
+      booking
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 
 // @desc    Update/Cancel booking
 // @route   PUT /service_api/user/:userId/bookings/update/:id
@@ -220,6 +288,16 @@ export const updateBooking = async (req, res) => {
             "Booking Cancelled",
              `Booking for ${updatedBooking.service.name} was cancelled by the user.`
         );
+
+        // Socket notify vendor
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_cancelled", {
+                bookingId: updatedBooking.id,
+                service: updatedBooking.service.name,
+                message: "This booking was cancelled by the user."
+            });
+        }
     }
 
     res.json(updatedBooking);
@@ -228,3 +306,5 @@ export const updateBooking = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+

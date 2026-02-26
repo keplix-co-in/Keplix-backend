@@ -1,8 +1,6 @@
+import 'dotenv/config';
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-dotenv.config(); // Move this to the very top, immediately after import
-
 import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -18,6 +16,7 @@ import loggerMiddleware from "./middleware/loggerMiddleware.js";
 import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
+import prisma from "./util/prisma.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -52,6 +51,39 @@ import feedbackRoutes from "./routes/user/feedback.js";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Check required environment variables
+console.log('Checking environment variables...');
+const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'CLOUDINARY_URL'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars.join(', '));
+  console.error('Please set these environment variables in Cloud Run');
+  // Don't exit in production, let the app start with warnings
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('Starting with missing environment variables - some features may not work');
+  }
+} else {
+  console.log('All required environment variables are set');
+}
+
+httpServer.on('connection', (socket) => {
+    // console.log(`New TCP connection from ${socket.remoteAddress}`);
+});
+
+httpServer.on('request', (req, res) => {
+    if (req.method !== 'GET') {
+       console.log(`[HTTP-RAW] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+    }
+});
+
+// --- RAW REQUEST LOGGER (BEFORE BODY PARSERS) ---
+app.use((req, res, next) => {
+    console.log(`[RAW-DEBUG] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,6 +108,10 @@ export const authLimiter = rateLimit({
   message: { message: "Too many authentication attempts, please try again in a few minutes." },
   skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
 });
+
+// Parsing & Sanitization
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // --- MIDDLEWARE ---
 app.use(loggerMiddleware);
@@ -121,14 +157,32 @@ app.use(cors({
   credentials: true
 }));
 
-// Parsing & Sanitization
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 app.use(sanitizeInput);
 app.use("/media", express.static(path.join(__dirname, "media")));
 
+// Health Check Endpoint (before rate limiter)
+app.get('/health', async (req, res) => {
+  try {
+    // Basic health check - just check if server is running
+    res.status(200).json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      database: !!prisma ? 'configured' : 'not configured'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Apply Global Rate Limiter
-app.use(limiter);
+// app.use(limiter);
 
 // --- HEALTH CHECK ---
 app.get("/", (req, res) => res.json({ message: "Keplix Backend (Node.js) is running!", status: "running" }));
@@ -182,12 +236,16 @@ app.use(notFound);
 app.use(errorHandler);
 
 // --- SERVER START ---
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8080;
+console.log(`Starting server on port ${PORT}...`);
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
+
 httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
   Logger.info(`🚀  Keplix Backend Running`);
-  Logger.info(`🌍  URL: http://localhost:${PORT}`);
-  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV }`);
+  Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
+  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
   Logger.info(`=================================`);
 });
 
@@ -201,3 +259,11 @@ const gracefulShutdown = () => {
 };
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  Logger.error('Uncaught Exception:', error);
+});

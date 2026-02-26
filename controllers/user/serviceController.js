@@ -1,13 +1,13 @@
-import { PrismaClient } from "@prisma/client";
+﻿import prisma from "../../util/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 // @desc    Get All Services (Public)
 // @route   GET /service_api/user/services
 export const getAllServices = async (req, res) => {
   try {
     //query params
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 10, search, latitude, longitude, radius = 50, online_only } = req.query;
 
     const skip = (page - 1) * limit;
 
@@ -21,6 +21,17 @@ export const getAllServices = async (req, res) => {
       ];
     }
 
+    // Filter by online vendors if requested
+    if (online_only === 'true') {
+      const onlineVendors = await prisma.vendorProfile.findMany({
+        where: { is_online: true },
+        select: { userId: true }
+      });
+      const vendorIds = onlineVendors.map(v => v.userId);
+      where.vendorId = { in: vendorIds };
+    }
+
+    // Get all services with vendor profile info
     const services = await prisma.service.findMany({
       where,
       skip: Number(skip),
@@ -32,20 +43,68 @@ export const getAllServices = async (req, res) => {
     //Count query
     const total = await prisma.service.count({ where });
 
-    // Enrich data for frontend parity
-    const enrichedServices = services.map((service) => ({
-      ...service,
-      image_url: service.image_url
-        ? `${req.protocol}://${req.get("host")}${service.image_url}`
-        : null,
-      image: service.image_url
-        ? `${req.protocol}://${req.get("host")}${service.image_url}`
-        : null,
-      vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
-      vendor_image: service.vendor?.vendorProfile?.image || null,
-    }));
+    // Enrich data for frontend parity and calculate distances if location provided
+    const enrichedServices = services.map((service) => {
+      let distance = null;
+      let distanceText = null;
 
-    res.json(enrichedServices);
+      // Calculate distance if user location and vendor location are available
+      if (latitude && longitude && service.vendor?.vendorProfile?.latitude && service.vendor?.vendorProfile?.longitude) {
+        const lat1 = parseFloat(latitude);
+        const lon1 = parseFloat(longitude);
+        const lat2 = parseFloat(service.vendor.vendorProfile.latitude);
+        const lon2 = parseFloat(service.vendor.vendorProfile.longitude);
+
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * (Math.PI / 180)) *
+            Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // Format distance text
+        if (distance < 1) {
+          distanceText = `${Math.round(distance * 1000)}m away`;
+        } else {
+          distanceText = `${distance.toFixed(1)}km away`;
+        }
+      }
+
+      return {
+        ...service,
+        image_url: service.image_url
+          ? service.image_url.startsWith("http") 
+            ? service.image_url 
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
+          : null,
+        image: service.image_url
+          ? service.image_url.startsWith("http") 
+            ? service.image_url 
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
+          : null,
+        vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
+        vendor_image: service.vendor?.vendorProfile?.image || null,
+        distance: distance,
+        distanceText: distanceText,
+        vendor_address: service.vendor?.vendorProfile?.address || null,
+        vendor_city: service.vendor?.vendorProfile?.city || null,
+      };
+    });
+
+    // Filter by radius if location provided and sort by distance
+    let filteredServices = enrichedServices;
+    if (latitude && longitude) {
+      filteredServices = enrichedServices
+        .filter(service => service.distance !== null && service.distance <= parseFloat(radius))
+        .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+    }
+
+    res.json(filteredServices);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -65,10 +124,15 @@ export const getServiceById = async (req, res) => {
       const enrichedService = {
         ...service,
         image_url: service.image_url
-          ? `${req.protocol}://${req.get("host")}${service.image_url}`
+          ? service.image_url.startsWith("http")
+            ? service.image_url
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
           : null,
+
         image: service.image_url
-          ? `${req.protocol}://${req.get("host")}${service.image_url}`
+          ? service.image_url.startsWith("http")
+            ? service.image_url
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
           : null,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
@@ -98,6 +162,49 @@ export const getServiceCategories = async (req, res) => {
   }
 };
 
+// @desc    Get Featured Services (for user homepage)
+// @route   GET /service_api/user/services/featured
+export const getFeaturedServices = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    // Get online vendor IDs first
+    const onlineVendors = await prisma.vendorProfile.findMany({
+      where: { is_online: true },
+      select: { userId: true }
+    });
+    const onlineVendorIds = onlineVendors.map(v => v.userId);
+
+    const services = await prisma.service.findMany({
+      where: {
+        is_active: true,
+        is_featured: true,
+        vendorId: { in: onlineVendorIds } // Only show featured services from online vendors
+      },
+      take: Number(limit),
+      include: { vendor: { include: { vendorProfile: true } } },
+      orderBy: { id: "desc" },
+    });
+
+    const enrichedServices = services.map((service) => ({
+      ...service,
+      image_url: service.image_url
+        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        : null,
+      image: service.image_url
+        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        : null,
+      vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
+      vendor_image: service.vendor?.vendorProfile?.image || null,
+    }));
+
+    res.json(enrichedServices);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 // @desc    Search Vendors by Location (Haversine)
 // @route   GET /service_api/search/vendors/location/
 export const searchVendorsByLocation = async (req, res) => {
@@ -113,6 +220,7 @@ export const searchVendorsByLocation = async (req, res) => {
     const vendors = await prisma.vendorProfile.findMany({
       where: {
         status: "approved",
+        is_online: true, // Only show online vendors
         latitude: { not: null },
         longitude: { not: null },
       },
@@ -169,34 +277,39 @@ export const searchVendorsByLocation = async (req, res) => {
 export const getServicesByVendor = async (req, res) => {
   try {
     const { vendorId } = req.params;
-    
+
     // Check if vendor exists first? Optional but good.
     // The link is via vendorId (Int) -> Service.vendorId (Int)
     // Note: In schema, Service.vendorId refers to userId of the vendor.
     // Ensure the frontend passes the correct ID (User ID of the vendor).
-    
+
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
-       include: { vendor: { include: { vendorProfile: true } } },
-       orderBy: { id: "desc" },
+      include: { vendor: { include: { vendorProfile: true } } },
+      orderBy: { id: "desc" },
     });
 
     const enrichedServices = services.map((service) => ({
       ...service,
       image_url: service.image_url
-        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        ? service.image_url.startsWith("http")
+          ? service.image_url
+          : `${req.protocol}://${req.get("host")}${service.image_url}`
         : null,
       image: service.image_url
-        ? `${req.protocol}://${req.get("host")}${service.image_url}`
+        ? service.image_url.startsWith("http")
+          ? service.image_url
+          : `${req.protocol}://${req.get("host")}${service.image_url}`
         : null,
       vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
       vendor_image: service.vendor?.vendorProfile?.image || null,
     }));
 
     res.json(enrichedServices);
-
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
