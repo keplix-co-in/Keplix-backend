@@ -53,6 +53,11 @@ import { protect } from "./middleware/authMiddleware.js";
 // Admin Routes
 import authAdminRoutes from './routes/admin/authAdmin.js';
 import dashBoardRoutes from './routes/admin/dashBoard.js';
+import adminBookingRoutes from './routes/admin/bookings.js';
+import adminUserRoutes from './routes/admin/user.js';
+import adminVendorRoutes from './routes/admin/vendor.js';
+
+
 
 // --- CONFIGURATION ---
 
@@ -240,6 +245,9 @@ app.use("/interactions/api", reviewRoutes);
 // 6. Admin
 app.use("/admin/auth", authAdminRoutes);
 app.use("/admin", dashBoardRoutes);
+app.use("/admin", adminBookingRoutes);
+app.use("/admin", adminUserRoutes);
+app.use("/admin", adminVendorRoutes);
 
 
 // --- ERROR HANDLING ---
