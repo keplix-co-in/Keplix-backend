@@ -300,6 +300,30 @@ export const updateBooking = async (req, res) => {
         }
     }
 
+    // Emit booking_updated event for both user and vendor when booking is modified
+    const io = req.app.get("io");
+    if (io) {
+        console.log(`[SOCKET] Emitting booking_updated for booking ${updatedBooking.id}, action: ${status === "cancelled" ? "cancelled" : "updated"}`);
+
+        // Notify the user who made the change
+        io.to(`user_${req.user.id}`).emit("booking_updated", {
+            bookingId: updatedBooking.id,
+            action: status === "cancelled" ? "cancelled" : "updated",
+            message: status === "cancelled" ? "Your booking was cancelled" : "Your booking was updated"
+        });
+
+        // Notify the vendor if it's not a cancellation (vendors get specific cancellation events)
+        if (status !== "cancelled") {
+            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_updated", {
+                bookingId: updatedBooking.id,
+                action: "rescheduled",
+                message: `Booking for ${updatedBooking.service.name} was rescheduled by the user`
+            });
+        }
+    } else {
+        console.log(`[SOCKET] Socket.io not available for booking ${updatedBooking.id} update`);
+    }
+
     res.json(updatedBooking);
   } catch (error) {
     console.error(error);
