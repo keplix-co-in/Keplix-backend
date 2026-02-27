@@ -17,6 +17,7 @@ import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
+import bookingStatusManager from "./util/bookingStatusManager.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -248,11 +249,18 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
   Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
   Logger.info(`=================================`);
+
+  // Start booking status manager for automatic time-based transitions
+  bookingStatusManager.start();
 });
 
 // --- GRACEFUL SHUTDOWN ---
 const gracefulShutdown = () => {
   Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
+
+  // Stop booking status manager
+  bookingStatusManager.stop();
+
   httpServer.close(() => {
     Logger.info('HTTP server closed.');
     process.exit(0);

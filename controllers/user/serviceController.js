@@ -89,6 +89,7 @@ export const getAllServices = async (req, res) => {
           : null,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
+        cover_image: service.vendor?.vendorProfile?.cover_image || null,
         distance: distance,
         distanceText: distanceText,
         vendor_address: service.vendor?.vendorProfile?.address || null,
@@ -196,6 +197,7 @@ export const getFeaturedServices = async (req, res) => {
         : null,
       vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
       vendor_image: service.vendor?.vendorProfile?.image || null,
+      cover_image: service.vendor?.vendorProfile?.cover_image || null,
     }));
 
     res.json(enrichedServices);
@@ -303,6 +305,8 @@ export const getServicesByVendor = async (req, res) => {
         : null,
       vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
       vendor_image: service.vendor?.vendorProfile?.image || null,
+      vendor_cover_image: service.vendor?.vendorProfile?.cover_image || null,
+      cover_image: service.vendor?.vendorProfile?.cover_image || null,
     }));
 
     res.json(enrichedServices);
@@ -311,5 +315,7 @@ export const getServicesByVendor = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
 
 
