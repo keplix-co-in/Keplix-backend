@@ -330,8 +330,27 @@ export const createVendorProfile = async (req, res) => {
     }
 };
 
-export const updateOnlineStatus = async (req,res) =>{
-    //empty
+// @desc    Update vendor online status
+// @route   PATCH /accounts/vendor/profile/online-status
+// @access  Private (Vendor)
+export const updateOnlineStatus = async (req, res) => {
+    try {
+        const { is_online } = req.body;
+
+        if (typeof is_online !== 'boolean') {
+            return res.status(400).json({ message: 'is_online must be a boolean' });
+        }
+
+        const updatedProfile = await prisma.vendorProfile.update({
+            where: { userId: req.user.id },
+            data: { is_online }
+        });
+
+        res.json({ message: 'Online status updated', is_online: updatedProfile.is_online });
+    } catch (error) {
+        console.error("Update Online Status Error:", error);
+        res.status(500).json({ message: 'Server Error' });
+    }
 };
 
 
