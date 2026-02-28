@@ -132,7 +132,6 @@ export const getSingleBooking = async (req, res) => {
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
-    console.log("Creating booking request for user:", req.user.id);
 
     try {
         // Create booking with vendor_status = 'pending' (waiting for vendor acceptance)
@@ -161,8 +160,6 @@ export const createBooking = async (req, res) => {
 
         // Notify Vendor about new request
         if (booking.service && booking.service.vendorId) {
-            console.log(`ðŸ“¨ [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
-            
             try {
                 await createNotification(
                     booking.service.vendorId, 
@@ -170,9 +167,8 @@ export const createBooking = async (req, res) => {
                     `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
                     { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
                 );
-                console.log(`âœ… [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
             } catch (notifError) {
-                console.error(`âŒ [BOOKING] Failed to send notification:`, notifError);
+                console.error(`[BOOKING] Failed to send notification:`, notifError);
             }
             
             // Get socket instance and notify vendor in real-time
@@ -303,7 +299,6 @@ export const updateBooking = async (req, res) => {
     // Emit booking_updated event for both user and vendor when booking is modified
     const io = req.app.get("io");
     if (io) {
-        console.log(`[SOCKET] Emitting booking_updated for booking ${updatedBooking.id}, action: ${status === "cancelled" ? "cancelled" : "updated"}`);
 
         // Notify the user who made the change
         io.to(`user_${req.user.id}`).emit("booking_updated", {
@@ -321,7 +316,7 @@ export const updateBooking = async (req, res) => {
             });
         }
     } else {
-        console.log(`[SOCKET] Socket.io not available for booking ${updatedBooking.id} update`);
+      // socket.io not available
     }
 
     res.json(updatedBooking);

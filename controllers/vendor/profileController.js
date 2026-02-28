@@ -163,32 +163,18 @@ export const updateVendorProfile = async (req, res) => {
 
     // Handle Image uploads
     if (req.files) {
-        console.log('[VendorProfile] Files Object Keys:', Object.keys(req.files));
-        
-        // Handle 'image' -> Owner Selfie
         const imageFiles = req.files.image || req.files['image'];
         if (imageFiles && imageFiles.length > 0) {
-            updates.image = imageFiles[0].path; 
-            console.log('-> SET: Owner Image URL:', updates.image);
+            updates.image = imageFiles[0].path;
         }
 
-        // Handle 'cover_image' -> Workshop Photo
         const coverFiles = req.files.cover_image || req.files['cover_image'];
         if (coverFiles && coverFiles.length > 0) {
             updates.cover_image = coverFiles[0].path;
-            console.log('-> SET: Workshop Image URL:', updates.cover_image);
-        } else {
-             console.log('-> SKIP: No cover_image file found in req.files');
         }
     } else if (req.file) {
-        // Fallback for single file upload
         updates.image = req.file.path;
-        console.log('-> SET: Fallback single file to image');
     }
-
-    console.log('[VendorProfile] Final Updates Object:', JSON.stringify(updates, null, 2));
-
-    console.log('[VendorProfile] Update Request:', { userId: req.user.id, updates });
 
     try {
         const vendorProfile = await prisma.vendorProfile.update({
@@ -209,7 +195,6 @@ export const updateVendorProfile = async (req, res) => {
             updates.upi_id !== undefined) {
             try {
                 await updateVendorPayoutAccount(req.user.id, vendorProfile);
-                console.log('[VendorProfile] Payout account updated for vendor:', req.user.id);
             } catch (payoutError) {
                 console.error('[VendorProfile] Failed to setup payout account:', payoutError);
                 // Don't fail the profile update if payout setup fails
@@ -316,7 +301,6 @@ export const createVendorProfile = async (req, res) => {
         if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
             try {
                 await setupVendorPayoutAccount(req.user.id, vendorProfile);
-                console.log('[VendorProfile] Payout account created for vendor:', req.user.id);
             } catch (payoutError) {
                 console.error('[VendorProfile] Failed to setup payout account:', payoutError);
                 // Don't fail the profile creation if payout setup fails
