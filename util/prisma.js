@@ -2,6 +2,7 @@ import pkg from '@prisma/client'
 const { PrismaClient } = pkg
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
+import Logger from './logger.js'
 
 let prisma = null
 
@@ -11,7 +12,7 @@ function getPrismaClient() {
   // Read lazily so dotenv has time to populate process.env
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
-    console.error('DATABASE_URL is not set. Prisma cannot be initialized.')
+    Logger.error('DATABASE_URL is not set. Prisma cannot be initialized.')
     return null
   }
 
@@ -22,9 +23,9 @@ function getPrismaClient() {
       adapter,
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
     })
-    console.log('Prisma client initialized successfully')
+    Logger.info('Prisma client initialized successfully')
   } catch (error) {
-    console.error('Failed to initialize Prisma client:', error.message)
+    Logger.error('Failed to initialize Prisma client:', error.message)
   }
   return prisma
 }
