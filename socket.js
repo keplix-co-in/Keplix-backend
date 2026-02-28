@@ -1,6 +1,7 @@
 // socket.js
 import { Server } from "socket.io";
-import { allowedOrigins } from "./util/cors.js"; // Ensure this import matches your cors file
+import { allowedOrigins } from "./util/cors.js";
+import Logger from "./util/logger.js";
 
 let io;
 
@@ -15,17 +16,15 @@ export const initSocket = (httpServer) => {
   });
 
   io.on("connection", (socket) => {
-    console.log("✅ New client connected:", socket.id);
+    Logger.debug(`[Socket] Client connected: ${socket.id}`);
 
     socket.on("join_room", (conversationId) => {
-       // Ideally, sanitize or validate room IDs here
        socket.join(conversationId);
-       console.log(`👥 Socket ${socket.id} joined room: ${conversationId}`);
-       console.log(`📊 Room ${conversationId} now has ${io.sockets.adapter.rooms.get(conversationId)?.size || 0} members`);
+       Logger.debug(`[Socket] ${socket.id} joined room: ${conversationId}`);
     });
 
     socket.on("disconnect", () => {
-      console.log("❌ Client disconnected:", socket.id);
+      Logger.debug(`[Socket] Client disconnected: ${socket.id}`);
     });
   });
 

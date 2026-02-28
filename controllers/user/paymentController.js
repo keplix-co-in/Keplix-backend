@@ -212,8 +212,6 @@ export const createPaymentOrder = async (req, res) => {
       gateway: 'razorpay'
     };
 
-    console.log('âœ… [Razorpay] Order created:', responseData);
-
     return res.json(responseData);
   } catch (error) {
     console.error("Create payment order error:", error);
