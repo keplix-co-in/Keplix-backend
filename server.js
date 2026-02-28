@@ -77,7 +77,7 @@ app.set("io", io);
 // --- RATE LIMITERS ---
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 300, 
+  max: 1000, 
   standardHeaders: true, 
   legacyHeaders: false,
   message: { message: "Too many requests, please try again later." }
@@ -124,18 +124,8 @@ app.use(
   })
 );
 
-// CORS Configuration
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // Allow server-to-server / mobile
-    if (process.env.NODE_ENV === 'production' && allowedOrigins.indexOf(origin) === -1) {
-      Logger.warn(`Blocked by CORS: ${origin}`);
-      return callback(new Error('Not allowed by CORS'));
-    }
-    return callback(null, true);
-  },
-  credentials: true
-}));
+// CORS Configuration — uses corsOptions from util/cors.js
+app.use(cors(corsOptions));
 
 
 app.use(sanitizeInput);
