@@ -267,7 +267,7 @@ export const getVendorEarnings = async (req, res) => {
     res.json({
       today_earnings,
       total_earnings,
-      growth_percentage: 12.5, // Dummy growth for now
+      growth_percentage: 0,
     });
   } catch (error) {
     console.error("Vendor earnings error:", error);
