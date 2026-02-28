@@ -96,8 +96,6 @@ export const confirmServiceCompletion = async (req, res) => {
 
       // Initiate payout to vendor
       try {
-        console.log(`ðŸ”„ [ESCROW] User confirmed booking ${bookingId}. Initiating payout...`);
-        
         const payoutResult = await initiateVendorPayout(payment, booking.service.vendorId);
         
         if (payoutResult.success) {
@@ -109,9 +107,6 @@ export const confirmServiceCompletion = async (req, res) => {
               vendorPayoutId: payoutResult.payoutId
             }
           });
-
-          console.log(`âœ… [ESCROW] Payout successful! PayoutID: ${payoutResult.payoutId}`);
-          console.log(`ðŸ’° [ESCROW] Amount: â‚¹${payment.vendorAmount} sent to vendor ${booking.service.vendorId}`);
 
           // Notify vendor of payment
           await createNotification(
@@ -244,10 +239,6 @@ export const disputeServiceCompletion = async (req, res) => {
         { bookingId: bookingId.toString(), type: "dispute" }
       );
     }
-
-    console.log(`âš ï¸  [DISPUTE] Booking ${bookingId} disputed by user ${userId}`);
-    console.log(`ðŸ“ [DISPUTE] Reason: ${reason}`);
-    console.log(`ðŸ”’ [DISPUTE] Payout blocked. Admin review required.`);
 
     return res.json({
       success: true,
