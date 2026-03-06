@@ -72,13 +72,6 @@ class BookingStatusManager {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
-          // Only process bookings with valid dates
-          booking_date: {
-            not: null
-          },
-          booking_time: {
-            not: null
-          }
         },
         include: {
           user: true,
@@ -147,13 +140,6 @@ class BookingStatusManager {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
-          // Only process bookings with valid dates
-          booking_date: {
-            not: null
-          },
-          booking_time: {
-            not: null
-          }
         },
         include: {
           user: true,
@@ -213,7 +199,7 @@ class BookingStatusManager {
         where: { id: booking.id },
         data: {
           status: 'in_progress',
-          updated_at: new Date()
+          updatedAt: new Date()
         }
       });
 
@@ -254,7 +240,7 @@ class BookingStatusManager {
         data: {
           status: 'cancelled',
           notes: (booking.notes || '') + ' [Auto-cancelled: Scheduled time passed without service start]',
-          updated_at: new Date()
+          updatedAt: new Date()
         }
       });
 
