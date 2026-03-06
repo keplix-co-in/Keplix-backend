@@ -8,6 +8,7 @@ import { resend } from "../util/resend.js";
 import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
+import { sendEmail, sendSMS } from "../util/communication.js";
 
 const require = createRequire(import.meta.url);
 
@@ -23,11 +24,20 @@ if (!JWT_SECRET) {
   }
 }
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, JWT_SECRET, {
+const generateAccessToken = (id) => {
+  return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
+    expiresIn: "1d",
+  });
+};
+
+const generateRefreshToken = (id) => {
+  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
     expiresIn: "30d",
   });
 };
+
+// Alias for backward-compat usage (e.g. token refresh endpoint)
+const generateToken = generateAccessToken;
 
 const verifyDjangoPassword = (password, hash) => {
   try {
@@ -177,8 +187,8 @@ export const authUser = async (req, res) => {
 
         return res.json({
           user: userData,
-          access: generateToken(user.id),
-          refresh: generateToken(user.id),
+          access: generateAccessToken(user.id),
+          refresh: generateRefreshToken(user.id),
         });
       }
     }
@@ -277,8 +287,6 @@ export const logoutUser = async (req, res) => {
   }
 };
 
-import { sendEmail, sendSMS } from "../util/communication.js";
-
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
   try {
@@ -301,12 +309,12 @@ export const forgotPassword = async (req, res) => {
       .update(resetToken)
       .digest("hex");
 
-    // save token for expiry ( 1 minute for now )
+    // save token for expiry ( 15 minutes )
     await prisma.user.update({
       where: { email },
       data: {
         resetPasswordToken: hashedToken,
-        resetPasswordExpires: new Date(Date.now() + 1 * 60 * 1000),
+        resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000),
       },
     });
 
@@ -597,8 +605,8 @@ export const verifyEmailOTP = async (req, res) => {
     return res.json({
       success: true,
       message: "Email OTP verified successfully",
-      access: generateToken(user.id),
-      refresh: generateToken(user.id),
+      access: generateAccessToken(user.id),
+      refresh: generateRefreshToken(user.id),
       user: {
         id: user.id,
         email: user.email,
@@ -703,8 +711,8 @@ export const googleLogin = async (req, res) => {
     }
 
     res.json({
-      access: generateToken(user.id),
-      refresh: generateToken(user.id),
+      access: generateAccessToken(user.id),
+      refresh: generateRefreshToken(user.id),
       user: userData,
     });
   } catch (error) {
