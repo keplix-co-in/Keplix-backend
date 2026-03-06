@@ -33,7 +33,7 @@ export const getPaymentByBooking = async (req, res) => {
 export const getUserBookings = async (req, res) => {
   try {
     // query params
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 200, search } = req.query;
     const skip = (page - 1) * limit;
 
     let where = { userId: req.user.id };
