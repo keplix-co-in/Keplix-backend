@@ -40,13 +40,13 @@ jobs:
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push $REGISTRY/$PROJECT_ID/keplix/$SERVICE_NAME:$GITHUB_SHA
-          docker push $REGISTRY/$PROJECT_ID/keplix/$SERVICE_NAME:latest
+          docker push $REGISTRY/$PROJECT_ID/keplix-backend/$SERVICE_NAME:$GITHUB_SHA
+          docker push $REGISTRY/$PROJECT_ID/keplix-backend/$SERVICE_NAME:latest
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image $REGISTRY/$PROJECT_ID/keplix/$SERVICE_NAME:$GITHUB_SHA \
+            --image $REGISTRY/$PROJECT_ID/keplix-backend/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
             --project $PROJECT_ID \
