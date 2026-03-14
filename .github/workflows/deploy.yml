@@ -35,8 +35,8 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
-            -t $REGISTRY/$PROJECT_ID/keplix/$SERVICE_NAME:$GITHUB_SHA \
-            -t $REGISTRY/$PROJECT_ID/keplix/$SERVICE_NAME:latest .
+            -t $REGISTRY/$PROJECT_ID/keplix-backend/$SERVICE_NAME:$GITHUB_SHA \
+            -t $REGISTRY/$PROJECT_ID/keplix-backend/$SERVICE_NAME:latest .
 
       - name: Push Docker image to Artifact Registry
         run: |
