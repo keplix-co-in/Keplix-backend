@@ -880,6 +880,6 @@ export const updatePushToken = async (req, res) => {
   }
 };
 // ======================
-// keplix-backend/server.js
+// keplix-backend/authController.js
 // ======================
 
