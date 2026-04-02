@@ -23,8 +23,8 @@ class BookingStatusManager {
 
     Logger.info('Starting Booking Status Manager...');
 
-    // Run every 5 minutes to check for status updates
-    cron.schedule('*/5 * * * *', async () => {
+    // Run every minute to check for status updates including 5-min pending timeouts
+    cron.schedule('*/1 * * * *', async () => {
       try {
         await this.processBookingStatusUpdates();
       } catch (error) {
@@ -49,6 +49,9 @@ class BookingStatusManager {
     Logger.info(`Processing booking status updates at ${now.toISOString()}`);
 
     try {
+      // 0. Handle bookings pending vendor approval for > 5 mins
+      await this.handlePendingBookingsTimeout(now);
+
       // 1. Move confirmed/scheduled bookings to in_progress when time arrives
       await this.activateBookingsAtScheduledTime(now);
 
@@ -186,6 +189,86 @@ class BookingStatusManager {
 
     } catch (error) {
       Logger.error('Error handling expired bookings:', error);
+    }
+  }
+
+  /**
+   * Handle bookings pending vendor approval for more than 5 minutes
+   */
+  async handlePendingBookingsTimeout(now) {
+    try {
+      // Find bookings pending vendor approval
+      const pendingBookings = await prisma.booking.findMany({
+        where: {
+          vendor_status: 'pending',
+          status: 'pending'
+        },
+        include: {
+          user: true,
+          service: {
+            include: {
+              vendor: {
+                include: {
+                  vendorProfile: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      let declinedCount = 0;
+
+      for (const booking of pendingBookings) {
+        try {
+          const createdAt = new Date(booking.createdAt);
+          const timeDiff = now.getTime() - createdAt.getTime();
+          const minutesDiff = timeDiff / (1000 * 60);
+
+          // If booking has been pending for more than 5 minutes
+          if (minutesDiff >= 5) {
+            await prisma.booking.update({
+              where: { id: booking.id },
+              data: {
+                vendor_status: 'rejected',
+                status: 'cancelled',
+                updatedAt: new Date(),
+                notes: (booking.notes || '') + '\n[Auto-declined: Vendor did not accept within 5 minutes]'
+              }
+            });
+
+            // Notify user
+            await createNotification({
+              userId: booking.userId,
+              title: 'Booking Request Declined',
+              message: `Your booking request for ${booking.service.name} was not accepted in time and has been automatically declined.`,
+              type: 'booking_update',
+              data: { bookingId: booking.id }
+            });
+
+            // Notify vendor
+            await createNotification({
+              userId: booking.service.vendorId,
+              title: 'Booking Request Expired',
+              message: `You missed a booking request for ${booking.service.name} from ${booking.user.name || 'a customer'}. It has been automatically declined.`,
+              type: 'booking_update',
+              data: { bookingId: booking.id }
+            });
+
+            declinedCount++;
+            Logger.info(`Auto-declined booking ${booking.id} after 5 minutes of inactivity`);
+          }
+        } catch (error) {
+          Logger.error(`Error processing pending timeout for booking ${booking.id}:`, error);
+        }
+      }
+
+      if (declinedCount > 0) {
+        Logger.info(`Auto-declined ${declinedCount} bookings due to vendor inactivity`);
+      }
+
+    } catch (error) {
+      Logger.error('Error handling pending bookings timeout:', error);
     }
   }
 
