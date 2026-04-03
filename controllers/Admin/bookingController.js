@@ -1,141 +1,163 @@
 import prisma from "../../util/prisma.js";
 
-export const getBookingCounts = async (req, res) => {
+export const getBookingMetrics = async (req, res) => {
   try {
-    const last30Days = new Date();
-    last30Days.setDate(last30Days.getDate() - 30);
 
     const [
-      totalBookings,
+      allBookings,
       completedBookings,
-      inprogressBookings,
+      inProgressBookings,
+      confirmedBookings,
       cancelledBookings,
-      recentBookings,
+      requestedBookings
     ] = await Promise.all([
-      // total bookings
+
       prisma.booking.count(),
 
-      // completed bookings
       prisma.booking.count({
         where: {
-          status: "service_completed",
-        },
+          status: {
+            in: ["service_completed", "user_confirmed"]
+          }
+        }
       }),
 
-      // in progress bookings
       prisma.booking.count({
-        where: {
-          status: "in-progress",
-        },
+        where: { status: "in_progress" }
       }),
 
-      // cancelled bookings
       prisma.booking.count({
-        where: {
-          status: "cancelled",
-        },
+        where: { status: "confirmed" }
       }),
 
-      // recent last 30 bookings
       prisma.booking.count({
-        where: {
-          createdAt: {
-            gte: last30Days,
-          },
-        },
+        where: { status: "cancelled" }
       }),
+
+      prisma.booking.count({
+        where: { status: "pending" }
+      })
+
     ]);
 
     res.json({
-      totalBookings,
+      allBookings,
       completedBookings,
-      inprogressBookings,
+      inProgressBookings,
+      confirmedBookings,
       cancelledBookings,
-      recentBookings,
+      requestedBookings
     });
+
   } catch (error) {
     console.error(error);
-    res.status(500).json({ messages: "Failed to fetch booking data" });
+    res.status(500).json({ message: "Metrics fetch failed" });
   }
 };
 
-export const getCardsBookingsData = async (req, res) => {
+export const getBookings = async (req, res) => {
   try {
-    const { type } = req.query;
 
-    const last30Days = new Date();
-    last30Days.setDate(last30Days.getDate() - 30);
+    const { type = "all", page = 1, limit = 10 } = req.query;
+
+    const skip = (page - 1) * limit;
 
     let filter = {};
 
-    if (type === "total") {
-      filter.status = {
-        in: [
-          "service_completed",
-          "confirmed",
-          "in-progress",
-          "cancelled",
-          "last30Days",
-          "pending",
-          "refunded",
-          "user_confirmed"
-        ],
-      };
-    }
-
+    // 🔥 FILTER LOGIC
     if (type === "completed") {
       filter.status = {
-        in: ["service_completed"]
+        in: ["service_completed", "user_confirmed"]
       };
     }
 
-    if (type === "inprogress") {
-      filter.status = {
-        in: ["in-progress"]
-      };
+    else if (type === "inprogress") {
+      filter.status = "in_progress";
     }
 
-    if (type === "cancelled") {
-      filter.status = {
-        in: ["cancelled"]
-      };
+    else if (type === "confirmed") {
+      filter.status = "confirmed";
     }
 
-    if (type === "last30Days") {
-      filter.createdAt = {
-        gte:last30Days,
-      };
-    };
+    else if (type === "cancelled") {
+      filter.status = "cancelled";
+    }
 
+    else if (type === "requested") {
+      filter.status = "pending";
+    }
 
-
+    // 🚀 QUERY
     const bookings = await prisma.booking.findMany({
       where: filter,
-      include:{
-        user:{
-          select:{
-            id: true,
-            email: true
+
+      select: {
+        id: true,
+        status: true,
+        booking_date: true,
+        booking_time: true,
+        createdAt: true,
+
+        user: {
+          select: {
+            userProfile: {
+              select: {
+                name: true,
+                phone: true
+              }
+            }
           }
         },
 
-        service:{
-          select:{
-            id: true,
-            price: true
+        service: {
+          select: {
+            name: true,
+            vendor: {
+              select: {
+                vendorProfile: {
+                  select: {
+                    business_name: true
+                  }
+                }
+              }
+            }
+          }
+        },
+
+        payment: {
+          select: {
+            amount: true,
+            platformFee: true
           }
         }
       },
-      orderBy:{
+
+      orderBy: {
         createdAt: "desc"
-      }
+      },
+
+      skip: Number(skip),
+      take: Number(limit)
     });
 
-    res.json(bookings);
+    // 🎯 RESPONSE FORMAT
+    const formatted = bookings.map(b => ({
+      id: b.id,
+      customer: b.user?.userProfile?.name || "N/A",
+      phone: b.user?.userProfile?.phone || "N/A",
+      vendor: b.service?.vendor?.vendorProfile?.business_name || "N/A",
+      service: b.service?.name,
+      slot: `${b.booking_date} ${b.booking_time}`,
+      amount: b.payment?.amount || 0,
+      fee: b.payment?.platformFee || 0,
+      status: b.status,
+      createdAt: b.createdAt
+    }));
+
+    res.json(formatted);
+
   } catch (error) {
     console.error(error);
-    res.status(500).json({
-      message: "Failed to fetch booking data",
-    })
+    res.status(500).json({ message: "Bookings fetch failed" });
   }
 };
