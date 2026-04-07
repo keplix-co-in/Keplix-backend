@@ -1,5 +1,5 @@
 import express from 'express';
-import { getBookingMetrics, getBookings } from '../../controllers/admin/bookingController.js';
+import { getBookingMetrics, getBookings } from '../../controllers/Admin/bookingController.js';
 import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
