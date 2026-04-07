@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Logger from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,7 @@ try {
                 credential: admin.credential.cert(serviceAccount)
             });
             messaging = admin.messaging();
-            console.log("✅ Firebase Admin Initialized (from env variable)");
+            Logger.info('Firebase Admin Initialized (from env variable)');
         }
     } 
     // Fallback to local file
@@ -33,14 +34,14 @@ try {
                 credential: admin.credential.cert(serviceAccount)
             });
             messaging = admin.messaging();
-            console.log("✅ Firebase Admin Initialized (from local file)");
+            Logger.info('Firebase Admin Initialized (from local file)');
         }
     } else {
-        console.warn("⚠️  Firebase not configured - Push notifications disabled");
+        Logger.warn('Firebase not configured - Push notifications disabled');
     }
 } catch (error) {
-    console.error("❌ Firebase Initialization Failed:", error.message);
-    console.warn("⚠️  Continuing without Firebase - Push notifications disabled");
+    Logger.error('Firebase Initialization Failed:', error.message);
+    Logger.warn('Continuing without Firebase - Push notifications disabled');
 }
 
 // Export safe messaging object

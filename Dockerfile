@@ -10,14 +10,17 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm install --omit=dev --legacy-peer-deps
+# Install all dependencies (including dev for prisma CLI)
+RUN npm install --legacy-peer-deps
 
 # Copy prisma schema
 COPY prisma ./prisma/
 
-# Generate Prisma Client using the installed version from node_modules
+# Generate Prisma Client
 RUN npx prisma generate
+
+# Prune dev dependencies for production image optimization (optional but recommended)
+# RUN npm prune --production
 
 # Copy application code
 COPY . .

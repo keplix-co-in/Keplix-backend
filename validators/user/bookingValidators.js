@@ -8,10 +8,10 @@ export const createBookingSchema = z.object({
 });
 
 export const updateBookingSchema = z.object({
-  booking_date: z.string().datetime({ message: "Invalid date format" }).optional(),
+  booking_date: z.string().optional(), // Allow flexible date formats
   booking_time: z.string().optional(),
   notes: z.string().optional(),
-  status: z.enum(['pending', 'cancelled']).optional(), 
+  status: z.enum(['pending', 'confirmed', 'scheduled', 'in_progress', 'service_completed', 'completed', 'cancelled', 'disputed', 'refunded']).optional(),
 });
 
 export const confirmServiceSchema = z.object({

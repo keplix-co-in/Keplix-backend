@@ -33,7 +33,7 @@ export const getPaymentByBooking = async (req, res) => {
 export const getUserBookings = async (req, res) => {
   try {
     // query params
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 200, search } = req.query;
     const skip = (page - 1) * limit;
 
     let where = { userId: req.user.id };
@@ -79,6 +79,12 @@ export const getUserBookings = async (req, res) => {
           : null,
         vendor_name:
           booking.service.vendor?.vendorProfile?.business_name || "Vendor",
+        vendor_image: booking.service.vendor?.vendorProfile?.image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.image}`
+          : null,
+        cover_image: booking.service.vendor?.vendorProfile?.cover_image
+          ? `${req.protocol}://${req.get("host")}${booking.service.vendor.vendorProfile.cover_image}`
+          : null,
       },
     }));
 
@@ -126,7 +132,6 @@ export const getSingleBooking = async (req, res) => {
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
-    console.log("Creating booking request for user:", req.user.id);
 
     try {
         // Create booking with vendor_status = 'pending' (waiting for vendor acceptance)
@@ -155,8 +160,6 @@ export const createBooking = async (req, res) => {
 
         // Notify Vendor about new request
         if (booking.service && booking.service.vendorId) {
-            console.log(`ðŸ“¨ [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
-            
             try {
                 await createNotification(
                     booking.service.vendorId, 
@@ -164,9 +167,8 @@ export const createBooking = async (req, res) => {
                     `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
                     { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
                 );
-                console.log(`âœ… [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
             } catch (notifError) {
-                console.error(`âŒ [BOOKING] Failed to send notification:`, notifError);
+                console.error(`[BOOKING] Failed to send notification:`, notifError);
             }
             
             // Get socket instance and notify vendor in real-time
@@ -292,6 +294,29 @@ export const updateBooking = async (req, res) => {
                 message: "This booking was cancelled by the user."
             });
         }
+    }
+
+    // Emit booking_updated event for both user and vendor when booking is modified
+    const io = req.app.get("io");
+    if (io) {
+
+        // Notify the user who made the change
+        io.to(`user_${req.user.id}`).emit("booking_updated", {
+            bookingId: updatedBooking.id,
+            action: status === "cancelled" ? "cancelled" : "updated",
+            message: status === "cancelled" ? "Your booking was cancelled" : "Your booking was updated"
+        });
+
+        // Notify the vendor if it's not a cancellation (vendors get specific cancellation events)
+        if (status !== "cancelled") {
+            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_updated", {
+                bookingId: updatedBooking.id,
+                action: "rescheduled",
+                message: `Booking for ${updatedBooking.service.name} was rescheduled by the user`
+            });
+        }
+    } else {
+      // socket.io not available
     }
 
     res.json(updatedBooking);

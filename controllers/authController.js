@@ -8,6 +8,7 @@ import { resend } from "../util/resend.js";
 import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
+import { sendEmail, sendSMS } from "../util/communication.js";
 
 const require = createRequire(import.meta.url);
 
@@ -23,11 +24,20 @@ if (!JWT_SECRET) {
   }
 }
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, JWT_SECRET, {
+const generateAccessToken = (id) => {
+  return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
+    expiresIn: "1d",
+  });
+};
+
+const generateRefreshToken = (id) => {
+  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
     expiresIn: "30d",
   });
 };
+
+// Alias for backward-compat usage (e.g. token refresh endpoint)
+const generateToken = generateAccessToken;
 
 const verifyDjangoPassword = (password, hash) => {
   try {
@@ -177,8 +187,8 @@ export const authUser = async (req, res) => {
 
         return res.json({
           user: userData,
-          access: generateToken(user.id),
-          refresh: generateToken(user.id),
+          access: generateAccessToken(user.id),
+          refresh: generateRefreshToken(user.id),
         });
       }
     }
@@ -277,8 +287,6 @@ export const logoutUser = async (req, res) => {
   }
 };
 
-import { sendEmail, sendSMS } from "../util/communication.js";
-
 // @desc    Forgot Password
 export const forgotPassword = async (req, res) => {
   try {
@@ -301,12 +309,12 @@ export const forgotPassword = async (req, res) => {
       .update(resetToken)
       .digest("hex");
 
-    // save token for expiry ( 1 minute for now )
+    // save token for expiry ( 15 minutes )
     await prisma.user.update({
       where: { email },
       data: {
         resetPasswordToken: hashedToken,
-        resetPasswordExpires: new Date(Date.now() + 1 * 60 * 1000),
+        resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000),
       },
     });
 
@@ -383,7 +391,6 @@ export const sendPhoneOTP = async (req, res) => {
 
   try {
     const otp = generateOTP();
-    console.log(`[OTP] Generated for ${phone_number}: ${otp}`);
 
     // Save OTP in database
     await prisma.phoneOTP.upsert({
@@ -426,17 +433,9 @@ export const sendPhoneOTP = async (req, res) => {
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-  console.log('ðŸ” [verifyPhoneOTP] Called');
-  console.log('ðŸ” [verifyPhoneOTP] Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('ðŸ” [verifyPhoneOTP] Body:', JSON.stringify(req.body, null, 2));
-  console.log('ðŸ” [verifyPhoneOTP] Query:', JSON.stringify(req.query, null, 2));
-  
   const { phone_number, otp } = req.body;
-  
-  console.log('ðŸ” [verifyPhoneOTP] Extracted - phone_number:', phone_number, 'otp:', otp);
 
   if (!phone_number || !otp) {
-    console.error('âŒ [verifyPhoneOTP] Missing required fields');
     return res.status(400).json({ error: "Phone number and OTP are required" });
   }
 
@@ -489,8 +488,6 @@ export const sendEmailOTP = async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
     const otp = generateOTP();
 
-    console.log('[sendEmailOTP] Generating OTP:', { email: normalizedEmail, otp });
-
     const istNow = getISTDate();
     const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
 
@@ -511,8 +508,6 @@ export const sendEmailOTP = async (req, res) => {
         verified: false,
       },
     });
-
-    console.log('[sendEmailOTP] OTP record created:', { id: record.id, email: record.email, otp: record.otp, expiresAt: record.expiresAt });
 
     try {
       await resend.emails.send({
@@ -550,8 +545,6 @@ export const sendEmailOTP = async (req, res) => {
 export const verifyEmailOTP = async (req, res) => {
   const { email, otp } = req.body;
 
-  console.log('verifyEmailOTP - Received:', { email, otp, bodyKeys: Object.keys(req.body) });
-
   if (!email || !otp) {
     return res.status(400).json({ error: "Email and OTP are required" });
   }
@@ -560,8 +553,6 @@ export const verifyEmailOTP = async (req, res) => {
     // Normalize inputs
     const normalizedEmail = email.toLowerCase().trim();
     const normalizedOtp = String(otp).trim();
-
-    console.log('verifyEmailOTP - Normalized:', { normalizedEmail, normalizedOtp });
 
     // Find the most recent OTP record for this email
     const record = await prisma.emailOTP.findFirst({
@@ -572,15 +563,6 @@ export const verifyEmailOTP = async (req, res) => {
         createdAt: 'desc'
       }
     });
-
-    console.log('verifyEmailOTP - Found record:', record ? { 
-      id: record.id, 
-      email: record.email, 
-      otp: record.otp,
-      verified: record.verified, 
-      expiresAt: record.expiresAt,
-      createdAt: record.createdAt 
-    } : 'null');
 
     if (!record) {
       return res.status(400).json({ error: "No OTP found for this email" });
@@ -596,12 +578,6 @@ export const verifyEmailOTP = async (req, res) => {
     }
 
     if (record.otp !== normalizedOtp) {
-      console.log('verifyEmailOTP - OTP mismatch:', { 
-        expected: record.otp, 
-        expectedType: typeof record.otp,
-        received: normalizedOtp,
-        receivedType: typeof normalizedOtp 
-      });
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
@@ -609,8 +585,6 @@ export const verifyEmailOTP = async (req, res) => {
       where: { id: record.id },
       data: { verified: true },
     });
-
-    console.log('verifyEmailOTP - OTP verified successfully');
 
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
@@ -631,8 +605,8 @@ export const verifyEmailOTP = async (req, res) => {
     return res.json({
       success: true,
       message: "Email OTP verified successfully",
-      access: generateToken(user.id),
-      refresh: generateToken(user.id),
+      access: generateAccessToken(user.id),
+      refresh: generateRefreshToken(user.id),
       user: {
         id: user.id,
         email: user.email,
@@ -658,15 +632,42 @@ export const verifyEmailOTP = async (req, res) => {
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
 
-  console.log('Google Login - Received role:', role, 'idToken length:', idToken?.length);
-
   try {
-    // Verify token with Firebase Admin
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const email = decodedToken.email;
-    const name = decodedToken.name || email.split("@")[0];
+    let email;
+    let name;
 
-    console.log('Google Login - Decoded email:', email, 'name:', name);
+    // 1. Try to verify as a Firebase ID Token (Standard flow)
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      email = decodedToken.email;
+      name = decodedToken.name;
+    } catch (firebaseError) {
+      // 2. Fallback: Verify as a generic Google ID Token (OIDC)
+      // This handles cases where the frontend sends the token directly from GoogleSignin
+      try {
+        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
+        
+        if (!response.ok) {
+          throw new Error('Token validation failed');
+        }
+
+        const payload = await response.json();
+        
+        // Ensure the token issuer is actually Google
+        if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+           throw new Error('Invalid token issuer');
+        }
+
+        email = payload.email;
+        name = payload.name;
+      } catch (googleError) {
+        console.error("Token verification failed for both Firebase and Google methods");
+        return res.status(401).json({ message: "Invalid token" });
+      }
+    }
+
+    // Default name if missing
+    name = name || email.split("@")[0];
 
     let user = await prisma.user.findUnique({ 
       where: { email },
@@ -677,8 +678,6 @@ export const googleLogin = async (req, res) => {
     });
 
     if (!user) {
-      console.log('Google Login - Creating new user with role:', role || 'user');
-      
       // Register new user
       user = await prisma.user.create({
         data: {
@@ -719,8 +718,6 @@ export const googleLogin = async (req, res) => {
       });
     }
 
-    console.log('Google Login - User found/created, role:', user.role);
-
     // Build response with profile data
     const userData = {
       id: user.id,
@@ -745,8 +742,8 @@ export const googleLogin = async (req, res) => {
     }
 
     res.json({
-      access: generateToken(user.id),
-      refresh: generateToken(user.id),
+      access: generateAccessToken(user.id),
+      refresh: generateRefreshToken(user.id),
       user: userData,
     });
   } catch (error) {
@@ -773,34 +770,9 @@ export const updateUserProfileAuth = async (req, res) => {
 
   try {
     // Handle file uploads from multer (Cloudinary URLs)
-    console.log("[UserProfile UPDATE] Request received");
-    console.log(
-      "[UserProfile UPDATE] Body:",
-      JSON.stringify(req.body, null, 2),
-    );
-
-    if (req.files) {
-      console.log(
-        "[UserProfile UPDATE] Files:",
-        JSON.stringify(req.files, null, 2),
-      );
-    } else {
-      console.log("[UserProfile] No files received or multer failed to parse");
-    }
-
     const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
     const uploadedIdFront = req.files?.id_proof_front?.[0]?.path;
     const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
-
-    if (uploadedProfilePicture) {
-      console.log("-> SET: Profile Picture URL:", uploadedProfilePicture);
-    }
-    if (uploadedIdFront) {
-      console.log("-> SET: ID Front URL:", uploadedIdFront);
-    }
-    if (uploadedIdBack) {
-      console.log("-> SET: ID Back URL:", uploadedIdBack);
-    }
 
     // 1. Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {
@@ -858,11 +830,6 @@ export const updateUserProfileAuth = async (req, res) => {
       profileUpdateData.id_proof_back = id_proof_back;
     }
 
-    console.log(
-      "[UserProfile] Final Update Data:",
-      JSON.stringify(profileUpdateData, null, 2),
-    );
-
     const profile = await prisma.userProfile.upsert({
       where: { userId: userId },
       update: profileUpdateData,
@@ -875,11 +842,6 @@ export const updateUserProfileAuth = async (req, res) => {
         id_proof_front: uploadedIdFront || id_proof_front || null,
         id_proof_back: uploadedIdBack || id_proof_back || null,
       },
-    });
-
-    console.log("[UserProfile] Profile Updated Successfully:", {
-      userId,
-      hasProfilePicture: !!profile.profile_picture,
     });
 
     // 4. Return updated profile data (matching getUserProfile format)
@@ -937,14 +899,10 @@ export const updatePushToken = async (req, res) => {
     const { pushToken } = req.body;
     const userId = req.user.id; // Assuming auth middleware sets req.user
 
-    console.log('ðŸ“± Updating push token for user:', userId, 'Token:', pushToken?.substring(0, 20) + '...');
-
     await prisma.user.update({
       where: { id: userId },
       data: { pushToken }
     });
-
-    console.log('âœ… Push token updated successfully');
 
     res.json({ success: true, message: 'Push token updated' });
   } catch (error) {
@@ -953,6 +911,6 @@ export const updatePushToken = async (req, res) => {
   }
 };
 // ======================
-// keplix-backend/server.js
+// keplix-backend/authController.js
 // ======================
 
