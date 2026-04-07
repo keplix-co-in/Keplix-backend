@@ -49,6 +49,16 @@ import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
 import { protect } from "./middleware/authMiddleware.js";
 
+
+// Admin Routes
+import authAdminRoutes from './routes/admin/authAdmin.js';
+import dashBoardRoutes from './routes/admin/dashBoard.js';
+import adminBookingRoutes from './routes/admin/bookings.js';
+import adminUserRoutes from './routes/admin/user.js';
+import adminVendorRoutes from './routes/admin/vendor.js';
+
+
+
 // --- CONFIGURATION ---
 
 const app = express();
@@ -189,6 +199,13 @@ app.use("/interactions/api/user", userInteractionRoutes);
 app.use("/interactions/api/user/notifications", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
+
+// 6. Admin
+app.use("/admin/auth", authAdminRoutes);
+app.use("/admin", dashBoardRoutes);
+app.use("/admin", adminBookingRoutes);
+app.use("/admin", adminUserRoutes);
+app.use("/admin", adminVendorRoutes);
 
 
 // --- ERROR HANDLING ---
