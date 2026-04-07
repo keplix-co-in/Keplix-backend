@@ -1,5 +1,5 @@
 import express from 'express';
-import { getDashboardData , getDashBoardRevenue } from '../../controllers/admin/dashBoardController.js';
+import { getDashboardData , getDashBoardRevenue } from '../../controllers/Admin/dashBoardController.js';
 import {authAdmin, authorizeAdmin} from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
