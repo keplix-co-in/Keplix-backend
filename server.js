@@ -1,5 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config(); // Move this to the very top, immediately after import
+import 'dotenv/config';
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -18,6 +17,7 @@ import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
+import bookingStatusManager from "./util/bookingStatusManager.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -64,37 +64,18 @@ import adminVendorRoutes from './routes/admin/vendor.js';
 const app = express();
 const httpServer = createServer(app);
 
-// Check required environment variables
-console.log('Checking environment variables...');
+// Check required environment variables on startup
 const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'CLOUDINARY_URL'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
-  console.error('Missing required environment variables:', missingVars.join(', '));
-  console.error('Please set these environment variables in Cloud Run');
-  // Don't exit in production, let the app start with warnings
+  Logger.error(`Missing required environment variables: ${missingVars.join(', ')}`);
   if (process.env.NODE_ENV === 'production') {
-    console.warn('Starting with missing environment variables - some features may not work');
+    Logger.warn('Starting with missing environment variables - some features may not work');
   }
 } else {
-  console.log('All required environment variables are set');
+  Logger.info('All required environment variables are set');
 }
-
-httpServer.on('connection', (socket) => {
-    // console.log(`New TCP connection from ${socket.remoteAddress}`);
-});
-
-httpServer.on('request', (req, res) => {
-    if (req.method !== 'GET') {
-       console.log(`[HTTP-RAW] ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
-    }
-});
-
-// --- RAW REQUEST LOGGER (BEFORE BODY PARSERS) ---
-app.use((req, res, next) => {
-    console.log(`[RAW-DEBUG] ${req.method} ${req.url} from ${req.ip}`);
-    next();
-});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,7 +87,7 @@ app.set("io", io);
 // --- RATE LIMITERS ---
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 300, 
+  max: 1000, 
   standardHeaders: true, 
   legacyHeaders: false,
   message: { message: "Too many requests, please try again later." }
@@ -142,9 +123,7 @@ app.use(
       fontSrc: ["'self'", "data:"],
       connectSrc: [
         "'self'",
-        "http://localhost:3000",
-        "ws://localhost:8000",
-        ...allowedOrigins 
+        ...allowedOrigins
       ],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"],
@@ -155,19 +134,8 @@ app.use(
   })
 );
 
-// CORS Configuration
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      Logger.warn(`Blocked by CORS: ${origin}`);
-      // Relaxed for dev, strict for prod
-      return callback(null, true); 
-    }
-    return callback(null, true);
-  },
-  credentials: true
-}));
+// CORS Configuration — uses corsOptions from util/cors.js
+app.use(cors(corsOptions));
 
 
 app.use(sanitizeInput);
@@ -194,17 +162,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Apply Global Rate Limiter
-// app.use(limiter);
-
-// --- HEALTH CHECK ---
-app.get("/", (req, res) => res.json({ message: "Keplix Backend (Node.js) is running!", status: "running" }));
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
+app.use(limiter);
 
 // --- ROUTES ---
 
@@ -255,22 +213,25 @@ app.use(notFound);
 app.use(errorHandler);
 
 // --- SERVER START ---
-const PORT = process.env.PORT || 8000;
-console.log(`Starting server on port ${PORT}...`);
-console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
-
+const PORT = process.env.PORT || 8080;
 httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
   Logger.info(`🚀  Keplix Backend Running`);
-  Logger.info(`🌍  URL: http://localhost:${PORT}`);
-  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV }`);
+  Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
+  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
   Logger.info(`=================================`);
+
+  // Start booking status manager for automatic time-based transitions
+  bookingStatusManager.start();
 });
 
 // --- GRACEFUL SHUTDOWN ---
 const gracefulShutdown = () => {
   Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
+
+  // Stop booking status manager
+  bookingStatusManager.stop();
+
   httpServer.close(() => {
     Logger.info('HTTP server closed.');
     process.exit(0);

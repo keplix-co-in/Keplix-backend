@@ -6,7 +6,6 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
 
 export const protect = async (req, res, next) => {
-  console.log('Auth middleware called for path:', req.path);
   let token;
 
   if (

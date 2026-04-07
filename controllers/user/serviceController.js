@@ -7,7 +7,7 @@
 export const getAllServices = async (req, res) => {
   try {
     //query params
-    const { page = 1, limit = 10, search, latitude, longitude, radius = 50 } = req.query;
+    const { page = 1, limit = 10, search, latitude, longitude, radius = 50, online_only } = req.query;
 
     const skip = (page - 1) * limit;
 
@@ -19,6 +19,16 @@ export const getAllServices = async (req, res) => {
         { category: { contains: search, mode: "insensitive" } },
         { description: { contains: search, mode: "insensitive" } },
       ];
+    }
+
+    // Filter by online vendors if requested
+    if (online_only === 'true') {
+      const onlineVendors = await prisma.vendorProfile.findMany({
+        where: { is_online: true },
+        select: { userId: true }
+      });
+      const vendorIds = onlineVendors.map(v => v.userId);
+      where.vendorId = { in: vendorIds };
     }
 
     // Get all services with vendor profile info
@@ -79,6 +89,7 @@ export const getAllServices = async (req, res) => {
           : null,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
+        cover_image: service.vendor?.vendorProfile?.cover_image || null,
         distance: distance,
         distanceText: distanceText,
         vendor_address: service.vendor?.vendorProfile?.address || null,
@@ -158,10 +169,18 @@ export const getFeaturedServices = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
 
+    // Get online vendor IDs first
+    const onlineVendors = await prisma.vendorProfile.findMany({
+      where: { is_online: true },
+      select: { userId: true }
+    });
+    const onlineVendorIds = onlineVendors.map(v => v.userId);
+
     const services = await prisma.service.findMany({
       where: {
         is_active: true,
-        is_featured: true
+        is_featured: true,
+        vendorId: { in: onlineVendorIds } // Only show featured services from online vendors
       },
       take: Number(limit),
       include: { vendor: { include: { vendorProfile: true } } },
@@ -178,6 +197,7 @@ export const getFeaturedServices = async (req, res) => {
         : null,
       vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
       vendor_image: service.vendor?.vendorProfile?.image || null,
+      cover_image: service.vendor?.vendorProfile?.cover_image || null,
     }));
 
     res.json(enrichedServices);
@@ -202,6 +222,7 @@ export const searchVendorsByLocation = async (req, res) => {
     const vendors = await prisma.vendorProfile.findMany({
       where: {
         status: "approved",
+        is_online: true, // Only show online vendors
         latitude: { not: null },
         longitude: { not: null },
       },
@@ -284,6 +305,8 @@ export const getServicesByVendor = async (req, res) => {
         : null,
       vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
       vendor_image: service.vendor?.vendorProfile?.image || null,
+      vendor_cover_image: service.vendor?.vendorProfile?.cover_image || null,
+      cover_image: service.vendor?.vendorProfile?.cover_image || null,
     }));
 
     res.json(enrichedServices);
@@ -292,5 +315,7 @@ export const getServicesByVendor = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
 
 
