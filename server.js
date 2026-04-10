@@ -54,8 +54,8 @@ import { protect } from "./middleware/authMiddleware.js";
 import authAdminRoutes from './routes/admin/authAdmin.js';
 import dashBoardRoutes from './routes/admin/dashBoard.js';
 import adminBookingRoutes from './routes/admin/bookings.js';
-import adminUserRoutes from './routes/admin/user.js';
-import adminVendorRoutes from './routes/admin/vendor.js';
+import adminUserRoutes from './routes/Admin/user.js';
+import adminVendorRoutes from './routes/Admin/vendor.js';
 
 
 
