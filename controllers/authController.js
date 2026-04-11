@@ -633,10 +633,41 @@ export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
 
   try {
-    // Verify token with Firebase Admin
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const email = decodedToken.email;
-    const name = decodedToken.name || email.split("@")[0];
+    let email;
+    let name;
+
+    // 1. Try to verify as a Firebase ID Token (Standard flow)
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      email = decodedToken.email;
+      name = decodedToken.name;
+    } catch (firebaseError) {
+      // 2. Fallback: Verify as a generic Google ID Token (OIDC)
+      // This handles cases where the frontend sends the token directly from GoogleSignin
+      try {
+        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
+        
+        if (!response.ok) {
+          throw new Error('Token validation failed');
+        }
+
+        const payload = await response.json();
+        
+        // Ensure the token issuer is actually Google
+        if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+           throw new Error('Invalid token issuer');
+        }
+
+        email = payload.email;
+        name = payload.name;
+      } catch (googleError) {
+        console.error("Token verification failed for both Firebase and Google methods");
+        return res.status(401).json({ message: "Invalid token" });
+      }
+    }
+
+    // Default name if missing
+    name = name || email.split("@")[0];
 
     let user = await prisma.user.findUnique({ 
       where: { email },
@@ -880,6 +911,6 @@ export const updatePushToken = async (req, res) => {
   }
 };
 // ======================
-// keplix-backend/server.js
+// keplix-backend/authController.js
 // ======================
 
