@@ -35,8 +35,12 @@ export const getVendorBookings = async (req, res) => {
 
     // For order alerts, exclude past bookings (bookings that have already passed)
     // Only show future bookings or bookings from today onwards
+    // EXCEPTION: For completed/cancelled bookings, show all historical records
     const now = new Date();
-    if (!date && !date_from && !date_to) { // Only apply time filter when no specific date filters are set
+    const hasDateFilter = date || date_from || date_to;
+    const isCompletedStatus = status && (status.includes('completed') || status.includes('cancelled'));
+    
+    if (!hasDateFilter && !isCompletedStatus) { // Only apply time filter when no specific date filters are set AND not completed/cancelled
       query.booking_date = {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
       };
