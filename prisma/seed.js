@@ -104,13 +104,11 @@ async function main() {
 
     // Cleanup existing data
     console.log('🧹 Cleaning old data...');
-    const deleteOrder = [
-        'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment', 
-        'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion', 
-        'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP'
-    ];
-
-    for (const model of deleteOrder) {
+      const deleteOrder = [
+          'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment',
+          'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion',
+          'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP', 'Admin'
+      ];    for (const model of deleteOrder) {
         try {
             if (prisma[model]) await prisma[model].deleteMany(); 
             else if (prisma[model.toLowerCase()]) await prisma[model.toLowerCase()].deleteMany();
