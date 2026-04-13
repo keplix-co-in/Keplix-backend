@@ -11,11 +11,14 @@ export const getUserMetrics = async (req, res) => {
     ] = await Promise.all([
 
       // total users
-      prisma.user.count(),
+      prisma.user.count({
+        where: { role: "user" }
+      }),
 
       // active users
       prisma.user.count({
         where: {
+          role: "user",
           is_active: true,
           bookings: {
             some: {}
@@ -26,6 +29,7 @@ export const getUserMetrics = async (req, res) => {
       // inactive users
       prisma.user.count({
         where: {
+          role: "user",
           bookings: {
             none: {}
           }
@@ -35,6 +39,7 @@ export const getUserMetrics = async (req, res) => {
       // uninstalled users
       prisma.user.count({
         where: {
+          role: "user",
           fcmToken: null,
           pushToken: null
         }
@@ -62,11 +67,11 @@ export const getUsers = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    let filter = {};
+    let filter = { role: "user" };
 
-    
     if (type === "active") {
       filter = {
+        role: "user",
         is_active: true,
         bookings: {
           some: {}
@@ -76,6 +81,7 @@ export const getUsers = async (req, res) => {
 
     else if (type === "inactive") {
       filter = {
+        role: "user",
         bookings: {
           none: {}
         }
@@ -84,6 +90,7 @@ export const getUsers = async (req, res) => {
 
     else if (type === "uninstalled") {
       filter = {
+        role: "user",
         fcmToken: null,
         pushToken: null
       };
