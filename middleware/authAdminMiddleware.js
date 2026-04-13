@@ -20,7 +20,7 @@ const authAdmin = (req, res, next) => {
   }
 };
 
-const allowedRoles = ["admin"];
+const allowedRoles = ["admin", "super_admin"];
 
 const authorizeAdmin = (req, res, next) => {
   if(! req.user || !allowedRoles.includes(req.user.role)){
