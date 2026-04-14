@@ -15,8 +15,8 @@ model User {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   fcmToken            String?
-  pushToken           String?
   device_type         String?
+  pushToken           String?
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -28,9 +28,8 @@ model User {
   reviews             Review[]             @relation("UserReviews")
   services            Service[]            @relation("VendorServices")
   userProfile         UserProfile?
-  vendorProfile       VendorProfile?
   VendorPayoutAccount VendorPayoutAccount?
-  adminProfile        AdminProfile?
+  vendorProfile       VendorProfile?
 
   @@index([email])
   @@index([role])
@@ -43,16 +42,15 @@ model BlacklistedToken {
   createdAt DateTime @default(now())
 }
 
-
 model UserProfile {
   id              Int     @id @default(autoincrement())
   userId          Int     @unique
   name            String
   phone           String?
   address         String?
-  profile_picture String?
-  id_proof_front  String?
   id_proof_back   String?
+  id_proof_front  String?
+  profile_picture String?
   user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -84,7 +82,6 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
-  is_online            Boolean @default(true)
   image                String?
   cover_image          String?
   bank_account_number  String?
@@ -119,22 +116,22 @@ model Service {
 }
 
 model Booking {
-  id           Int           @id @default(autoincrement())
-  userId       Int
-  serviceId    Int
-  booking_date DateTime
-  booking_time String
-  status       String        @default("pending") // pending, confirmed, in_progress, service_completed, user_confirmed, disputed, cancelled, refunded
-  vendor_status String       @default("pending") // pending, accepted, rejected
-  notes        String?
+  id                Int           @id @default(autoincrement())
+  userId            Int
+  serviceId         Int
+  booking_date      DateTime
+  booking_time      String
+  status            String        @default("pending")
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
   completion_images String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  user         User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
-  conversation Conversation?
-  payment      Payment?      @relation("BookingPayment")
-  review       Review?
+  vendor_status     String        @default("pending")
+  service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
+  conversation      Conversation?
+  payment           Payment?      @relation("BookingPayment")
+  review            Review?
 
   @@index([userId])
   @@index([serviceId])
@@ -144,23 +141,20 @@ model Booking {
 }
 
 model Payment {
-  id        Int      @id @default(autoincrement())
-  bookingId Int?     @unique
-  booking   Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
-
-  amount        Decimal
-  currency      String  @default("INR")
-  status        String  @default("pending") // success, failed, pending
-  method        String // stripe, razorpay, cash
-  transactionId String? // Gateway Payment ID
-
-  // Vendor Payout Tracking
-  vendorPayoutStatus String?  @default("pending") // pending, paid, failed, not_applicable
-  vendorPayoutId     String? // External Transfer ID
+  id                 Int      @id @default(autoincrement())
+  bookingId          Int?     @unique
+  amount             Decimal
+  currency           String   @default("INR")
+  status             String   @default("pending")
+  method             String
+  transactionId      String?
+  vendorPayoutStatus String?  @default("pending")
+  vendorPayoutId     String?
   platformFee        Decimal?
   vendorAmount       Decimal?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 model Inventory {
@@ -258,7 +252,7 @@ model Feedback {
 
 model EmailOTP {
   id        Int      @id @default(autoincrement())
-  email     String   
+  email     String
   otp       String
   expiresAt DateTime
   verified  Boolean  @default(false)
@@ -275,48 +269,34 @@ model PhoneOTP {
 }
 
 model VendorPayoutAccount {
-  id       Int  @id @default(autoincrement())
-  vendorId Int  @unique
-  vendor   User @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-
-  contactId     String // RazorpayX contact_id
-  fundAccountId String // RazorpayX fund_account_id
-
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            Int      @id @default(autoincrement())
+  vendorId      Int      @unique
+  contactId     String
+  fundAccountId String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 }
 
-model AdminProfile {
-id          Int         @id @default(autoincrement())
-userId      Int         @unique
-name        String
-phone       String?
-email       String      @unique
+model Admin {
+  id          Int         @id @default(autoincrement())
+  name        String
+  email       String      @unique
+  password    String
+  phone       String?
+  status      AdminStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  role        String      @default("admin")
 
-role        AdminRole   @default(ADMIN)
-status      AdminStatus @default(ACTIVE)
-
-lastLoginAt DateTime?
-createdAt   DateTime    @default(now())
-updatedAt   DateTime    @updatedAt
-
-user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-@@index([userId])
-@@index([role])
-@@index([status])
-}
-
-enum AdminRole {
-SUPER_ADMIN
-ADMIN
-MODERATOR
+  @@index([email])
+  @@index([status])
 }
 
 enum AdminStatus {
-ACTIVE
-INACTIVE
-SUSPENDED
+  ACTIVE
+  INACTIVE
+  SUSPENDED
 }

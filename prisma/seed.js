@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import prisma from '../util/prisma.js';
 import bcrypt from 'bcryptjs';
 
@@ -103,13 +104,11 @@ async function main() {
 
     // Cleanup existing data
     console.log('🧹 Cleaning old data...');
-    const deleteOrder = [
-        'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment', 
-        'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion', 
-        'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP'
-    ];
-
-    for (const model of deleteOrder) {
+      const deleteOrder = [
+          'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment',
+          'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion',
+          'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP', 'Admin'
+      ];    for (const model of deleteOrder) {
         try {
             if (prisma[model]) await prisma[model].deleteMany(); 
             else if (prisma[model.toLowerCase()]) await prisma[model.toLowerCase()].deleteMany();
@@ -121,15 +120,14 @@ async function main() {
     const hashedPassword = await bcrypt.hash('password123', 10);
 
     // --- Create Super Admin ---
-    await prisma.user.create({
+    await prisma.admin.create({
       data: {
+        name: "Super Admin",
         email: "admin@keplix.com",
         password: hashedPassword,
+        phone: "9999999999",
         role: "admin",
-        is_active: true,
-        userProfile: {
-          create: { name: "Super Admin", phone: "9999999999", address: "Keplix HQ" }
-        }
+        status: "ACTIVE"
       }
     });
 
