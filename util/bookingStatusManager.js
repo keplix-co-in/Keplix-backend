@@ -75,18 +75,6 @@ class BookingStatusManager {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
-        },
-        include: {
-          user: true,
-          service: {
-            include: {
-              vendor: {
-                include: {
-                  vendorProfile: true
-                }
-              }
-            }
-          }
         }
       });
 
@@ -143,18 +131,6 @@ class BookingStatusManager {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
-        },
-        include: {
-          user: true,
-          service: {
-            include: {
-              vendor: {
-                include: {
-                  vendorProfile: true
-                }
-              }
-            }
-          }
         }
       });
 
@@ -202,18 +178,6 @@ class BookingStatusManager {
         where: {
           vendor_status: 'pending',
           status: 'pending'
-        },
-        include: {
-          user: true,
-          service: {
-            include: {
-              vendor: {
-                include: {
-                  vendorProfile: true
-                }
-              }
-            }
-          }
         }
       });
 
@@ -227,6 +191,11 @@ class BookingStatusManager {
 
           // If booking has been pending for more than 5 minutes
           if (minutesDiff >= 5) {
+            // Fetch service to get name
+            const service = await prisma.service.findUnique({
+              where: { id: booking.serviceId }
+            });
+
             await prisma.booking.update({
               where: { id: booking.id },
               data: {
@@ -241,19 +210,21 @@ class BookingStatusManager {
             await createNotification({
               userId: booking.userId,
               title: 'Booking Request Declined',
-              message: `Your booking request for ${booking.service.name} was not accepted in time and has been automatically declined.`,
+              message: `Your booking request for ${service?.name || 'service'} was not accepted in time and has been automatically declined.`,
               type: 'booking_update',
               data: { bookingId: booking.id }
             });
 
-            // Notify vendor
-            await createNotification({
-              userId: booking.service.vendorId,
-              title: 'Booking Request Expired',
-              message: `You missed a booking request for ${booking.service.name} from ${booking.user.name || 'a customer'}. It has been automatically declined.`,
-              type: 'booking_update',
-              data: { bookingId: booking.id }
-            });
+            // Notify vendor - fetch vendor id from service
+            if (service) {
+              await createNotification({
+                userId: service.vendorId,
+                title: 'Booking Request Expired',
+                message: `You missed a booking request for ${service.name}. It has been automatically declined.`,
+                type: 'booking_update',
+                data: { bookingId: booking.id }
+              });
+            }
 
             declinedCount++;
             Logger.info(`Auto-declined booking ${booking.id} after 5 minutes of inactivity`);
@@ -277,6 +248,11 @@ class BookingStatusManager {
    */
   async activateBooking(booking) {
     try {
+      // Fetch service to get details for notifications
+      const service = await prisma.service.findUnique({
+        where: { id: booking.serviceId }
+      });
+
       // Update booking status
       await prisma.booking.update({
         where: { id: booking.id },
@@ -290,19 +266,21 @@ class BookingStatusManager {
       await createNotification({
         userId: booking.userId,
         title: 'Service Started',
-        message: `Your ${booking.service.name} service with ${booking.service.vendor.vendorProfile.business_name} has started.`,
+        message: `Your ${service?.name || 'service'} service has started.`,
         type: 'booking_update',
         data: { bookingId: booking.id }
       });
 
       // Create notification for vendor
-      await createNotification({
-        userId: booking.service.vendorId,
-        title: 'Service Time Arrived',
-        message: `It's time to start the ${booking.service.name} service for ${booking.user.name || 'customer'}.`,
-        type: 'booking_update',
-        data: { bookingId: booking.id }
-      });
+      if (service) {
+        await createNotification({
+          userId: service.vendorId,
+          title: 'Service Time Arrived',
+          message: `It's time to start the ${service.name} service.`,
+          type: 'booking_update',
+          data: { bookingId: booking.id }
+        });
+      }
 
       Logger.info(`Activated booking ${booking.id} - moved to in_progress status`);
 
@@ -317,6 +295,11 @@ class BookingStatusManager {
    */
   async expireBooking(booking) {
     try {
+      // Fetch service to get details for notifications
+      const service = await prisma.service.findUnique({
+        where: { id: booking.serviceId }
+      });
+
       // Update booking status to cancelled or expired
       await prisma.booking.update({
         where: { id: booking.id },
@@ -331,19 +314,21 @@ class BookingStatusManager {
       await createNotification({
         userId: booking.userId,
         title: 'Booking Expired',
-        message: `Your ${booking.service.name} booking with ${booking.service.vendor.vendorProfile.business_name} has expired as the scheduled time passed.`,
+        message: `Your ${service?.name || 'service'} booking has expired as the scheduled time passed.`,
         type: 'booking_update',
         data: { bookingId: booking.id }
       });
 
       // Create notification for vendor
-      await createNotification({
-        userId: booking.service.vendorId,
-        title: 'Booking Expired',
-        message: `The ${booking.service.name} booking for ${booking.user.name || 'customer'} has expired due to missed scheduled time.`,
-        type: 'booking_update',
-        data: { bookingId: booking.id }
-      });
+      if (service) {
+        await createNotification({
+          userId: service.vendorId,
+          title: 'Booking Expired',
+          message: `The ${service.name} booking has expired due to missed scheduled time.`,
+          type: 'booking_update',
+          data: { bookingId: booking.id }
+        });
+      }
 
       Logger.info(`Expired booking ${booking.id} - moved to cancelled status`);
 
