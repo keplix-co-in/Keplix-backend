@@ -186,7 +186,26 @@ export const getDashboardDetails = async (req, res) => {
         select: {
           id: true,
           vendorAmount: true,
-          createdAt: true
+          createdAt: true,
+          booking: {
+            select: {
+              id: true,
+              service: {
+                select: { name: true }
+              },
+              vendor_status: true,
+              user: {
+                select: { 
+                  vendorProfile: {
+                    select: { business_name: true, city: true }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'asc'
         }
       });
     }
