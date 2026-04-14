@@ -56,6 +56,7 @@ import dashBoardRoutes from './routes/Admin/dashBoard.js';
 import adminBookingRoutes from './routes/Admin/bookings.js';
 import adminUserRoutes from './routes/Admin/user.js';
 import adminVendorRoutes from './routes/Admin/vendor.js';
+import adminFinanceRoutes from './routes/Admin/finance.js';
 
 
 
@@ -206,6 +207,7 @@ app.use("/admin", dashBoardRoutes);
 app.use("/admin", adminBookingRoutes);
 app.use("/admin", adminUserRoutes);
 app.use("/admin", adminVendorRoutes);
+app.use("/admin", adminFinanceRoutes);
 
 
 // --- ERROR HANDLING ---
