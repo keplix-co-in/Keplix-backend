@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import prisma from '../util/prisma.js';
 import bcrypt from 'bcryptjs';
 
@@ -103,13 +104,11 @@ async function main() {
 
     // Cleanup existing data
     console.log('🧹 Cleaning old data...');
-    const deleteOrder = [
-        'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment', 
-        'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion', 
-        'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP'
-    ];
-
-    for (const model of deleteOrder) {
+      const deleteOrder = [
+          'Feedback', 'Notification', 'Message', 'Conversation', 'Review', 'Payment',
+          'Booking', 'Service', 'Inventory', 'Availability', 'Document', 'Promotion',
+          'VendorPayoutAccount', 'VendorProfile', 'UserProfile', 'User', 'PhoneOTP', 'EmailOTP', 'Admin'
+      ];    for (const model of deleteOrder) {
         try {
             if (prisma[model]) await prisma[model].deleteMany(); 
             else if (prisma[model.toLowerCase()]) await prisma[model.toLowerCase()].deleteMany();
@@ -121,15 +120,14 @@ async function main() {
     const hashedPassword = await bcrypt.hash('password123', 10);
 
     // --- Create Super Admin ---
-    await prisma.user.create({
+    await prisma.admin.create({
       data: {
+        name: "Super Admin",
         email: "admin@keplix.com",
         password: hashedPassword,
+        phone: "9999999999",
         role: "admin",
-        is_active: true,
-        userProfile: {
-          create: { name: "Super Admin", phone: "9999999999", address: "Keplix HQ" }
-        }
+        status: "ACTIVE"
       }
     });
 
@@ -144,15 +142,19 @@ async function main() {
             role: 'vendor',
             is_active: true,
             vendorProfile: {
-                create: {
-                    business_name: "Vendor 1 Premier Auto",
-                    phone: "9876543210",
-                    email: "contact@vendor1.com",
-                    address: "Block A, Cyber Hub",
-                    city: "Gurugram",
-                    state: "HR",
-                    operating_hours: "08:00 AM - 10:00 PM",
-                    status: "approved",
+                  create: {
+                      business_name: "Vendor 1 Premier Auto",
+                      owner_name: "Rahul Verma",
+                      phone: "9876543210",
+                      email: "contact@vendor1.com",
+                      address: "Block A, Cyber Hub",
+                      city: "Gurugram",
+                      state: "HR",
+                      operating_hours: "08:00 AM - 10:00 PM",
+                      bank_account_number: "2323230058127432",
+                      ifsc_code: "HDFC0001234",
+                      upi_id: "vendor1@hdfc",
+                      status: "approved",
                     onboarding_completed: true,
                     latitude: 28.4595,
                     longitude: 77.0266,
@@ -232,20 +234,25 @@ async function main() {
         });
 
         // Add Payment if accepted
-        if (vendorStatus === 'accepted') {
-            await prisma.payment.create({
-                data: {
-                    bookingId: booking.id,
-                    amount: Math.round(service.price * 1.18),
-                    status: (status === 'completed' || status === 'user_confirmed') ? 'success' : 'pending',
-                    method: 'upi',
-                    transactionId: `txn_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-                    createdAt: createdAt
-                }
-            });
-        }
+          if (vendorStatus === 'accepted') {
+              const fullAmount = Math.round(service.price * 1.18);
+              const vAmount = Math.round(service.price * 0.85);
+              const pFee = fullAmount - vAmount;
 
-        // Add Review if completed
+              await prisma.payment.create({
+                  data: {
+                      bookingId: booking.id,
+                      amount: fullAmount,
+                      vendorAmount: vAmount,
+                      platformFee: pFee,
+                      status: (status === 'completed' || status === 'user_confirmed') ? 'success' : 'pending',
+                      method: 'upi',
+                      transactionId: `txn_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                      vendorPayoutStatus: 'pending',
+                      createdAt: createdAt
+                  }
+              });
+          }        // Add Review if completed
         if (['completed', 'user_confirmed'].includes(status)) {
             await prisma.review.create({
                 data: {
@@ -298,15 +305,19 @@ async function main() {
             role: 'vendor',
             is_active: true,
             vendorProfile: {
-                create: {
-                    business_name: "Quick Service Center",
-                    phone: "9123456789",
-                    email: "quickservice@example.com",
-                    address: "Main Road, Near Metro Station",
-                    city: "Delhi",
-                    state: "DL",
-                    operating_hours: "10:00 AM - 8:00 PM",
-                    status: "approved",
+                  create: {
+                      business_name: "Quick Service Center",
+                      owner_name: "Sanjay Kumar",
+                      phone: "9123456789",
+                      email: "quickservice@example.com",
+                      address: "Main Road, Near Metro Station",
+                      city: "Delhi",
+                      state: "DL",
+                      operating_hours: "10:00 AM - 8:00 PM",
+                      bank_account_number: "2323230058127432",
+                      ifsc_code: "HDFC0001234",
+                      upi_id: "vendor2@hdfc",
+                      status: "approved",
                     onboarding_completed: true,
                     latitude: 28.6139,
                     longitude: 77.2090,

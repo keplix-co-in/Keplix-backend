@@ -35,7 +35,7 @@ export const errorHandler = (err, req, res, next) => {
         errorCode = err.code;
     }
 
-    // Server-side logging
+    // Server-side loggingz
     Logger.error(`[Error] ${req.method} ${req.url}: ${err.message}`);
     if (process.env.NODE_ENV === 'development') {
         Logger.error(err.stack);
