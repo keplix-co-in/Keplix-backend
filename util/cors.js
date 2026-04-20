@@ -30,6 +30,11 @@ const corsOptions = {
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+    
+    // Always allow admin subdomain and vercel branch domains
+    if (origin.includes("keplix.co.in") || origin.includes("vercel.app") || origin.includes("localhost")) {
+      return callback(null, true);
+    }
 
     //Block everything else
     return callback(
