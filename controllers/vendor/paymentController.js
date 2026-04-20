@@ -236,39 +236,99 @@ export const getVendorPayments = async (req, res) => {
 export const getVendorEarnings = async (req, res) => {
   try {
     const vendorId = Number(req.params.vendor_id);
+
+    const now = new Date();
+
+   
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const payments = await prisma.payment.findMany({
-      where: {
-        status: "success", // Count all successful payments
-        booking: {
-          service: {
-            vendorId, 
-          },
+   
+    const startOfWeek = new Date();
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+    startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+  
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    
+    const baseWhere = {
+      booking: {
+        service: {
+          vendorId,
         },
       },
-      select: {
-          amount: true,
-          vendorAmount: true,
-          createdAt: true
-      }
-    });
+    };
 
-    const total_earnings = payments.reduce(
-      (sum, p) => sum + Number(p.vendorAmount || p.amount || 0),
-      0
-    );
+    
+    const [
+      total,
+      todayData,
+      weekData,
+      monthData,
+      pendingData,
+    ] = await Promise.all([
+      
+      prisma.payment.aggregate({
+        _sum: { vendorAmount: true },
+        where: {
+          ...baseWhere,
+          status: "success",
+        },
+      }),
 
-    const today_earnings = payments
-        .filter(p => new Date(p.createdAt) >= today)
-        .reduce((sum, p) => sum + Number(p.vendorAmount || p.amount || 0), 0);
+      
+      prisma.payment.aggregate({
+        _sum: { vendorAmount: true },
+        where: {
+          ...baseWhere,
+          status: "success",
+          createdAt: { gte: today },
+        },
+      }),
 
+  
+      prisma.payment.aggregate({
+        _sum: { vendorAmount: true },
+        where: {
+          ...baseWhere,
+          status: "success",
+          createdAt: { gte: startOfWeek },
+        },
+      }),
+
+   
+      prisma.payment.aggregate({
+        _sum: { vendorAmount: true },
+        where: {
+          ...baseWhere,
+          status: "success",
+          createdAt: { gte: startOfMonth },
+        },
+      }),
+
+      
+      prisma.payment.aggregate({
+        _sum: { vendorAmount: true },
+        where: {
+          ...baseWhere,
+          status: "pending",
+        },
+      }),
+    ]);
+
+    
     res.json({
-      today_earnings,
-      total_earnings,
+      today_earnings: today._sum?.vendorAmount || 0,
+      week_earnings: weekData._sum?.vendorAmount || 0,
+      month_earnings: monthData._sum?.vendorAmount || 0,
+      total_earnings: total._sum?.vendorAmount || 0,
+      pending_earnings: pendingData._sum?.vendorAmount || 0,
       growth_percentage: 0,
     });
+
   } catch (error) {
     console.error("Vendor earnings error:", error);
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
