@@ -61,6 +61,7 @@ export const getUserBookings = async (req, res) => {
         service: {
           include: { vendor: { include: { vendorProfile: true } } },
         },
+        payment: true, // Include Payment info
       },
       orderBy: { booking_date: "desc" },
     });
