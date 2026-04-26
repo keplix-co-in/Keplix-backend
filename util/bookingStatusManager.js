@@ -310,27 +310,23 @@ class BookingStatusManager {
         }
       });
 
-      // Create notification for user
-      await createNotification({
-        userId: booking.userId,
-        title: 'Booking Expired',
-        message: `Your ${service?.name || 'service'} booking has expired as the scheduled time passed.`,
-        type: 'booking_update',
-        data: { bookingId: booking.id }
-      });
+        // Create notification for user
+        await createNotification(
+          booking.userId,
+          'Booking Expired',
+          `Your ${service?.name || 'service'} booking has expired as the scheduled time passed.`,
+          { type: 'booking_update', bookingId: booking.id }
+        );
 
-      // Create notification for vendor
-      if (service) {
-        await createNotification({
-          userId: service.vendorId,
-          title: 'Booking Expired',
-          message: `The ${service.name} booking has expired due to missed scheduled time.`,
-          type: 'booking_update',
-          data: { bookingId: booking.id }
-        });
-      }
-
-      Logger.info(`Expired booking ${booking.id} - moved to cancelled status`);
+        // Create notification for vendor
+        if (service) {
+          await createNotification(
+            service.vendorId,
+            'Booking Expired',
+            `The ${service.name} booking has expired due to missed scheduled time.`,
+            { type: 'booking_update', bookingId: booking.id }
+          );
+        }      Logger.info(`Expired booking ${booking.id} - moved to cancelled status`);
 
     } catch (error) {
       Logger.error(`Error expiring booking ${booking.id}:`, error);
