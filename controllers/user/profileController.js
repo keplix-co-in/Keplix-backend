@@ -43,11 +43,16 @@ export const getUserProfileData = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
-    const { name, phone, address, profile_picture, id_proof_front, id_proof_back } = req.body;
+    let { name, phone, address, profile_picture, id_proof_front, id_proof_back } = req.body;
 
     // Verify user owns this profile
     if (req.user.id !== userId) {
       return res.status(403).json({ message: "Not authorized" });
+    }
+    
+    // If a file was uploaded by multer, use its path (Cloudinary URL) as the profile picture
+    if (req.file) {
+      profile_picture = req.file.path;
     }
 
     // Build update data - only include fields that are provided
