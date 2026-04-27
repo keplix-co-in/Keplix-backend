@@ -6,17 +6,74 @@ import { createPaymentSchema, verifyPaymentSchema } from '../../validators/user/
 
 const router = express.Router();
 
-// Webhook endpoint (NO AUTH - Razorpay calls this directly)
+/**
+ * @swagger
+ * /service_api/payments/razorpay-webhook:
+ *   post:
+ *     summary: Handle Razorpay webhook notifications
+ *     tags: [User]
+ *     responses:
+ *       200:
+ *         description: Webhook handled
+ */
 router.post('/payments/razorpay-webhook', handleRazorpayWebhook);
 
-// TEMPORARY: Auth removed for testing - ADD BACK BEFORE PRODUCTION!
+/**
+ * @swagger
+ * /service_api/payments/order/create:
+ *   post:
+ *     summary: Create a new Razorpay payment order
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               bookingId:
+ *                 type: string
+ *               amount:
+ *                 type: number
+ *               currency:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Order created successfully
+ */
 router.post('/payments/order/create', protect , validateRequest(createPaymentSchema), createPaymentOrder);
+
+/**
+ * @swagger
+ * /service_api/payments/verify:
+ *   post:
+ *     summary: Verify a Razorpay payment
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               razorpay_order_id:
+ *                 type: string
+ *               razorpay_payment_id:
+ *                 type: string
+ *               razorpay_signature:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Payment verified successfully
+ */
 router.post('/payments/verify', protect , validateRequest(verifyPaymentSchema), verifyPayment);
-// router.get('/user/:user_id/payments', protect, getUserPayments);
 
 // Aliases
 router.post('/payments/order/create/', validateRequest(createPaymentSchema), createPaymentOrder);
 router.post('/payments/verify/', validateRequest(verifyPaymentSchema), verifyPayment);
-// router.get('/user/:user_id/payments/', protect, getUserPayments);
 
 export default router;
