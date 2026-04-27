@@ -8,6 +8,7 @@ import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
+import swaggerUi from "swagger-ui-express";
 
 // Local Imports
 import { initSocket } from "./socket.js";
@@ -18,6 +19,7 @@ import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
+import swaggerSpec from "./config/swagger.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -118,8 +120,8 @@ app.use(
   helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'"],
+      scriptSrc: ["'self'","'unsafe-inline'"],
+      styleSrc: ["'self'","'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:", "https:"], // Added https for external images
       fontSrc: ["'self'", "data:"],
       connectSrc: [
@@ -161,6 +163,8 @@ app.get('/health', async (req, res) => {
     });
   }
 });
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Apply Global Rate Limiter
 app.use(limiter);

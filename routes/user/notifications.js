@@ -6,13 +6,141 @@ import { createNotificationSchema } from '../../validators/user/notificationVali
 
 const router = express.Router();
 
-router.put('/users/fcm-token', protect, updateFcmToken); // New Route
+/**
+ * @swagger
+ * /interactions/api/user/notifications/users/fcm-token:
+ *   put:
+ *     summary: Update FCM token for push notifications
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fcmToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: FCM token updated successfully
+ */
+router.put('/users/fcm-token', protect, updateFcmToken);
+
+/**
+ * @swagger
+ * /interactions/api/user/notifications/users/{user_id}/notifications:
+ *   get:
+ *     summary: Get user notifications
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: user_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of notifications
+ */
 router.get('/users/:user_id/notifications', protect, getNotifications);
+
+/**
+ * @swagger
+ * /interactions/api/user/notifications/notifications/{id}/mark-read:
+ *   put:
+ *     summary: Mark a notification as read
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ */
 router.put('/notifications/:id/mark-read', protect, markRead);
+
+/**
+ * @swagger
+ * /interactions/api/user/notifications/notifications/create:
+ *   post:
+ *     summary: Create a notification (Internal/Admin use)
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userId:
+ *                 type: string
+ *               title:
+ *                 type: string
+ *               message:
+ *                 type: string
+ *               type:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Notification created
+ */
 router.post('/notifications/create', protect, validateRequest(createNotificationSchema), createNotification);
 
-// New escrow-compatible routes
+/**
+ * @swagger
+ * /interactions/api/user/notifications/user/{userId}/notifications/read-all:
+ *   put:
+ *     summary: Mark all notifications as read for a user
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: All notifications marked as read
+ */
 router.put('/user/:userId/notifications/read-all', protect, markAllRead);
+
+/**
+ * @swagger
+ * /interactions/api/user/notifications/user/{userId}/notifications/{id}:
+ *   delete:
+ *     summary: Delete a notification
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification deleted
+ */
 router.delete('/user/:userId/notifications/:id', protect, deleteNotification);
 
 // Aliases
