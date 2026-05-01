@@ -254,15 +254,14 @@ export const getVendorEarnings = async (req, res) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     
-    const baseWhere = {
-      booking: {
-        service: {
-          vendorId,
+      const baseWhere = {
+        booking: {
+          status: 'completed',
+          service: {
+            vendorId,
+          },
         },
-      },
-    };
-
-    
+      };    
     const [
       total,
       todayData,
@@ -320,16 +319,14 @@ export const getVendorEarnings = async (req, res) => {
     ]);
 
     
-    res.json({
-      today_earnings: today._sum?.vendorAmount || 0,
-      week_earnings: weekData._sum?.vendorAmount || 0,
-      month_earnings: monthData._sum?.vendorAmount || 0,
-      total_earnings: total._sum?.vendorAmount || 0,
-      pending_earnings: pendingData._sum?.vendorAmount || 0,
-      growth_percentage: 0,
-    });
-
-  } catch (error) {
+      res.json({
+        today_earnings: todayData._sum?.vendorAmount || 0,
+        week_earnings: weekData._sum?.vendorAmount || 0,
+        month_earnings: monthData._sum?.vendorAmount || 0,
+        total_earnings: total._sum?.vendorAmount || 0,
+        pending_earnings: pendingData._sum?.vendorAmount || 0,
+        growth_percentage: 0,
+      });  } catch (error) {
     console.error("Vendor earnings error:", error);
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
   }
