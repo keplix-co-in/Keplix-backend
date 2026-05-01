@@ -167,25 +167,31 @@ export const getServiceCategories = async (req, res) => {
 // @route   GET /service_api/user/services/featured
 export const getFeaturedServices = async (req, res) => {
   try {
-    const { limit = 10 } = req.query;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
 
-    // Get online vendor IDs first
     const onlineVendors = await prisma.vendorProfile.findMany({
       where: { is_online: true },
       select: { userId: true }
     });
+
     const onlineVendorIds = onlineVendors.map(v => v.userId);
 
+    const where = {
+      is_active: true,
+      is_featured: true,
+      vendorId: { in: onlineVendorIds }
+    };
+
     const services = await prisma.service.findMany({
-      where: {
-        is_active: true,
-        is_featured: true,
-        vendorId: { in: onlineVendorIds } // Only show featured services from online vendors
-      },
+      where,
+      skip: Number(skip),
       take: Number(limit),
       include: { vendor: { include: { vendorProfile: true } } },
       orderBy: { id: "desc" },
     });
+
+    const total = await prisma.service.count({ where });
 
     const enrichedServices = services.map((service) => ({
       ...service,
@@ -200,7 +206,16 @@ export const getFeaturedServices = async (req, res) => {
       cover_image: service.vendor?.vendorProfile?.cover_image || null,
     }));
 
-    res.json(enrichedServices);
+    res.json({
+      data: enrichedServices,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
