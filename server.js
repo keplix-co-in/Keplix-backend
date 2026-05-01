@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { env } from "./config/env.js"; 
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -7,14 +8,12 @@ import { fileURLToPath } from "url";
 import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
-import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
 
 // Local Imports
 import { initSocket } from "./socket.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import loggerMiddleware from "./middleware/loggerMiddleware.js";
-import sanitizeInput from "./middleware/sanitizeMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
@@ -39,6 +38,7 @@ import vendorReviewRoutes from "./routes/vendor/reviews.js";
 import vendorFeedbackRoutes from "./routes/vendor/feedback.js";
 import vendorInteractionRoutes from "./routes/vendor/interactions.js";
 import vendorNotificationRoutes from "./routes/vendor/notifications.js";
+import vendorPayoutRoutes from "./routes/vendor/vendorPayout.js";
 
 // User Routes
 import userProfileRoutes from "./routes/user/profile.js";
@@ -49,8 +49,6 @@ import userInteractionRoutes from "./routes/user/interactions.js";
 import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
-import { protect } from "./middleware/authMiddleware.js";
-
 
 // Admin Routes
 import authAdminRoutes from './routes/Admin/authAdmin.js';
@@ -60,52 +58,41 @@ import adminUserRoutes from './routes/Admin/user.js';
 import adminVendorRoutes from './routes/Admin/vendor.js';
 import adminFinanceRoutes from './routes/Admin/finance.js';
 
-
-
 // --- CONFIGURATION ---
 
 const app = express();
 const httpServer = createServer(app);
 
-// Check required environment variables on startup
-const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'CLOUDINARY_URL'];
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+// If env invalid → server will crash here with detailed error logs from Zod
+Logger.info("Environment variables validated successfully");
 
-if (missingVars.length > 0) {
-  Logger.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-  if (process.env.NODE_ENV === 'production') {
-    Logger.warn('Starting with missing environment variables - some features may not work');
-  }
-} else {
-  Logger.info('All required environment variables are set');
-}
-
+// Path setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Socket.IO
+// Socket.IO
 const io = initSocket(httpServer);
 app.set("io", io);
 
 // --- RATE LIMITERS ---
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 1000, 
-  standardHeaders: true, 
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many requests, please try again later." }
 });
 
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 20 : 50,
+  max: env.NODE_ENV === 'production' ? 20 : 50, // ✅ env use
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many authentication attempts, please try again in a few minutes." },
   skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
 });
 
-// Parsing & Sanitization
+// --- BODY PARSER ---
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -115,19 +102,16 @@ app.use(helmet());
 app.use(helmet.frameguard({ action: "deny" }));
 app.use(compression());
 
-// CSP Configuration
+// CSP
 app.use(
   helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'","'unsafe-inline'"],
-      styleSrc: ["'self'","'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"], // Added https for external images
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
       fontSrc: ["'self'", "data:"],
-      connectSrc: [
-        "'self'",
-        ...allowedOrigins
-      ],
+      connectSrc: ["'self'", ...allowedOrigins],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -137,22 +121,20 @@ app.use(
   })
 );
 
-// CORS Configuration — uses corsOptions from util/cors.js
+// CORS
 app.use(cors(corsOptions));
 
-
-app.use(sanitizeInput);
+// Static
 app.use("/media", express.static(path.join(__dirname, "media")));
 
-// Health Check Endpoint (before rate limiter)
+// --- HEALTH CHECK ---
 app.get('/health', async (req, res) => {
   try {
-    // Basic health check - just check if server is running
-    res.status(200).json({ 
-      status: 'healthy', 
+    res.status(200).json({
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
+      environment: env.NODE_ENV,
       database: !!prisma ? 'configured' : 'not configured'
     });
   } catch (error) {
@@ -164,48 +146,49 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// Swagger
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Apply Global Rate Limiter
+// Global rate limiter
 app.use(limiter);
 
 // --- ROUTES ---
 
-// 1. Authentication
+// Auth
 app.use("/accounts/auth", authLimiter, authRoutes);
 app.use("/accounts/auth", logoutRouter);
 
-
-// 2. Vendor
+// Vendor
 app.use("/accounts/vendor", vendorProfileRoutes);
-app.use("/accounts/documents", documentRoutes)
+app.use("/accounts/documents", documentRoutes);
 app.use("/service_api/vendor", vendorServiceRoutes);
 app.use("/service_api/vendor", vendorBookingRoutes);
-app.use("/service_api", inventoryRoutes); // Keeps original path
-app.use("/service_api", availabilityRoutes); // Keeps original path
+app.use("/service_api/vendor", vendorPayoutRoutes);
+app.use("/service_api", inventoryRoutes);
+app.use("/service_api", availabilityRoutes);
 app.use("/interactions/vendors", promotionRoutes);
-app.use("/interactions/api/vendor/reviews", vendorReviewRoutes);
-app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes);
+app.use("/interactions/api/vendor", vendorReviewRoutes);
+app.use("/interactions/api/vendor", vendorFeedbackRoutes);
 app.use("/interactions/api/vendor", vendorInteractionRoutes);
 app.use("/interactions/api/vendor", vendorNotificationRoutes);
 
-// 3. User
+// User
 app.use("/service_api/user", userServiceRoutes);
 app.use("/service_api/user", userBookingRoutes);
 app.use("/service_api/user", userProfileRoutes);
 
-// 4. Shared / Other
-app.use("/service_api", userServiceRoutes); // Original comment: matches /service_api/services/:id
+// Shared
+app.use("/service_api", userServiceRoutes);
 app.use("/service_api", userPaymentRoutes);
 app.use("/service_api", vendorPaymentRoutes);
 
-// 5. Interactions
+// Interactions
 app.use("/interactions/api/user", userInteractionRoutes);
-app.use("/interactions/api/user/notifications", userNotificationRoutes);
+app.use("/interactions/api/user", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
-// 6. Admin
+// Admin
 app.use("/admin/auth", authAdminRoutes);
 app.use("/admin", dashBoardRoutes);
 app.use("/admin", adminBookingRoutes);
@@ -213,21 +196,20 @@ app.use("/admin", adminUserRoutes);
 app.use("/admin", adminVendorRoutes);
 app.use("/admin", adminFinanceRoutes);
 
-
 // --- ERROR HANDLING ---
 app.use(notFound);
 app.use(errorHandler);
 
 // --- SERVER START ---
-const PORT = process.env.PORT || 8080;
+const PORT = env.PORT || 8080;
+
 httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
-  Logger.info(`🚀  Keplix Backend Running`);
-  Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
-  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
+  Logger.info(`🚀 Keplix Backend Running`);
+  Logger.info(`🌍 URL: http://0.0.0.0:${PORT}`);
+  Logger.info(`⚙️ Mode: ${env.NODE_ENV}`);
   Logger.info(`=================================`);
 
-  // Start booking status manager for automatic time-based transitions
   bookingStatusManager.start();
 });
 
@@ -235,7 +217,6 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 const gracefulShutdown = () => {
   Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
 
-  // Stop booking status manager
   bookingStatusManager.stop();
 
   httpServer.close(() => {
@@ -243,6 +224,7 @@ const gracefulShutdown = () => {
     process.exit(0);
   });
 };
+
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 

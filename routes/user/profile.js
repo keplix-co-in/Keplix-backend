@@ -1,7 +1,7 @@
 import express from 'express';
 import { getUserProfileData, updateUserProfile } from '../../controllers/user/profileController.js';
 import { protect } from '../../middleware/authMiddleware.js';
-import upload from '../../middleware/uploadMiddleware.js';
+import {uploadSingle} from '../../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -58,6 +58,6 @@ router.get('/:userId/profile', protect, getUserProfileData);
  *       200:
  *         description: User profile updated successfully
  */
-router.put('/:userId/profile', protect, upload.single('profile_picture'), updateUserProfile);
+router.put('/:userId/profile', protect, uploadSingle('profile_picture'), updateUserProfile);
 
 export default router;

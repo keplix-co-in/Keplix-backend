@@ -18,12 +18,12 @@ import {
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
-import upload from '../middleware/uploadMiddleware.js';
+import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
 // Upload middleware for profile images and ID proofs
-const uploadProfileFields = upload.fields([
+const uploadProfileFields = uploadFieldss([
   { name: 'profile_picture', maxCount: 1 },
   { name: 'id_proof_front', maxCount: 1 },
   { name: 'id_proof_back', maxCount: 1 }
