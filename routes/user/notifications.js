@@ -31,7 +31,7 @@ router.put('/users/fcm-token', protect, updateFcmToken);
 
 /**
  * @swagger
- * /interactions/api/user/notifications/users/{user_id}/notifications:
+ * /interactions/api/user/notifications/users/{user_id}:
  *   get:
  *     summary: Get user notifications
  *     tags: [User]
@@ -47,11 +47,11 @@ router.put('/users/fcm-token', protect, updateFcmToken);
  *       200:
  *         description: List of notifications
  */
-router.get('/users/:user_id/notifications', protect, getNotifications);
+router.get('/users/:user_id', protect, getNotifications);
 
 /**
  * @swagger
- * /interactions/api/user/notifications/notifications/{id}/mark-read:
+ * /interactions/api/user/notifications/{id}/mark-read:
  *   put:
  *     summary: Mark a notification as read
  *     tags: [User]
@@ -67,11 +67,11 @@ router.get('/users/:user_id/notifications', protect, getNotifications);
  *       200:
  *         description: Notification marked as read
  */
-router.put('/notifications/:id/mark-read', protect, markRead);
+router.put('/:id/mark-read', protect, markRead);
 
 /**
  * @swagger
- * /interactions/api/user/notifications/notifications/create:
+ * /interactions/api/user/notifications/create:
  *   post:
  *     summary: Create a notification (Internal/Admin use)
  *     tags: [User]
@@ -96,11 +96,11 @@ router.put('/notifications/:id/mark-read', protect, markRead);
  *       201:
  *         description: Notification created
  */
-router.post('/notifications/create', protect, validateRequest(createNotificationSchema), createNotification);
+router.post('/create', protect, validateRequest(createNotificationSchema), createNotification);
 
 /**
  * @swagger
- * /interactions/api/user/notifications/user/{userId}/notifications/read-all:
+ * /interactions/api/user/notifications/user/{userId}/read-all:
  *   put:
  *     summary: Mark all notifications as read for a user
  *     tags: [User]
@@ -116,11 +116,11 @@ router.post('/notifications/create', protect, validateRequest(createNotification
  *       200:
  *         description: All notifications marked as read
  */
-router.put('/user/:userId/notifications/read-all', protect, markAllRead);
+router.put('/user/:userId/read-all', protect, markAllRead);
 
 /**
  * @swagger
- * /interactions/api/user/notifications/user/{userId}/notifications/{id}:
+ * /interactions/api/user/notifications/user/{userId}/{id}:
  *   delete:
  *     summary: Delete a notification
  *     tags: [User]
@@ -141,10 +141,10 @@ router.put('/user/:userId/notifications/read-all', protect, markAllRead);
  *       200:
  *         description: Notification deleted
  */
-router.delete('/user/:userId/notifications/:id', protect, deleteNotification);
+router.delete('/user/:userId/:id', protect, deleteNotification);
 
 // Aliases
-router.get('/users/:user_id/notifications/', protect, getNotifications); 
-router.put('/notifications/:id/mark-read/', protect, markRead);
+router.get('/users/:user_id/', protect, getNotifications); 
+router.put('/:id/mark-read/', protect, markRead);
 
 export default router;

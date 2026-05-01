@@ -4,9 +4,38 @@ import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Matches /interactions/api/vendor/users/:user_id/notifications ?? 
-// Or better: /interactions/api/vendor/notifications
+/**
+ * @swagger
+ * /interactions/api/vendor/notifications:
+ *   get:
+ *     summary: Get all notifications for the vendor
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of notifications
+ */
 router.get('/notifications', protect, getVendorNotifications); 
+
+/**
+ * @swagger
+ * /interactions/api/vendor/notifications/{id}/mark-read:
+ *   put:
+ *     summary: Mark a notification as read
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ */
 router.put('/notifications/:id/mark-read', protect, markVendorRead);
 
 // Legacy support if needed, but cleaner:

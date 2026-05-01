@@ -15,10 +15,9 @@ export const getConversationByBooking = async (req, res) => {
       return res.status(400).json({ message: "Booking ID is required" });
     }
 
-    // 1. Verify booking belongs to user
     const booking = await prisma.booking.findUnique({
       where: { id: Number(bookingId) },
-      include: { conversation: true }
+      include: { conversation: true },
     });
 
     if (!booking) {
@@ -26,53 +25,42 @@ export const getConversationByBooking = async (req, res) => {
     }
 
     if (booking.userId !== userId) {
-      return res.status(403).json({ message: "Not authorized for this booking" });
+      return res.status(403).json({ message: "Not authorized" });
     }
 
-    // 2. Return conversation if exists, null if not
     if (booking.conversation) {
       return res.status(200).json(booking.conversation);
-    } else {
-      return res.status(404).json({ message: "No conversation found for this booking" });
     }
 
+    return res.status(404).json({ message: "No conversation found" });
   } catch (error) {
-    console.error("Get Conversation By Booking Error:", error);
-    return res.status(500).json({
-      message: "Failed to fetch conversation"
-    });
+    console.error("Get Conversation Error:", error);
+    res.status(500).json({ message: "Failed to fetch conversation" });
   }
 };
 
-// @desc    Create conversation for a booking (User Side)
-// @route   POST /interactions/api/user/conversations/create
+// @desc Create conversation
 export const createConversationId = async (req, res) => {
   try {
     const { bookingId } = req.body;
     const userId = req.user.id;
 
     if (!bookingId) {
-      return res.status(400).json({ message: "Booking ID is required" });
+      return res.status(400).json({ message: "Booking ID required" });
     }
 
-    // 1. Fetch booking
     const booking = await prisma.booking.findUnique({
       where: { id: Number(bookingId) },
     });
-    
 
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    // 2. Security: booking must belong to logged-in user
     if (booking.userId !== userId) {
-      return res
-        .status(403)
-        .json({ message: "Not authorized for this booking" });
+      return res.status(403).json({ message: "Not authorized" });
     }
 
-    // 3. Check if conversation already exists (idempotent)
     let conversation = await prisma.conversation.findFirst({
       where: { bookingId: booking.id },
     });
@@ -81,7 +69,6 @@ export const createConversationId = async (req, res) => {
       return res.status(200).json(conversation);
     }
 
-    // 4. Create new conversation
     conversation = await prisma.conversation.create({
       data: {
         bookingId: booking.id,
@@ -92,32 +79,33 @@ export const createConversationId = async (req, res) => {
     return res.status(201).json(conversation);
   } catch (error) {
     console.error("Create Conversation Error:", error);
-    return res.status(500).json({
-      message: "Failed to create conversation",
-    });
+    res.status(500).json({ message: "Failed to create conversation" });
   }
 };
 
+// FIXED & OPTIMIZED
 export const getConversations = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { cursor, limit = 20 } = req.query;
 
-    // 1. As Customer: Find bookings where I am the user
-    const customerBookings = await prisma.booking.findMany({
-      where: { userId: userId },
-      select: { id: true },
-    });
-
-    const allBookingIds = customerBookings.map((b) => b.id);
+    const safeLimit = Math.min(Number(limit), 50);
 
     const conversations = await prisma.conversation.findMany({
-      where: { bookingId: { in: allBookingIds } },
+      where: {
+        booking: {
+          userId: userId, // direct relation filter
+        },
+      },
+
       include: {
         booking: {
           include: {
             user: { include: { userProfile: true } },
             service: {
-              include: { vendor: { include: { vendorProfile: true } } },
+              include: {
+                vendor: { include: { vendorProfile: true } },
+              },
             },
           },
         },
@@ -126,26 +114,42 @@ export const getConversations = async (req, res) => {
           take: 1,
         },
       },
+
+      orderBy: {
+        updatedAt: "desc",
+      },
+
+      take: safeLimit,
+
+      ...(cursor && {
+        skip: 1,
+        cursor: { id: Number(cursor) },
+      }),
     });
 
-    res.json(conversations);
+    res.json({
+      success: true,
+      count: conversations.length,
+      data: conversations,
+      nextCursor:
+        conversations.length > 0
+          ? conversations[conversations.length - 1].id
+          : null,
+    });
   } catch (error) {
-    console.error(error);
+    console.error("Get Conversations Error:", error);
     res.status(500).json({ message: "Server Error" });
   }
 };
 
-// @desc    Get messages for a specific conversation
-// @route   GET /interactions/api/chat/:conversationId
+// @desc Get messages
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
 
-    // Validate access here (check if req.user.id belongs to this conversation)
-
     const messages = await prisma.message.findMany({
-      where: { conversationId: Number(conversationId) }, // Ensure ID is a number
-      orderBy: { sent_at: "asc" }, // Correct field name
+      where: { conversationId: Number(conversationId) },
+      orderBy: { sent_at: "asc" },
       include: {
         sender: {
           select: {
@@ -156,19 +160,19 @@ export const getMessages = async (req, res) => {
       },
     });
 
-    res.json(messages); // Return array directly for easier frontend mapping or { data: messages }
+    res.json(messages);
   } catch (error) {
-    console.error("Error fetching messages:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Get Messages Error:", error);
+    res.status(500).json({ message: "Failed to fetch messages" });
   }
 };
 
-// @desc    Send a message
-// @route   POST /interactions/api/chat/send
+// @desc Send message
 export const sendMessage = async (req, res) => {
   try {
     const { conversationId, message_text } = req.body;
     const senderId = req.user.id;
+
     if (!conversationId || !message_text) {
       return res.status(400).json({ message: "Missing fields" });
     }
@@ -176,63 +180,57 @@ export const sendMessage = async (req, res) => {
     const message = await prisma.message.create({
       data: {
         conversationId: Number(conversationId),
-        senderId: senderId,
-        message_text: message_text,
+        senderId,
+        message_text,
       },
       include: {
         sender: {
-          select: {
-            id: true,
-            role: true,
-          },
+          select: { id: true, role: true },
         },
       },
     });
 
-    // Update conversation updated_at
     await prisma.conversation.update({
       where: { id: Number(conversationId) },
       data: { updatedAt: new Date() },
     });
 
-    // Socket.io Emit
+    // Socket + Notification
     try {
       const io = getIO();
       io.to(String(conversationId)).emit("receive_message", message);
-      
-      // Notify other participant of the conversation
+
       const conversation = await prisma.conversation.findUnique({
         where: { id: Number(conversationId) },
         include: {
           booking: {
             include: {
-              service: { select: { vendorId: true } }
-            }
-          }
-        }
+              service: { select: { vendorId: true } },
+            },
+          },
+        },
       });
 
-      if (conversation && conversation.booking) {
-        const receiverId = senderId === conversation.booking.userId 
-          ? conversation.booking.service.vendorId 
-          : conversation.booking.userId;
+      if (conversation?.booking) {
+        const receiverId =
+          senderId === conversation.booking.userId
+            ? conversation.booking.service.vendorId
+            : conversation.booking.userId;
 
         await createNotification(
-          receiverId, 
-          "New Message", 
-          `You have a new message: ${message_text.substring(0, 50)}${message_text.length > 50 ? '...' : ''}`,
-          { type: 'NEW_MESSAGE', conversationId: Number(conversationId) }
+          receiverId,
+          "New Message",
+          `You have a new message: ${message_text.slice(0, 50)}`,
+          { type: "NEW_MESSAGE", conversationId: Number(conversationId) }
         );
       }
-    } catch (socketError) {
-      console.error("Socket emit/notify failed:", socketError);
+    } catch (err) {
+      console.error("Socket/Notification Error:", err);
     }
 
     res.status(201).json(message);
   } catch (error) {
-    console.error(error);
+    console.error("Send Message Error:", error);
     res.status(500).json({ message: "Failed to send message" });
   }
 };
-
-

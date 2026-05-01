@@ -2,8 +2,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../util/prisma.js";
 
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export const protect = async (req, res, next) => {
   let token;
