@@ -239,94 +239,85 @@ export const getVendorEarnings = async (req, res) => {
 
     const now = new Date();
 
-   
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-   
     const startOfWeek = new Date();
     const day = startOfWeek.getDay();
     const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
     startOfWeek.setDate(diff);
     startOfWeek.setHours(0, 0, 0, 0);
 
-  
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    
       const baseWhere = {
         booking: {
-          status: 'completed',
+          status: { notIn: ['cancelled', 'canceled'] },
           service: {
             vendorId,
           },
         },
-      };    
-    const [
-      total,
-      todayData,
-      weekData,
-      monthData,
-      pendingData,
-    ] = await Promise.all([
-      
-      prisma.payment.aggregate({
-        _sum: { vendorAmount: true },
-        where: {
-          ...baseWhere,
-          status: "success",
-        },
-      }),
+      };
 
-      
-      prisma.payment.aggregate({
-        _sum: { vendorAmount: true },
-        where: {
-          ...baseWhere,
-          status: "success",
-          createdAt: { gte: today },
+      const pendingWhere = {
+        booking: {
+          status: { notIn: ['cancelled', 'canceled'] },
+          service: {
+            vendorId,
+          },
         },
-      }),
+      };      const [total, todayData, weekData, monthData, pendingData] = await Promise.all([
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+          },
+        }),
 
-  
-      prisma.payment.aggregate({
-        _sum: { vendorAmount: true },
-        where: {
-          ...baseWhere,
-          status: "success",
-          createdAt: { gte: startOfWeek },
-        },
-      }),
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: today },
+          },
+        }),
 
-   
-      prisma.payment.aggregate({
-        _sum: { vendorAmount: true },
-        where: {
-          ...baseWhere,
-          status: "success",
-          createdAt: { gte: startOfMonth },
-        },
-      }),
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: startOfWeek },
+          },
+        }),
 
-      
-      prisma.payment.aggregate({
-        _sum: { vendorAmount: true },
-        where: {
-          ...baseWhere,
-          status: "pending",
-        },
-      }),
-    ]);
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: startOfMonth },
+          },
+        }),
 
-    
-      res.json({
-        today_earnings: todayData._sum?.vendorAmount || 0,
-        week_earnings: weekData._sum?.vendorAmount || 0,
-        month_earnings: monthData._sum?.vendorAmount || 0,
-        total_earnings: total._sum?.vendorAmount || 0,
-        pending_earnings: pendingData._sum?.vendorAmount || 0,
-        growth_percentage: 0,
-      });  } catch (error) {
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...pendingWhere,
+            vendorPayoutStatus: "pending",
+          },
+        }),
+      ]);    res.json({
+      today_earnings: todayData._sum?.vendorAmount ? Number(todayData._sum.vendorAmount) : 0,
+      week_earnings: weekData._sum?.vendorAmount ? Number(weekData._sum.vendorAmount) : 0,
+      month_earnings: monthData._sum?.vendorAmount ? Number(monthData._sum.vendorAmount) : 0,
+      total_earnings: total._sum?.vendorAmount ? Number(total._sum.vendorAmount) : 0,
+      pending_earnings: pendingData._sum?.vendorAmount ? Number(pendingData._sum.vendorAmount) : 0,
+      growth_percentage: 0,
+    });
+  } catch (error) {
     console.error("Vendor earnings error:", error);
     res.status(500).json({ message: "Failed to fetch vendor earnings" });
   }
