@@ -40,6 +40,10 @@ export const protect = async (req, res, next) => {
                  return res.status(403).json({ message: 'Account is inactive' });
             }
 
+            if (req.user.is_verified === false) {
+                 return res.status(403).json({ message: 'Account not verified' });
+            }
+
       next();
     } catch (error) {
       console.error('Auth Middleware Error:', error);
