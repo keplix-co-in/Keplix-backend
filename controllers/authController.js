@@ -669,7 +669,7 @@ export const googleLogin = async (req, res) => {
     // Default name if missing
     name = name || email.split("@")[0];
 
-    let user = await prisma.user.findUnique({ 
+    let user = await prisma.user.findUnique({
       where: { email },
       include: {
         userProfile: true,
@@ -677,7 +677,10 @@ export const googleLogin = async (req, res) => {
       }
     });
 
+    let isNewUser = false;
+
     if (!user) {
+      isNewUser = true;
       // Register new user
       user = await prisma.user.create({
         data: {
@@ -745,6 +748,7 @@ export const googleLogin = async (req, res) => {
       access: generateAccessToken(user.id),
       refresh: generateRefreshToken(user.id),
       user: userData,
+      isNewUser: isNewUser
     });
   } catch (error) {
     console.error("Google Login Error:", error);
