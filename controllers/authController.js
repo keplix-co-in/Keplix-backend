@@ -182,8 +182,18 @@ export const authUser = async (req, res) => {
           email: user.email,
           role: user.role,
           is_active: user.is_active,
+          is_verified: user.is_verified,
           ...profileData,
         };
+
+        if (!user.is_verified) {
+          return res.status(403).json({ 
+            success: false,
+            message: "Account not verified. Please verify your email or phone.",
+            user: userData,
+            code: "UNVERIFIED"
+          });
+        }
 
         return res.json({
           user: userData,
@@ -468,6 +478,17 @@ export const verifyPhoneOTP = async (req, res) => {
       data: { verified: true },
     });
 
+    // Also mark the user as verified
+    await prisma.user.updateMany({
+      where: {
+        OR: [
+          { userProfile: { phone: phone_number } },
+          { vendorProfile: { phone: phone_number } }
+        ]
+      },
+      data: { is_verified: true }
+    });
+
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
     console.error("verifyPhoneOTP error:", error);
@@ -584,6 +605,12 @@ export const verifyEmailOTP = async (req, res) => {
     await prisma.emailOTP.update({
       where: { id: record.id },
       data: { verified: true },
+    });
+
+    // Mark user as verified
+    await prisma.user.update({
+      where: { email: record.email },
+      data: { is_verified: true },
     });
 
     // Fetch user using email from DB (not from client)

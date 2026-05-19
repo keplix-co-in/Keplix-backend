@@ -12,6 +12,7 @@ model User {
   password            String
   role                String               @default("user")
   is_active           Boolean              @default(true)
+  is_verified         Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   fcmToken            String?
