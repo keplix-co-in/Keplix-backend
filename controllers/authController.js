@@ -68,7 +68,7 @@ const verifyDjangoPassword = (password, hash) => {
 // @route   POST /accounts/auth/signup/
 // @access  Public
 export const registerUser = async (req, res, next) => {
-  const { email, password, role, name, phone } = req.body;
+  const { email, password, role } = req.body;
 
   try {
     const userExists = await prisma.user.findUnique({
@@ -95,31 +95,13 @@ export const registerUser = async (req, res, next) => {
       },
     });
 
-    // Create Profile based on role
-    if (role === "vendor") {
-      await prisma.vendorProfile.create({
-        data: {
-          userId: user.id,
-          business_name: name || (email ? email.split("@")[0] : "New Vendor"),
-          phone: phone || "",
-          onboarding_completed: false,
-        },
-      });
-    } else {
-      await prisma.userProfile.create({
-        data: {
-          userId: user.id,
-          name: name || (email ? email.split("@")[0] : "User"),
-          phone: phone || "",
-        },
-      });
-    }
-
     res.status(201).json({
+      success: true,
+      message: "Account created. Please verify your email to continue.",
       id: user.id,
       email: user.email,
       role: user.role,
-      token: generateToken(user.id),
+      code: "PENDING_VERIFICATION",
     });
   } catch (error) {
     console.error(error);
@@ -177,15 +159,34 @@ export const authUser = async (req, res) => {
           };
         }
 
-        const userData = {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          is_active: user.is_active,
-          ...profileData,
-        };
+          const hasProfile = user.userProfile || user.vendorProfile;
+          
+          if (hasProfile && !user.is_verified) {
+             // Treat legacy users with profiles as verified
+             user.is_verified = true;
+             await prisma.user.update({
+               where: { id: user.id },
+               data: { is_verified: true }
+             });
+          }
 
-        return res.json({
+          const userData = {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            is_active: user.is_active,
+            is_verified: user.is_verified,
+            ...profileData,
+          };
+
+          if (!user.is_verified && !hasProfile) {
+            return res.status(403).json({
+              success: false,
+              message: "Account not verified. Please verify your email or phone.",
+              user: userData,
+              code: "UNVERIFIED"
+            });
+          }        return res.json({
           user: userData,
           access: generateAccessToken(user.id),
           refresh: generateRefreshToken(user.id),
@@ -196,6 +197,14 @@ export const authUser = async (req, res) => {
     res.status(401).json({ message: "Invalid email or password" });
   } catch (error) {
     console.error(error);
+
+    if (error.code === 'P2022') {
+      return res.status(500).json({
+        message: "Database schema is out of sync. Please update the backend database and try again.",
+        code: "DATABASE_SCHEMA_MISMATCH",
+      });
+    }
+
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -468,6 +477,46 @@ export const verifyPhoneOTP = async (req, res) => {
       data: { verified: true },
     });
 
+    // Also mark the user as verified
+    const matchedUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { userProfile: { phone: phone_number } },
+          { vendorProfile: { phone: phone_number } }
+        ]
+      },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    for (const matchedUser of matchedUsers) {
+      await prisma.user.update({
+        where: { id: matchedUser.id },
+        data: { is_verified: true },
+      });
+
+      if (matchedUser.role === "vendor" && !matchedUser.vendorProfile) {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: matchedUser.id,
+            business_name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+            onboarding_completed: false,
+          },
+        });
+      } else if (matchedUser.role !== "vendor" && !matchedUser.userProfile) {
+        await prisma.userProfile.create({
+          data: {
+            userId: matchedUser.id,
+            name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+          },
+        });
+      }
+    }
+
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
     console.error("verifyPhoneOTP error:", error);
@@ -586,6 +635,39 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
+    // Mark user as verified
+    await prisma.user.update({
+      where: { email: record.email },
+      data: { is_verified: true },
+    });
+
+    const verifiedUser = await prisma.user.findUnique({
+      where: { email: record.email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    if (verifiedUser && verifiedUser.role === "vendor" && !verifiedUser.vendorProfile) {
+      await prisma.vendorProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          business_name: verifiedUser.email.split("@")[0],
+          phone: "",
+          onboarding_completed: false,
+        },
+      });
+    } else if (verifiedUser && verifiedUser.role !== "vendor" && !verifiedUser.userProfile) {
+      await prisma.userProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          name: verifiedUser.email.split("@")[0],
+          phone: "",
+        },
+      });
+    }
+
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
       where: { email: record.email },
@@ -669,7 +751,7 @@ export const googleLogin = async (req, res) => {
     // Default name if missing
     name = name || email.split("@")[0];
 
-    let user = await prisma.user.findUnique({ 
+    let user = await prisma.user.findUnique({
       where: { email },
       include: {
         userProfile: true,
@@ -677,7 +759,10 @@ export const googleLogin = async (req, res) => {
       }
     });
 
+    let isNewUser = false;
+
     if (!user) {
+      isNewUser = true;
       // Register new user
       user = await prisma.user.create({
         data: {
@@ -745,6 +830,7 @@ export const googleLogin = async (req, res) => {
       access: generateAccessToken(user.id),
       refresh: generateRefreshToken(user.id),
       user: userData,
+      isNewUser: isNewUser
     });
   } catch (error) {
     console.error("Google Login Error:", error);

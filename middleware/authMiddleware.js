@@ -2,8 +2,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../util/prisma.js";
 
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export const protect = async (req, res, next) => {
   let token;
@@ -39,6 +38,20 @@ export const protect = async (req, res, next) => {
             // Check for activity if needed (can be separate middleware but good safety net)
             if (req.user.is_active === false) {
                  return res.status(403).json({ message: 'Account is inactive' });
+            }
+
+            if (req.user.is_verified === false) {
+                 const hasProfile = req.user.userProfile || req.user.vendorProfile;
+                 if (hasProfile) {
+                     // Auto-verify legacy accounts that already have a profile
+                     await prisma.user.update({
+                         where: { id: req.user.id },
+                         data: { is_verified: true }
+                     });
+                     req.user.is_verified = true;
+                 } else {
+                     return res.status(403).json({ message: 'Account not verified' });
+                 }
             }
 
       next();
