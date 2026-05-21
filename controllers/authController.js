@@ -68,7 +68,7 @@ const verifyDjangoPassword = (password, hash) => {
 // @route   POST /accounts/auth/signup/
 // @access  Public
 export const registerUser = async (req, res, next) => {
-  const { email, password, role, name, phone } = req.body;
+  const { email, password, role } = req.body;
 
   try {
     const userExists = await prisma.user.findUnique({
