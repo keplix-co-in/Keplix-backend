@@ -41,7 +41,17 @@ export const protect = async (req, res, next) => {
             }
 
             if (req.user.is_verified === false) {
-                 return res.status(403).json({ message: 'Account not verified' });
+                 const hasProfile = req.user.userProfile || req.user.vendorProfile;
+                 if (hasProfile) {
+                     // Auto-verify legacy accounts that already have a profile
+                     await prisma.user.update({
+                         where: { id: req.user.id },
+                         data: { is_verified: true }
+                     });
+                     req.user.is_verified = true;
+                 } else {
+                     return res.status(403).json({ message: 'Account not verified' });
+                 }
             }
 
       next();
