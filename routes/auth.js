@@ -42,15 +42,17 @@ const uploadProfileFields = uploadFieldss([
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - email
+ *               - password
  *             properties:
- *               name:
- *                 type: string
  *               email:
  *                 type: string
  *               password:
  *                 type: string
- *               phone:
+ *               role:
  *                 type: string
+ *                 description: Standard user ('user') or vendor ('vendor')
  *     responses:
  *       201:
  *         description: User registered successfully
