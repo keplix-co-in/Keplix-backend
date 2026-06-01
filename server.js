@@ -19,6 +19,7 @@ import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import swaggerSpec from "./config/swagger.js";
+import notificationWorker from "./workers/notificationWorker.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -218,6 +219,14 @@ const gracefulShutdown = () => {
   Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
 
   bookingStatusManager.stop();
+
+  if (notificationWorker) {
+    notificationWorker.close().then(() => {
+      Logger.info('Notification worker closed.');
+    }).catch(err => {
+      Logger.error('Error closing notification worker:', err);
+    });
+  }
 
   httpServer.close(() => {
     Logger.info('HTTP server closed.');
