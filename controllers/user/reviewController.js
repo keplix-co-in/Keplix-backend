@@ -6,118 +6,197 @@
 // @route   GET /interactions/api/reviews/
 export const getReviews = async (req, res) => {
     try {
-        const { vendor_id } = req.query;
+        const { vendor_id, user_id } = req.query;
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
         let where = {};
-        
-        if (vendor_id) {
-            // Filter reviews where the booking's service belongs to this vendor
-            // Note: Reviews are linked to Booking. Booking has Service. Service has vendorId.
-            // But Prisma schema Review -> Booking -> Service ?? 
-            // Let's check schema.
-            // If Review is directly linked to Vendor, or via Booking.
-            // Assuming Review -> Booking. And Booking -> Service -> User(Vendor)
-             where = {
-                booking: {
-                    service: {
-                         vendorId: parseInt(vendor_id)
-                    }
-                }
+
+        if (user_id) {
+            where.userId = parseInt(user_id);
+        } else if (vendor_id) {
+            where.booking = {
+                service: { vendorId: parseInt(vendor_id) },
             };
         }
 
         const reviews = await prisma.review.findMany({
             where,
-            include: { 
-                user: { include: { userProfile: true } }, // The reviewer (customer)
-                booking: { include: { service: true } }   // The service context
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        userProfile: { select: { name: true, profile_picture: true } },
+                    },
+                },
+                booking: {
+                    include: {
+                        service: {
+                            include: {
+                                vendor: {
+                                    select: {
+                                        id: true,
+                                        vendorProfile: {
+                                            select: {
+                                                business_name: true,
+                                                image: true,
+                                                cover_image: true,
+                                                address: true,
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
             },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
         });
-        res.json(reviews);
+
+        // Prefix relative media paths with the server base URL
+        const formatted = reviews.map((review) => {
+            const vp = review.booking?.service?.vendor?.vendorProfile;
+            if (!vp) return review;
+            return {
+                ...review,
+                booking: {
+                    ...review.booking,
+                    service: {
+                        ...review.booking.service,
+                        image_url: review.booking.service.image_url?.startsWith('http')
+                            ? review.booking.service.image_url
+                            : review.booking.service.image_url
+                                ? `${baseUrl}${review.booking.service.image_url}`
+                                : null,
+                        vendor: {
+                            ...review.booking.service.vendor,
+                            vendorProfile: {
+                                ...vp,
+                                cover_image: vp.cover_image?.startsWith('http')
+                                    ? vp.cover_image
+                                    : vp.cover_image
+                                        ? `${baseUrl}${vp.cover_image}`
+                                        : null,
+                                image: vp.image?.startsWith('http')
+                                    ? vp.image
+                                    : vp.image
+                                        ? `${baseUrl}${vp.image}`
+                                        : null,
+                            },
+                        },
+                    },
+                },
+            };
+        });
+
+        res.json({ success: true, data: formatted });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 }
 
-// @desc    Create a review for a vendor
-// @route   POST /interactions/api/reviews
+// @desc    Create a review for a booking
+// @route   POST /interactions/api/reviews/create
 // @access  Private (User)
 export const createReview = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { vendorId, rating, comment } = req.body; // Expecting vendorId (VendorProfile ID), not User ID
+    const { bookingId, rating, comment } = req.body;
 
-    // 1. Check if user has a COMPLETED booking with this vendor
-    // This prevents fake reviews from people who haven't used the service
-    const hasBooking = await prisma.booking.findFirst({
+    // 1. Load the booking and verify it belongs to this user and is completed
+    const booking = await prisma.booking.findFirst({
       where: {
+        id: parseInt(bookingId),
         userId: userId,
-        vendorId: parseInt(vendorId),
-        status: 'completed', // CRITICAL CHECK
+        status: { in: ['service_completed', 'user_confirmed', 'completed'] },
       },
+      include: { service: true },
     });
 
-    if (!hasBooking) {
+    if (!booking) {
       return res.status(403).json({
         success: false,
-        message: 'You can only review vendors after a completed service.',
-        code: 'NO_BOOKING_FOUND'
+        message: 'You can only review after the service has been completed.',
+        code: 'NO_BOOKING_FOUND',
       });
     }
 
-    // 2. Check if already reviewed (Optional: allow 1 review per booking?)
-    // For now, let's limit 1 review per User-Vendor pair to keep it simple,
-    // or remove this block if you want to allow multiple reviews.
-    const existingReview = await prisma.review.findFirst({
-      where: {
-        userId: userId,
-        vendorId: parseInt(vendorId),
-      },
+    // 2. Prevent duplicate reviews for the same booking
+    const existingReview = await prisma.review.findUnique({
+      where: { bookingId: parseInt(bookingId) },
     });
 
     if (existingReview) {
       return res.status(400).json({
         success: false,
-        message: 'You have already reviewed this vendor.',
-        code: 'DUPLICATE_REVIEW'
+        message: 'You have already submitted a review for this booking.',
+        code: 'DUPLICATE_REVIEW',
       });
     }
 
-    // 3. Create the Review
+    // 3. Create the review
     const review = await prisma.review.create({
       data: {
+        bookingId: parseInt(bookingId),
         userId,
-        vendorId: parseInt(vendorId),
         rating: parseFloat(rating),
-        comment,
+        comment: comment || null,
       },
     });
 
-    // 4. FIX: Recalculate Vendor Average Rating
-    const aggregates = await prisma.review.aggregate({
-      where: { vendorId: parseInt(vendorId) },
-      _avg: { rating: true },
-      _count: { rating: true },
-    });
+    // 4. Recalculate vendor average rating via VendorProfile
+    const vendorId = booking.service?.vendorId;
+    if (vendorId) {
+      const vendorBookingIds = await prisma.booking.findMany({
+        where: { service: { vendorId } },
+        select: { id: true },
+      });
+      const ids = vendorBookingIds.map((b) => b.id);
+      const aggregates = await prisma.review.aggregate({
+        where: { bookingId: { in: ids } },
+        _avg: { rating: true },
+        _count: { rating: true },
+      });
+      await prisma.vendorProfile.updateMany({
+        where: { userId: vendorId },
+        data: {
+          rating: aggregates._avg.rating || 0.0,
+          numReviews: aggregates._count.rating || 0,
+        },
+      });
+    }
 
-    // Update Vendor Profile with new stats
-    await prisma.vendorProfile.update({
-      where: { id: parseInt(vendorId) },
-      data: {
-        rating: aggregates._avg.rating || 0.0,
-        numReviews: aggregates._count.rating || 0,
-      },
-    });
-
-    res.status(201).json({ 
-      success: true, 
+    res.status(201).json({
+      success: true,
       data: review,
-      message: 'Review added and vendor rating updated.' 
+      message: 'Review submitted successfully.',
     });
-
   } catch (error) {
     console.error('Create Review Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+};
+
+// @desc    Delete a review
+// @route   DELETE /interactions/api/reviews/:id
+// @access  Private (User — own reviews only)
+export const deleteReview = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const reviewId = parseInt(req.params.id);
+
+    const review = await prisma.review.findUnique({ where: { id: reviewId } });
+    if (!review) {
+      return res.status(404).json({ success: false, message: 'Review not found.' });
+    }
+    if (review.userId !== userId) {
+      return res.status(403).json({ success: false, message: 'Not authorised to delete this review.' });
+    }
+
+    await prisma.review.delete({ where: { id: reviewId } });
+    res.json({ success: true, message: 'Review deleted.' });
+  } catch (error) {
+    console.error('Delete Review Error:', error);
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
 };

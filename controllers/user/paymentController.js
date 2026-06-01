@@ -212,8 +212,6 @@ export const createPaymentOrder = async (req, res) => {
       gateway: 'razorpay'
     };
 
-    console.log('âœ… [Razorpay] Order created:', responseData);
-
     return res.json(responseData);
   } catch (error) {
     console.error("Create payment order error:", error);
@@ -252,10 +250,20 @@ export const verifyPayment = async (req, res) => {
     }
     // Verified
 
+    // Platform Fee Configuration
+    const ENABLE_PLATFORM_FEE = true; // Set to false to disable platform charges
+    const PLATFORM_FEE_PERCENTAGE = 0.1; // 10% fee
+
     // Commission calculation
     const totalAmount = Number(amount);
-    const platformFee = totalAmount * 0.1; // 10%
+    let platformFee = 0;
+    
+    if (ENABLE_PLATFORM_FEE) {
+      platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
+    }
+    
     const vendorAmount = totalAmount - platformFee;
+
 
     // Save payment
     const paymentData = {

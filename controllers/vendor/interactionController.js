@@ -165,9 +165,7 @@ export const sendVendorMessage = async (req, res) => {
         // Socket.io Emit
         try {
             const io = getIO();
-            console.log(`[Socket] Emitting message to room ${conversationId}:`, message.id);
             io.to(String(conversationId)).emit("receive_message", message);
-            console.log(`[Socket] Message emitted successfully`);
         } catch (socketError) {
              console.error("Socket emit failed:", socketError);
         }

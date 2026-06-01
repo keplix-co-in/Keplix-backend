@@ -35,8 +35,12 @@ export const getVendorBookings = async (req, res) => {
 
     // For order alerts, exclude past bookings (bookings that have already passed)
     // Only show future bookings or bookings from today onwards
+    // EXCEPTION: For completed/cancelled bookings, show all historical records
     const now = new Date();
-    if (!date && !date_from && !date_to) { // Only apply time filter when no specific date filters are set
+    const hasDateFilter = date || date_from || date_to;
+    const isCompletedStatus = status && (status.includes('completed') || status.includes('cancelled'));
+    
+    if (!hasDateFilter && !isCompletedStatus) { // Only apply time filter when no specific date filters are set AND not completed/cancelled
       query.booking_date = {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
       };
@@ -48,6 +52,7 @@ export const getVendorBookings = async (req, res) => {
         user: { include: { userProfile: true } },
         service: true,
         conversation: true, // Include conversation to get conversationId for chat
+        payment: true, // Include payment status
       },
       orderBy: { booking_date: "desc" },
     });
@@ -64,7 +69,6 @@ export const getVendorBookings = async (req, res) => {
 export const respondToServiceRequest = async (req, res) => {
   const { vendor_status } = req.body; // 'accepted' or 'rejected'
   const bookingId = parseInt(req.params.id);
-
   try {
     // Verify booking exists and belongs to vendor's services
     const booking = await prisma.booking.findFirst({
@@ -145,6 +149,8 @@ export const respondToServiceRequest = async (req, res) => {
           service: booking.service.name,
           message: "Your service request was declined."
         });
+      } else {
+        // Socket not available, notification already sent via push
       }
     }
 
@@ -163,12 +169,10 @@ export const respondToServiceRequest = async (req, res) => {
 // @desc    Update booking status
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
-  console.log('updateBookingStatus called with params:', req.params);
   const { status, notes } = req.body;
   const files = req.files || [];
 
   try {
-    console.log('About to update booking with id:', req.params.id, 'status:', status);
 
     // Validate Status Transitions for "Ongoing" Tab Features
     const currentBooking = await prisma.booking.findUnique({
@@ -220,9 +224,6 @@ export const updateBookingStatus = async (req, res) => {
         service: true
       }
     });
-    console.log('Booking updated successfully:', booking.id, 'Files received:', files.length);
-    console.log('Booking updated successfully:', booking.id);
-
     // === NOTIFICATIONS ===
     let title = "Booking Update";
     let body = `Your booking for ${booking.service.name} is now ${status}`;

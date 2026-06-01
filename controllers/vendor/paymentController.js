@@ -1,85 +1,4 @@
-﻿// import Razorpay from 'razorpay';
-// import Stripe from 'stripe';
-
-// const razorpay = new Razorpay({
-//     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-//     key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
-// });
-
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
-
-// // @desc    Create Vendor Payment Order (Subscription/Ads)
-// // @route   POST /service_api/vendor/payments/order/create
-// export const createVendorPaymentOrder = async (req, res) => {
-//     try {
-//         const { amount, currency = "INR", gateway } = req.body;
-
-//         if (!amount) {
-//             return res.status(400).json({ message: "Amount is required" });
-//         }
-
-//         if (gateway === 'stripe') {
-//             const paymentIntent = await stripe.paymentIntents.create({
-//                 amount: Math.round(amount * 100),
-//                 currency: currency.toLowerCase(),
-//                 automatic_payment_methods: { enabled: true },
-//                 metadata: { type: 'vendor_payment' }
-//             });
-
-//             return res.json({
-//                 id: paymentIntent.id,
-//                 clientSecret: paymentIntent.client_secret,
-//                 gateway: 'stripe'
-//             });
-
-//         } else {
-//             const options = {
-//                 amount: Math.round(amount * 100),
-//                 currency: currency,
-//                 receipt: "vendor_order_" + Date.now(),
-//             };
-
-//             const order = await razorpay.orders.create(options);
-
-//             return res.json({
-//                 id: order.id,
-//                 amount: order.amount,
-//                 currency: order.currency,
-//                 gateway: 'razorpay',
-//                 key_id: process.env.RAZORPAY_KEY_ID
-//             });
-//         }
-//     } catch (error) {
-//         console.error("Vendor Payment Order Error:", error);
-//         res.status(500).json({ message: "Payment creation failed", error: error.message });
-//     }
-// };
-
-// // @desc    Verify Vendor Payment
-// // @route   POST /service_api/vendor/payments/verify
-// export const verifyVendorPayment = async (req, res) => {
-//     // Implement signature verification here if needed for DB Storage
-//     res.json({ status: "success", message: "Vendor payment verified" });
-// };
-
-// // @desc    Get Vendor Payments/Earnings
-// // @route   GET /service_api/vendor/:vendor_id/payments/
-// export const getVendorPayments = async (req, res) => {
-//     res.json([]);
-// };
-
-// // @desc    Get Vendor Earnings
-// // @route   GET /service_api/vendor/:vendor_id/earning
-// export const getVendorEarnings = async (req, res) => {
-//     // Mock response for now
-//     res.json({
-//         today_earnings: 0,
-//         total_earnings: 0,
-//         growth_percentage: 0
-//     });
-// };
-
-import Razorpay from "razorpay";
+﻿import Razorpay from "razorpay";
 import crypto from "crypto";
 import prisma from "../../util/prisma.js";
 
@@ -236,38 +155,86 @@ export const getVendorPayments = async (req, res) => {
 export const getVendorEarnings = async (req, res) => {
   try {
     const vendorId = Number(req.params.vendor_id);
+
+    const now = new Date();
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const payments = await prisma.payment.findMany({
-      where: {
-        status: "success", // Count all successful payments
+    const startOfWeek = new Date();
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+    startOfWeek.setDate(diff);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const baseWhere = {
         booking: {
+          status: { notIn: ['cancelled', 'canceled'] },
           service: {
-            vendorId, 
+            vendorId,
           },
         },
-      },
-      select: {
-          amount: true,
-          vendorAmount: true,
-          createdAt: true
-      }
-    });
+      };
 
-    const total_earnings = payments.reduce(
-      (sum, p) => sum + Number(p.vendorAmount || p.amount || 0),
-      0
-    );
+      const pendingWhere = {
+        booking: {
+          status: { notIn: ['cancelled', 'canceled'] },
+          service: {
+            vendorId,
+          },
+        },
+      };      const [total, todayData, weekData, monthData, pendingData] = await Promise.all([
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+          },
+        }),
 
-    const today_earnings = payments
-        .filter(p => new Date(p.createdAt) >= today)
-        .reduce((sum, p) => sum + Number(p.vendorAmount || p.amount || 0), 0);
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: today },
+          },
+        }),
 
-    res.json({
-      today_earnings,
-      total_earnings,
-      growth_percentage: 12.5, // Dummy growth for now
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: startOfWeek },
+          },
+        }),
+
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...baseWhere,
+            vendorPayoutStatus: { in: ['paid', 'settled'] },
+            createdAt: { gte: startOfMonth },
+          },
+        }),
+
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: {
+            ...pendingWhere,
+            vendorPayoutStatus: "pending",
+          },
+        }),
+      ]);    res.json({
+      today_earnings: todayData._sum?.vendorAmount ? Number(todayData._sum.vendorAmount) : 0,
+      week_earnings: weekData._sum?.vendorAmount ? Number(weekData._sum.vendorAmount) : 0,
+      month_earnings: monthData._sum?.vendorAmount ? Number(monthData._sum.vendorAmount) : 0,
+      total_earnings: total._sum?.vendorAmount ? Number(total._sum.vendorAmount) : 0,
+      pending_earnings: pendingData._sum?.vendorAmount ? Number(pendingData._sum.vendorAmount) : 0,
+      growth_percentage: 0,
     });
   } catch (error) {
     console.error("Vendor earnings error:", error);

@@ -4,9 +4,14 @@ dotenv.config();
 const isProd = process.env.NODE_ENV === "production";
 
 // Read allowed origins from env (comma separated) or default for dev
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
-  : ["http://localhost:3000", "exp://192.168.1.8:8081"];
+const allowedOrigins = [
+  'https://admin.keplix.co.in',
+  'https://keplix.co.in',
+  'http://localhost:8000',
+  'http://localhost:5173', // <-- Add this line for the Admin local dev
+  'http://localhost:5174', // <-- Optional: if you run the website locally too
+  /\.vercel\.app$/ // allows vercel previews
+];
 
 /**
  * CORS Options
@@ -28,6 +33,11 @@ const corsOptions = {
 
     //Production Mode → Allow only whitelisted origins
     if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Always allow admin subdomain and vercel branch domains
+    if (origin.includes("keplix.co.in") || origin.includes("vercel.app") || origin.includes("localhost")) {
       return callback(null, true);
     }
 

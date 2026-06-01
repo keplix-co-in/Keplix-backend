@@ -1,5 +1,5 @@
-﻿import prisma from "../../util/prisma.js";
-import { createNotification } from "../../util/notificationHelper.js";
+import prisma from "../../util/prisma.js";
+import { addNotificationJob } from "../../queues/notificationQueue.js";
 
 
 // @desc    Get payment by bookingId
@@ -33,7 +33,7 @@ export const getPaymentByBooking = async (req, res) => {
 export const getUserBookings = async (req, res) => {
   try {
     // query params
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 200, search } = req.query;
     const skip = (page - 1) * limit;
 
     let where = { userId: req.user.id };
@@ -61,6 +61,7 @@ export const getUserBookings = async (req, res) => {
         service: {
           include: { vendor: { include: { vendorProfile: true } } },
         },
+        payment: true, // Include Payment info
       },
       orderBy: { booking_date: "desc" },
     });
@@ -132,7 +133,6 @@ export const getSingleBooking = async (req, res) => {
 export const createBooking = async (req, res) => {
 
     const { serviceId, booking_date, booking_time, notes } = req.body;
-    console.log("Creating booking request for user:", req.user.id);
 
     try {
         // Create booking with vendor_status = 'pending' (waiting for vendor acceptance)
@@ -159,34 +159,24 @@ export const createBooking = async (req, res) => {
             }
         });
 
-        // Notify Vendor about new request
+        // Notify Vendor about new request via Queue
         if (booking.service && booking.service.vendorId) {
-            console.log(`ðŸ“¨ [BOOKING] New booking created! ID: ${booking.id}, Vendor: ${booking.service.vendorId}, Service: ${booking.service.name}`);
-            
-            try {
-                await createNotification(
-                    booking.service.vendorId, 
-                    "New Service Request", 
-                    `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
-                    { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
-                );
-                console.log(`âœ… [BOOKING] Notification sent to vendor ${booking.service.vendorId}`);
-            } catch (notifError) {
-                console.error(`âŒ [BOOKING] Failed to send notification:`, notifError);
-            }
-            
-            // Get socket instance and notify vendor in real-time
-            const io = req.app.get("io");
-            if (io) {
-                io.to(`user_${booking.service.vendorId}`).emit("new_service_request", {
+            await addNotificationJob({
+                type: 'NEW_BOOKING_ALERT',
+                recipientId: booking.service.vendorId,
+                title: "New Service Request",
+                body: `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
+                metadata: { type: 'NEW_BOOKING_ALERT', bookingId: booking.id },
+                socketEvent: "new_service_request",
+                socketData: {
                     bookingId: booking.id,
                     service: booking.service.name,
                     userName: booking.user.userProfile?.name || 'User',
                     date: booking_date,
                     time: booking_time,
                     message: "You have a new service request! Please accept or reject."
-                });
-            }
+                }
+            });
         }
 
         res.status(201).json({
@@ -283,21 +273,46 @@ export const updateBooking = async (req, res) => {
     });
 
     if (status === "cancelled") {
-         await createNotification(
-            updatedBooking.service.vendorId,
-            "Booking Cancelled",
-             `Booking for ${updatedBooking.service.name} was cancelled by the user.`
-        );
-
-        // Socket notify vendor
-        const io = req.app.get("io");
-        if (io) {
-            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_cancelled", {
+        // Queue cancellation notification for vendor
+        await addNotificationJob({
+            type: 'BOOKING_CANCELLED',
+            recipientId: updatedBooking.service.vendorId,
+            title: "Booking Cancelled",
+            body: `Booking for ${updatedBooking.service.name} was cancelled by the user.`,
+            socketEvent: "booking_cancelled",
+            socketData: {
                 bookingId: updatedBooking.id,
                 service: updatedBooking.service.name,
                 message: "This booking was cancelled by the user."
-            });
+            }
+        });
+    }
+
+    // Queue update notification for user and vendor via Queue
+    // Notify the user who made the change
+    await addNotificationJob({
+        type: 'BOOKING_UPDATED',
+        recipientId: req.user.id,
+        socketEvent: "booking_updated",
+        socketData: {
+            bookingId: updatedBooking.id,
+            action: status === "cancelled" ? "cancelled" : "updated",
+            message: status === "cancelled" ? "Your booking was cancelled" : "Your booking was updated"
         }
+    });
+
+    // Notify the vendor if it's not a cancellation (vendors get specific cancellation events)
+    if (status !== "cancelled") {
+        await addNotificationJob({
+            type: 'BOOKING_RESCHEDULED',
+            recipientId: updatedBooking.service.vendorId,
+            socketEvent: "booking_updated",
+            socketData: {
+                bookingId: updatedBooking.id,
+                action: "rescheduled",
+                message: `Booking for ${updatedBooking.service.name} was rescheduled by the user`
+            }
+        });
     }
 
     res.json(updatedBooking);
