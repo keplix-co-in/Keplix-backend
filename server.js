@@ -50,14 +50,15 @@ import userInteractionRoutes from "./routes/user/interactions.js";
 import userNotificationRoutes from "./routes/user/notifications.js";
 import reviewRoutes from "./routes/user/reviews.js";
 import feedbackRoutes from "./routes/user/feedback.js";
+import { protect } from "./middleware/authMiddleware.js";
 
 // Admin Routes
-import authAdminRoutes from './routes/Admin/authAdmin.js';
-import dashBoardRoutes from './routes/Admin/dashBoard.js';
-import adminBookingRoutes from './routes/Admin/bookings.js';
-import adminUserRoutes from './routes/Admin/user.js';
-import adminVendorRoutes from './routes/Admin/vendor.js';
-import adminFinanceRoutes from './routes/Admin/finance.js';
+import authAdminRoutes from "./routes/Admin/authAdmin.js";
+import dashBoardRoutes from "./routes/Admin/dashBoard.js";
+import adminBookingRoutes from "./routes/Admin/bookings.js";
+import adminUserRoutes from "./routes/Admin/user.js";
+import adminVendorRoutes from "./routes/Admin/vendor.js";
+import adminFinanceRoutes from "./routes/Admin/finance.js";
 
 // --- CONFIGURATION ---
 
@@ -185,7 +186,7 @@ app.use("/service_api", vendorPaymentRoutes);
 
 // Interactions
 app.use("/interactions/api/user", userInteractionRoutes);
-app.use("/interactions/api/user", userNotificationRoutes);
+app.use("/interactions/api/user/notifications", userNotificationRoutes);
 app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 

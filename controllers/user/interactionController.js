@@ -1,4 +1,4 @@
-﻿import prisma from "../../util/prisma.js";
+import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
@@ -146,10 +146,18 @@ export const getConversations = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
+    const { cursor, limit = 50 } = req.query;
+
+    const safeLimit = Math.min(Number(limit), 100);
 
     const messages = await prisma.message.findMany({
       where: { conversationId: Number(conversationId) },
-      orderBy: { sent_at: "asc" },
+      orderBy: { id: "desc" },
+      take: safeLimit,
+      ...(cursor && {
+        skip: 1,
+        cursor: { id: Number(cursor) },
+      }),
       include: {
         sender: {
           select: {
@@ -160,7 +168,17 @@ export const getMessages = async (req, res) => {
       },
     });
 
-    res.json(messages);
+    const nextCursor =
+      messages.length === safeLimit
+        ? messages[messages.length - 1].id
+        : null;
+
+    res.json({
+      success: true,
+      count: messages.length,
+      data: messages.reverse(),
+      nextCursor: nextCursor,
+    });
   } catch (error) {
     console.error("Get Messages Error:", error);
     res.status(500).json({ message: "Failed to fetch messages" });
