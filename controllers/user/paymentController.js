@@ -1,4 +1,4 @@
-﻿// import Razorpay from 'razorpay';
+// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
 // import prisma from "../../util/prisma.js";
 
@@ -189,17 +189,20 @@ const razorpay = new Razorpay({
  */
 export const createPaymentOrder = async (req, res) => {
   try {
-    const { amount, currency = "INR", gateway } = req.body;
+    const { amount, currency = "INR", gateway, bookingId } = req.body;
 
     if (!amount) {
       return res.status(400).json({ message: "Amount is required" });
     }
-    
+
+    if (!bookingId) {
+      return res.status(400).json({ message: "Booking ID is required" });
+    }
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency,
-      receipt: `order_${Date.now()}`,
+      receipt: `rcpt_bk_${bookingId}`,
     });
 
     const responseData = {
