@@ -12,9 +12,28 @@ const router = express.Router();
  *     tags: [Vendor]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of notifications per page
+ *       - in: query
+ *         name: isRead
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *         description: Filter by read/unread status
  *     responses:
  *       200:
- *         description: List of notifications
+ *         description: List of notifications with pagination info
  */
 router.get('/notifications', protect, getVendorNotifications); 
 
@@ -39,6 +58,39 @@ router.get('/notifications', protect, getVendorNotifications);
 router.put('/notifications/:id/mark-read', protect, markVendorRead);
 
 // Legacy support if needed, but cleaner:
+/**
+ * @swagger
+ * /interactions/api/vendor/users/{user_id}/notifications:
+ *   get:
+ *     summary: Get user notifications (Vendor view)
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: user_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: isRead
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *     responses:
+ *       200:
+ *         description: List of notifications
+ */
 router.get('/users/:user_id/notifications', protect, getVendorNotifications);
 
 export default router;

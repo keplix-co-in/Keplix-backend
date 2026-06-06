@@ -199,22 +199,15 @@ export const createPaymentOrder = async (req, res) => {
       return res.status(400).json({ message: "Booking ID is required" });
     }
 
-    // Generate idempotency key using bookingId hash
-    const idempotencyKey = crypto.createHash("sha256").update(String(bookingId)).digest("hex");
-
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency,
       receipt: `rcpt_bk_${bookingId}`,
-    }, {
-      "X-Razorpay-Idempotency-Key": idempotencyKey
     });
 
-    const finalOrderId = order.id || order.orderId;
-
     const responseData = {
-      id: finalOrderId, // This must be present and a string!
-      orderId: finalOrderId, 
+      id: order.id || order.orderId, // This must be present and a string!
+      orderId: order.id, 
       amount: order.amount,
       currency: order.currency,
       key_id: process.env.RAZORPAY_KEY_ID, 
