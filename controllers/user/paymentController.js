@@ -199,8 +199,8 @@ export const createPaymentOrder = async (req, res) => {
       return res.status(400).json({ message: "Booking ID is required" });
     }
 
-    // Generate idempotency key using bookingId hash
-    const idempotencyKey = crypto.createHash("sha256").update(String(bookingId)).digest("hex");
+    // Generate idempotency key using bookingId hash (MD5 used for 32-char length to fit Razorpay's 36-char limit)
+    const idempotencyKey = crypto.createHash("md5").update(String(bookingId)).digest("hex");
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
