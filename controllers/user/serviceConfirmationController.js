@@ -1,6 +1,7 @@
-﻿import prisma from "../../util/prisma.js";
+import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { createNotification } from "../../util/notificationHelper.js";
+import { updateVendorRatingStats } from "../../util/ratingHelper.js";
 
 
 
@@ -49,23 +50,34 @@ export const confirmServiceCompletion = async (req, res) => {
 
     // User confirms service is satisfactory
     if (confirmed === true) {
-      // 1. Update booking status to user_confirmed
-      await prisma.booking.update({
-        where: { id: bookingId },
-        data: { status: "user_confirmed" }
-      });
-
-      // 2. Create review if rating provided
-      if (rating) {
-        await prisma.review.create({
-          data: {
-            bookingId: bookingId,
-            userId: userId,
-            rating: parseInt(rating),
-            comment: comment || null
-          }
+      // Use transaction to ensure booking status and review/rating stats are consistent
+      await prisma.$transaction(async (tx) => {
+        // 1. Update booking status to user_confirmed
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: { status: "user_confirmed" }
         });
-      }
+
+        // 2. Create review if rating provided
+        if (rating) {
+          const vendorId = booking.service?.vendorId;
+          const ratingValue = parseFloat(rating);
+
+          await tx.review.create({
+            data: {
+              bookingId: bookingId,
+              userId: userId,
+              vendorId: vendorId,
+              rating: ratingValue,
+              comment: comment || null
+            }
+          });
+
+          if (vendorId) {
+            await updateVendorRatingStats(tx, vendorId, ratingValue, false);
+          }
+        }
+      });
 
       // 3. TRIGGER VENDOR PAYOUT (CRITICAL)
       const payment = booking.payment;
