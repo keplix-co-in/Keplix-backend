@@ -21,7 +21,11 @@ export const confirmServiceCompletion = async (req, res) => {
     const bookingId = parseInt(req.params.id);
     const { confirmed, rating, comment } = req.body;
 
-    // Verify user owns this booking
+    if (isNaN(userId) || isNaN(bookingId)) {
+      return res.status(400).json({ message: "Invalid user or booking ID" });
+    }
+
+    // Initial check (outside transaction for efficiency)
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -40,7 +44,6 @@ export const confirmServiceCompletion = async (req, res) => {
       return res.status(403).json({ message: "Not authorized to confirm this booking" });
     }
 
-    // Check booking status - must be "service_completed" by vendor
     if (booking.status !== "service_completed") {
       return res.status(400).json({ 
         message: "Cannot confirm booking. Vendor must mark service as completed first.",
@@ -48,136 +51,158 @@ export const confirmServiceCompletion = async (req, res) => {
       });
     }
 
-    // User confirms service is satisfactory
-    if (confirmed === true) {
-      // Use transaction to ensure booking status and review/rating stats are consistent
-      await prisma.$transaction(async (tx) => {
-        // 1. Update booking status to user_confirmed
-        await tx.booking.update({
-          where: { id: bookingId },
-          data: { status: "user_confirmed" }
-        });
-
-        // 2. Create review if rating provided
-        if (rating) {
-          const vendorId = booking.service?.vendorId;
-          const ratingValue = parseFloat(rating);
-
-          await tx.review.create({
-            data: {
-              bookingId: bookingId,
-              userId: userId,
-              vendorId: vendorId,
-              rating: ratingValue,
-              comment: comment || null
-            }
-          });
-
-          if (vendorId) {
-            await updateVendorRatingStats(tx, vendorId, ratingValue, false);
-          }
-        }
-      });
-
-      // 3. TRIGGER VENDOR PAYOUT (CRITICAL)
-      const payment = booking.payment;
-      
-      if (!payment) {
-        return res.status(400).json({ 
-          message: "No payment found for this booking" 
-        });
-      }
-
-      if (payment.status !== "success") {
-        return res.status(400).json({ 
-          message: "Payment not successful, cannot process payout" 
-        });
-      }
-
-      if (payment.vendorPayoutStatus === "paid") {
-        return res.status(400).json({ 
-          message: "Vendor payout already processed" 
-        });
-      }
-
-      if (payment.vendorPayoutStatus !== "pending") {
-        return res.status(400).json({ 
-          message: `Cannot process payout. Current status: ${payment.vendorPayoutStatus}` 
-        });
-      }
-
-      // Initiate payout to vendor
-      try {
-        const payoutResult = await initiateVendorPayout(payment, booking.service.vendorId);
-        
-        if (payoutResult.success) {
-          // Update payment record with payout details
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              vendorPayoutStatus: "paid",
-              vendorPayoutId: payoutResult.payoutId
-            }
-          });
-
-          // Notify vendor of payment
-          await createNotification(
-            booking.service.vendorId,
-            "ðŸ’° Payment Received!",
-            `â‚¹${payment.vendorAmount} has been transferred to your account for ${booking.service.name}`
-          );
-
-          return res.json({ 
-            success: true,
-            message: "Service confirmed. Vendor payout processed successfully.",
-            booking: {
-              id: bookingId,
-              status: "user_confirmed",
-              payoutStatus: "paid",
-              vendorAmount: payment.vendorAmount,
-              platformFee: payment.platformFee
-            }
-          });
-
-        } else {
-          // Payout failed - mark as failed
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: { vendorPayoutStatus: "failed" }
-          });
-
-          console.error(`âŒ [ESCROW] Payout failed: ${payoutResult.error || payoutResult.message}`);
-          
-          return res.status(500).json({ 
-            message: "Service confirmed but payout failed. Admin will review.",
-            error: payoutResult.error || payoutResult.message
-          });
-        }
-
-      } catch (payoutError) {
-        console.error(`âŒ [ESCROW] Payout error:`, payoutError);
-        
-        // Mark payout as failed
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: { vendorPayoutStatus: "failed" }
-        });
-
-        return res.status(500).json({ 
-          message: "Service confirmed but payout failed. Admin will review.",
-          error: payoutError.message 
-        });
-      }
-
-    } else {
-      // User is not satisfied - this should trigger dispute flow
+    if (confirmed !== true) {
       return res.status(400).json({ 
         message: "Service not confirmed. Please use the dispute endpoint if you have concerns." 
       });
     }
 
+    // Wrap EVERYTHING in a single transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Re-fetch booking inside transaction to ensure consistency and lock row if needed
+      const currentBooking = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          service: { select: { vendorId: true, name: true } },
+          payment: true
+        }
+      });
+
+      // Double check status inside transaction to prevent race conditions
+      if (currentBooking.status !== "service_completed") {
+        throw new Error(`Booking status has changed to ${currentBooking.status}`);
+      }
+
+      const payment = currentBooking.payment;
+      if (!payment) {
+        throw new Error("No payment found for this booking");
+      }
+
+      if (payment.status !== "success") {
+        throw new Error("Payment not successful, cannot process payout");
+      }
+
+      if (payment.vendorPayoutStatus === "paid") {
+        throw new Error("Vendor payout already processed");
+      }
+
+      // 2. Update booking status to user_confirmed
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: "user_confirmed" }
+      });
+
+      // 3. Create review if rating provided
+      if (rating !== undefined && rating !== null) {
+        const ratingValue = Math.round(parseFloat(rating));
+        if (!isNaN(ratingValue)) {
+          const vendorId = currentBooking.service?.vendorId;
+          
+          // Check if review already exists to avoid unique constraint error
+          const existingReview = await tx.review.findUnique({
+            where: { bookingId: bookingId }
+          });
+
+          if (!existingReview) {
+            await tx.review.create({
+              data: {
+                bookingId: bookingId,
+                userId: userId,
+                vendorId: vendorId,
+                rating: ratingValue,
+                comment: comment || null
+              }
+            });
+
+            if (vendorId) {
+              await updateVendorRatingStats(tx, vendorId, ratingValue, false);
+            }
+          }
+        }
+      }
+
+      // 4. TRIGGER VENDOR PAYOUT
+      // Note: initiateVendorPayout calls external API (Stripe/Razorpay)
+      const payoutResult = await initiateVendorPayout(payment, currentBooking.service.vendorId);
+      
+      if (payoutResult.success) {
+        // Update payment record with payout details
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            vendorPayoutStatus: "paid",
+            vendorPayoutId: payoutResult.payoutId
+          }
+        });
+
+        return { 
+          success: true, 
+          vendorAmount: payment.vendorAmount, 
+          serviceName: currentBooking.service.name,
+          vendorId: currentBooking.service.vendorId,
+          payoutId: payoutResult.payoutId,
+          platformFee: payment.platformFee
+        };
+      } else {
+        // Payout failed - mark as failed in DB within the same transaction
+        // This ensures the booking stays 'user_confirmed' but we know payout failed.
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { vendorPayoutStatus: "failed" }
+        });
+        
+        return { 
+          success: false, 
+          error: payoutResult.error || payoutResult.message,
+          vendorId: currentBooking.service.vendorId 
+        };
+      }
+    }, {
+      timeout: 20000 // External payout APIs can be slow
+    });
+
+    // 5. Post-transaction actions (Notifications)
+    if (result.success) {
+      await createNotification(
+        result.vendorId,
+        "ðŸ’° Payment Received!",
+        `â‚¹${result.vendorAmount} has been transferred to your account for ${result.serviceName}`
+      );
+
+      return res.json({ 
+        success: true,
+        message: "Service confirmed. Vendor payout processed successfully.",
+        booking: {
+          id: bookingId,
+          status: "user_confirmed",
+          payoutStatus: "paid",
+          vendorAmount: result.vendorAmount,
+          platformFee: result.platformFee
+        }
+      });
+    } else {
+      console.error(`âŒ [ESCROW] Payout failed: ${result.error}`);
+      return res.status(500).json({ 
+        message: "Service confirmed but payout failed. Admin will review.",
+        error: result.error
+      });
+    }
+
   } catch (error) {
     console.error("Service confirmation error:", error);
+    
+    // Handle specific error messages from transaction
+    const clientErrors = [
+      "Booking status has changed",
+      "No payment found",
+      "Payment not successful",
+      "Vendor payout already processed"
+    ];
+
+    if (clientErrors.some(msg => error.message.includes(msg))) {
+      return res.status(400).json({ message: error.message });
+    }
+
     res.status(500).json({ 
       message: "Service confirmation failed",
       error: error.message 
