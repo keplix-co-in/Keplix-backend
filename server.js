@@ -20,6 +20,7 @@ import prisma from "./util/prisma.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import swaggerSpec from "./config/swagger.js";
 import notificationWorker from "./workers/notificationWorker.js";
+import payoutWorker from "./workers/payoutWorker.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -226,6 +227,14 @@ const gracefulShutdown = () => {
       Logger.info('Notification worker closed.');
     }).catch(err => {
       Logger.error('Error closing notification worker:', err);
+    });
+  }
+
+  if (payoutWorker) {
+    payoutWorker.close().then(() => {
+      Logger.info('Payout worker closed.');
+    }).catch(err => {
+      Logger.error('Error closing payout worker:', err);
     });
   }
 
