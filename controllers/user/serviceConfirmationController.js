@@ -116,6 +116,9 @@ export const confirmServiceCompletion = async (req, res) => {
           }
         }
       }
+    }, {
+      timeout: 20000 // External payout APIs can be slow
+    });
 
       // 4. Update payout status to 'processing'
       await tx.payment.update({
