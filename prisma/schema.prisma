@@ -287,16 +287,17 @@ model VendorPayoutAccount {
 }
 
 model Admin {
-  id          Int         @id @default(autoincrement())
-  name        String
-  email       String      @unique
-  password    String
-  phone       String?
-  status      AdminStatus @default(ACTIVE)
-  lastLoginAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  role        String      @default("admin")
+  id           Int         @id @default(autoincrement())
+  name         String
+  email        String      @unique
+  password     String
+  phone        String?
+  status       AdminStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  role         String      @default("admin")
+  refreshToken String?
 
   @@index([email])
   @@index([status])
