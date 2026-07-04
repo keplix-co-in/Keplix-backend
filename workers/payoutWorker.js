@@ -5,6 +5,22 @@ import { initiateVendorPayout } from "../util/payoutHelper.js";
 import { createNotification } from "../util/notificationHelper.js";
 import Logger from "../util/logger.js";
 
+/**
+ * payoutWorker
+ *
+ * BullMQ worker consuming `payoutQueue`. For each job:
+ *   1. Re-fetches the payment (source of truth, not the job snapshot).
+ *   2. Skips if already "paid" (idempotency if a job is retried/duplicated).
+ *   3. Calls initiateVendorPayout() to hit the gateway (RazorpayX/Stripe).
+ *   4. On success: marks vendorPayoutStatus "paid" and notifies the vendor.
+ *   5. On failure: marks vendorPayoutStatus "failed" and rethrows so BullMQ
+ *      retries the job per the queue's attempts/backoff config.
+ *
+ * job.data:
+ *   paymentId - Payment.id to settle
+ *   vendorId  - User.id of the vendor receiving the payout
+ *   bookingId - Booking.id (used in the vendor notification copy)
+ */
 const payoutWorker = new Worker(
   "payoutQueue",
   async (job) => {
