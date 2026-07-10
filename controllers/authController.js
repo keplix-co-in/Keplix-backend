@@ -710,9 +710,15 @@ export const verifyEmailOTP = async (req, res) => {
   }
 };
 
+// Strict server-side whitelist for self-selectable signup roles.
+// Defense-in-depth: enforced here independently of the Zod route validator,
+// so a client-supplied role can never reach prisma.user.create() unvalidated.
+const ALLOWED_SIGNUP_ROLES = ["user", "vendor"];
+
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
+  const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
 
   try {
     let email;
@@ -768,13 +774,13 @@ export const googleLogin = async (req, res) => {
         data: {
           email,
           password: "", // Social login has no password
-          role: role || "user",
+          role: safeRole,
           is_active: true,
         },
       });
 
       // Create Profile
-      if (role === "vendor") {
+      if (safeRole === "vendor") {
         await prisma.vendorProfile.create({
           data: {
             userId: user.id,
