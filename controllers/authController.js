@@ -9,6 +9,7 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
+import { blacklistToken } from "../middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
 
@@ -283,12 +284,7 @@ export const logoutUser = async (req, res) => {
 
     const decoded = jwt.decode(token);
 
-    await prisma.blacklistedToken.create({
-      data: {
-        token,
-        expiresAt: new Date(decoded.exp * 1000),
-      },
-    });
+    await blacklistToken(token, decoded.exp);
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);

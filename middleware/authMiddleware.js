@@ -54,9 +54,46 @@ export const invalidateUserCache = async (id) => {
   }
 };
 
+const blacklistTokenKey = (token) => `auth:blacklist:${token}`;
+
+/**
+ * Blacklists a JWT in Redis until it would naturally expire, so logged-out
+ * tokens are rejected without needing a DB row or a cleanup job.
+ * @param {string} token - Raw JWT string to blacklist.
+ * @param {number} expUnixSeconds - Token's `exp` claim (Unix seconds); used to compute remaining TTL.
+ * @returns {Promise<void>}
+ */
+export const blacklistToken = async (token, expUnixSeconds) => {
+  const ttlSeconds = Math.max(expUnixSeconds - Math.floor(Date.now() / 1000), 0);
+  if (ttlSeconds === 0) return;
+
+  try {
+    await redisConnection.set(blacklistTokenKey(token), "1", "EX", ttlSeconds);
+  } catch (error) {
+    console.error("Auth blacklist write error:", error);
+  }
+};
+
+/**
+ * Checks whether a JWT has been blacklisted (e.g. via logout). Fails closed:
+ * a Redis error is treated as blacklisted, since this is a security check and
+ * silently letting a logged-out token through on an outage is unacceptable.
+ * @param {string} token - Raw JWT string to check.
+ * @returns {Promise<boolean>} True if blacklisted or if the Redis check errored; false otherwise.
+ */
+const isTokenBlacklisted = async (token) => {
+  try {
+    const result = await redisConnection.get(blacklistTokenKey(token));
+    return result !== null;
+  } catch (error) {
+    console.error("Auth blacklist read error:", error);
+    return true;
+  }
+};
+
 /**
  * Express middleware that authenticates a request via Bearer JWT, checking a
- * DB-backed token blacklist and a Redis-backed user cache before falling
+ * Redis-backed token blacklist and a Redis-backed user cache before falling
  * back to the database, then attaches the resolved user to req.user.
  * @param {import('express').Request} req - Incoming request; reads req.headers.authorization.
  * @param {import('express').Response} res - Used to short-circuit with 401/403 on auth failure.
@@ -75,9 +112,7 @@ export const protect = async (req, res, next) => {
 
       //check if token is blacklisted (added during logout)
 
-      const blacklisted = await prisma.blacklistedToken.findUnique({
-        where: { token },
-      });
+      const blacklisted = await isTokenBlacklisted(token);
 
       if (blacklisted) {
         return res.status(401).json({ message: "Token has been logged out" });
