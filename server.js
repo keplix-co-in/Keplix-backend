@@ -93,7 +93,12 @@ export const authLimiter = rateLimit({
 });
 
 // --- BODY PARSER ---
-app.use(express.json({ limit: '50mb' }));
+// verify callback stashes the raw bytes so webhook signature checks (e.g. Razorpay)
+// can HMAC the exact payload instead of a re-serialized JSON.stringify(req.body)
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // --- MIDDLEWARE ---
