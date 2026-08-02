@@ -12,6 +12,8 @@ model User {
   password            String
   role                String               @default("user")
   is_active           Boolean              @default(true)
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
   is_verified         Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -89,6 +91,8 @@ model VendorProfile {
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+  rating               Float   @default(0)
+  numReviews           Int     @default(0)
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -157,6 +161,27 @@ model Payment {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
+  payoutSettlement   PayoutSettlement?
+}
+
+// Durable, idempotent record of a payout attempt. Written BEFORE the gateway
+// call and updated after, so a crash/DB-blip between "gateway confirmed" and
+// "Payment.vendorPayoutStatus updated" leaves a discoverable, retriable trail
+// instead of a silently stuck payment. paymentId is unique so re-invoking
+// settlePayout for the same payment reuses/checks this record instead of
+// blindly calling the gateway again.
+model PayoutSettlement {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int      @unique
+  status          String   @default("initiated") // initiated -> gateway_confirmed -> settled | gateway_failed | reconciliation_needed
+  gatewayPayoutId String?
+  gatewayResponse String?
+  amount          Decimal
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  payment        Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
 }
 
 model Inventory {

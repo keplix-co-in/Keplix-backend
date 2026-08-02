@@ -23,23 +23,8 @@ export const createVendorPaymentOrder = async (req, res) => {
       return res.status(400).json({ message: "Amount is required" });
     }
 
-    // STRIPE
     if (gateway === "stripe") {
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100),
-        currency: currency.toLowerCase(),
-        automatic_payment_methods: { enabled: true },
-        metadata: {
-          type: "vendor_payment",
-          vendorId: req.user.id,
-        },
-      });
-
-      return res.json({
-        id: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-        gateway: "stripe",
-      });
+      return res.status(400).json({ message: "Stripe is not supported. Use gateway: 'razorpay'." });
     }
 
     // RAZORPAY (default)

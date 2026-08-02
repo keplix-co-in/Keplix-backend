@@ -390,6 +390,118 @@ export const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Send OTP for password reset (reuses EmailOTP infra, separate from
+//          the token-link forgotPassword/resetPassword flow above — this
+//          powers the OTP-based reset UX used by the vendor app)
+export const sendPasswordResetOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    // Security: don't reveal whether the email exists.
+    if (!user) {
+      return res.json({
+        success: true,
+        message: "If the email exists, a verification code has been sent.",
+      });
+    }
+
+    const otp = generateOTP();
+    const istNow = getISTDate();
+    const expiresAt = new Date(istNow.getTime() + 10 * 60 * 1000); // 10 minutes
+
+    // Delete any existing unverified reset OTPs for this email first.
+    await prisma.emailOTP.deleteMany({
+      where: { email: normalizedEmail, verified: false },
+    });
+
+    const record = await prisma.emailOTP.create({
+      data: { email: normalizedEmail, otp, expiresAt, verified: false },
+    });
+
+    try {
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Keplix <noreply@keplix.co.in>",
+        to: email,
+        subject: "Your Keplix Password Reset Code",
+        html: otpEmailTemplate({ otp }),
+      });
+    } catch (emailError) {
+      console.error("sendPasswordResetOTP: Resend error:", emailError);
+      // Still respond success — the OTP record exists and can be verified;
+      // avoid leaking provider-level failures to the client.
+    }
+
+    return res.json({
+      success: true,
+      message: "If the email exists, a verification code has been sent.",
+      otpId: record.id,
+    });
+  } catch (error) {
+    console.error("sendPasswordResetOTP error:", error);
+    res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+};
+
+// @desc    Verify OTP and set a new password in one step
+export const resetPasswordWithOTP = async (req, res) => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) {
+      return res.status(400).json({ message: "Email, OTP, and new password are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedOtp = String(otp).trim();
+
+    const record = await prisma.emailOTP.findFirst({
+      where: { email: normalizedEmail },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!record) {
+      return res.status(400).json({ message: "No verification code found for this email" });
+    }
+    if (record.verified) {
+      return res.status(400).json({ message: "This verification code has already been used" });
+    }
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({ message: "Verification code has expired" });
+    }
+    if (record.otp !== normalizedOtp) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      }),
+      prisma.emailOTP.update({
+        where: { id: record.id },
+        data: { verified: true },
+      }),
+    ]);
+
+    return res.json({ success: true, message: "Password reset successfully" });
+  } catch (error) {
+    console.error("resetPasswordWithOTP error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
   const { phone_number } = req.body;

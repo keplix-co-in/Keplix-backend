@@ -117,7 +117,8 @@ async function main() {
         }
     }
 
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const seedPassword = process.env.SEED_PASSWORD || 'password123';
+    const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
     // --- Create Super Admin ---
     await prisma.admin.create({
@@ -332,8 +333,8 @@ async function main() {
 
     console.log('✅ Seeding finished!');
     console.log('Credentials:');
-    console.log('User: user1@example.com / password123');
-    console.log('Vendor: vendor1@example.com / password123');
+    console.log(`User: user1@example.com / ${seedPassword}`);
+    console.log(`Vendor: vendor1@example.com / ${seedPassword}`);
 }
 
 main()

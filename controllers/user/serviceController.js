@@ -300,10 +300,15 @@ export const getServicesByVendor = async (req, res) => {
     // Note: In schema, Service.vendorId refers to userId of the vendor.
     // Ensure the frontend passes the correct ID (User ID of the vendor).
 
+    const { page = 1, limit = 50 } = req.query;
+    const skip = (page - 1) * limit;
+
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
       include: { vendor: { include: { vendorProfile: true } } },
       orderBy: { id: "desc" },
+      skip: Number(skip),
+      take: Number(limit),
     });
 
     const enrichedServices = services.map((service) => ({

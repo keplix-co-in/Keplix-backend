@@ -26,10 +26,29 @@ export const createFeedback = async (req, res) => {
 export const getFeedback = async (req, res) => {
     // Return user's feedback
     try {
-        const feedback = await prisma.feedback.findMany({
-            where: { userId: req.user.id }
+        const { page = 1, limit = 20 } = req.query;
+        const skip = (page - 1) * limit;
+        const where = { userId: req.user.id };
+
+        const [feedback, total] = await Promise.all([
+            prisma.feedback.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                skip: Number(skip),
+                take: Number(limit)
+            }),
+            prisma.feedback.count({ where })
+        ]);
+
+        res.json({
+            data: feedback,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / limit)
+            }
         });
-        res.json(feedback);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

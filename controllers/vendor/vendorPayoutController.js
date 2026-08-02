@@ -77,11 +77,30 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
+     * Claim the payout atomically: only proceed if vendorPayoutStatus is
+     * still "pending" at write time. Prevents two concurrent requests for
+     * the same payment from both passing the earlier check and double-paying
+     * the vendor (the earlier findUnique read is not enough on its own).
+     */
+    const claim = await prisma.payment.updateMany({
+      where: { id: payment.id, vendorPayoutStatus: "pending" },
+      data: { vendorPayoutStatus: "processing" },
+    });
+
+    if (claim.count === 0) {
+      return res.status(400).json({ message: "Vendor payout already processed" });
+    }
+
+    /**
      * Initiate payout using the helper function
      */
     const payoutResult = await initiateVendorPayout(payment, vendorId);
 
     if (!payoutResult.success) {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { vendorPayoutStatus: "failed" },
+      });
       return res.status(500).json({
         message: "Vendor payout failed",
         error: payoutResult.error,
@@ -89,7 +108,7 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
-     * Payment table update 
+     * Payment table update
      */
     await prisma.payment.update({
       where: { id: payment.id },

@@ -16,8 +16,15 @@ export const verifyRazorpayWebhook = (req, webhookSecret) => {
       return false;
     }
 
-    // Razorpay sends signature as HMAC SHA256 of raw request body
-    const body = JSON.stringify(req.body);
+    // Razorpay sends signature as HMAC SHA256 of the raw request body bytes.
+    // Re-serializing req.body via JSON.stringify is unreliable (key order/whitespace
+    // can differ from what was actually sent), so use the raw buffer captured by
+    // express.json()'s verify callback (see server.js).
+    if (!req.rawBody) {
+      Logger.error('[Webhook] Missing raw body for signature verification');
+      return false;
+    }
+    const body = req.rawBody;
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
       .update(body)

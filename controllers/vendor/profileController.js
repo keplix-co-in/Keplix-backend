@@ -15,49 +15,37 @@ export const getVendorProfile = async (req, res) => {
         });
 
         if (vendorProfile) {
-            // Calculate dynamic statistics
             const vendorId = req.user.id;
-            
-            // 1. Get all services by this vendor
+
+            // total_orders / total_earnings still require scanning bookings+payments
+            // (no running counters exist for those yet). rating/numReviews are now
+            // maintained incrementally on VendorProfile (see util/ratingHelper.js),
+            // so they're read directly instead of re-aggregated here.
             const services = await prisma.service.findMany({
                 where: { vendorId },
                 select: { id: true }
             });
             const serviceIds = services.map(s => s.id);
-            
-            // 2. Get all bookings for vendor's services
+
             const bookings = await prisma.booking.findMany({
-                where: { 
+                where: {
                     serviceId: { in: serviceIds },
                     status: { in: ['completed', 'confirmed', 'ongoing'] }
                 },
-                include: { 
-                    payment: true,
-                    review: true 
-                }
+                select: { payment: { select: { status: true, vendorAmount: true, amount: true } } }
             });
-            
-            // 3. Calculate total orders
+
             const total_orders = bookings.length;
-            
-            // 4. Calculate total earnings from completed payments
             const total_earnings = bookings.reduce((sum, booking) => {
                 if (booking.payment && booking.payment.status === 'success') {
                     return sum + parseFloat(booking.payment.vendorAmount || booking.payment.amount || 0);
                 }
                 return sum;
             }, 0);
-            
-            // 5. Calculate average rating from reviews
-            const reviews = bookings.filter(b => b.review).map(b => b.review);
-            const average_rating = reviews.length > 0 
-                ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-                : "0.0";
-            
-            // Return profile with calculated stats
+
             res.json({
                 ...vendorProfile,
-                rating: average_rating,
+                rating: vendorProfile.rating.toFixed(1),
                 total_orders,
                 total_earnings: total_earnings.toFixed(2)
             });
@@ -177,18 +165,22 @@ export const updateVendorProfile = async (req, res) => {
     }
 
     try {
-        const vendorProfile = await prisma.vendorProfile.update({
-            where: { userId: req.user.id },
-            data: updates
-        });
-
-        // Also update User role effectively if onboarding is done
-        if (updates.onboarding_completed) {
-             await prisma.user.update({
-                where: { id: req.user.id },
-                data: { role: 'vendor' }
+        const vendorProfile = await prisma.$transaction(async (tx) => {
+            const profile = await tx.vendorProfile.update({
+                where: { userId: req.user.id },
+                data: updates
             });
-        }
+
+            // Also update User role effectively if onboarding is done
+            if (updates.onboarding_completed) {
+                await tx.user.update({
+                    where: { id: req.user.id },
+                    data: { role: 'vendor' }
+                });
+            }
+
+            return profile;
+        });
 
         // Setup or update payout account if bank/UPI details were provided
         if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
@@ -227,7 +219,7 @@ export const createVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
-        bank_account_number, ifsc_code
+        bank_account_number, ifsc_code, upi_id
     } = req.body;
 
 

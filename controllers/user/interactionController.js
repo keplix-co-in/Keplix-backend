@@ -146,10 +146,18 @@ export const getConversations = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
+    const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
+    const where = { conversationId: Number(conversationId) };
+    if (before) {
+      where.id = { lt: Number(before) };
+    }
+
+    // Fetch newest-first (bounded by `take`), then reverse for chronological display.
     const messages = await prisma.message.findMany({
-      where: { conversationId: Number(conversationId) },
-      orderBy: { sent_at: "asc" },
+      where,
+      orderBy: { sent_at: "desc" },
+      take: Number(limit),
       include: {
         sender: {
           select: {
@@ -160,7 +168,7 @@ export const getMessages = async (req, res) => {
       },
     });
 
-    res.json(messages);
+    res.json(messages.reverse());
   } catch (error) {
     console.error("Get Messages Error:", error);
     res.status(500).json({ message: "Failed to fetch messages" });

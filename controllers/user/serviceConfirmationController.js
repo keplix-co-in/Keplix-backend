@@ -1,6 +1,7 @@
 ﻿import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
-import { createNotification } from "../../util/notificationHelper.js";
+import { createNotification, sendPushNotification } from "../../util/notificationHelper.js";
+import { applyReviewToVendorRating } from "../../util/ratingHelper.js";
 
 
 
@@ -49,23 +50,27 @@ export const confirmServiceCompletion = async (req, res) => {
 
     // User confirms service is satisfactory
     if (confirmed === true) {
-      // 1. Update booking status to user_confirmed
-      await prisma.booking.update({
-        where: { id: bookingId },
-        data: { status: "user_confirmed" }
-      });
-
-      // 2. Create review if rating provided
-      if (rating) {
-        await prisma.review.create({
-          data: {
-            bookingId: bookingId,
-            userId: userId,
-            rating: parseInt(rating),
-            comment: comment || null
-          }
+      // 1. Update booking status + 2. create review (if rated) atomically —
+      // these are pure DB writes so they belong in the same transaction.
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: { status: "user_confirmed" }
         });
-      }
+
+        if (rating) {
+          const numericRating = parseInt(rating);
+          await tx.review.create({
+            data: {
+              bookingId: bookingId,
+              userId: userId,
+              rating: numericRating,
+              comment: comment || null
+            }
+          });
+          await applyReviewToVendorRating(tx, booking.service.vendorId, numericRating);
+        }
+      });
 
       // 3. TRIGGER VENDOR PAYOUT (CRITICAL)
       const payment = booking.payment;
@@ -89,9 +94,21 @@ export const confirmServiceCompletion = async (req, res) => {
       }
 
       if (payment.vendorPayoutStatus !== "pending") {
-        return res.status(400).json({ 
-          message: `Cannot process payout. Current status: ${payment.vendorPayoutStatus}` 
+        return res.status(400).json({
+          message: `Cannot process payout. Current status: ${payment.vendorPayoutStatus}`
         });
+      }
+
+      // Claim the payout atomically before calling out to the payment gateway,
+      // so two rapid "Confirm" taps can't both pass the check above and
+      // trigger two payouts for the same payment.
+      const claim = await prisma.payment.updateMany({
+        where: { id: payment.id, vendorPayoutStatus: "pending" },
+        data: { vendorPayoutStatus: "processing" },
+      });
+
+      if (claim.count === 0) {
+        return res.status(400).json({ message: "Vendor payout already processed" });
       }
 
       // Initiate payout to vendor

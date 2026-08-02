@@ -9,7 +9,8 @@ import { createNotification } from "../../util/notificationHelper.js";
 // @route   GET /service_api/vendor/bookings/
 export const getVendorBookings = async (req, res) => {
   try {
-    const { status, date, date_from, date_to, serviceName, token } = req.query;
+    const { status, date, date_from, date_to, serviceName, token, page = 1, limit = 50 } = req.query;
+    const skip = (page - 1) * limit;
 
     // Find all services by this vendor first
     const vendorServices = await prisma.service.findMany({
@@ -55,6 +56,8 @@ export const getVendorBookings = async (req, res) => {
         payment: true, // Include payment status
       },
       orderBy: { booking_date: "desc" },
+      skip: Number(skip),
+      take: Number(limit),
     });
 
     res.json(bookings);

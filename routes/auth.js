@@ -1,23 +1,25 @@
 import express from 'express';
-import { 
-  registerUser, 
-  authUser, 
-  getUserProfile, 
-  updateUserProfileAuth, 
-  refreshToken, 
-  logoutUser, 
-  forgotPassword, 
-  resetPassword, 
-  sendPhoneOTP, 
-  verifyPhoneOTP, 
-  sendEmailOTP, 
-  verifyEmailOTP, 
+import {
+  registerUser,
+  authUser,
+  getUserProfile,
+  updateUserProfileAuth,
+  refreshToken,
+  logoutUser,
+  forgotPassword,
+  resetPassword,
+  sendPasswordResetOTP,
+  resetPasswordWithOTP,
+  sendPhoneOTP,
+  verifyPhoneOTP,
+  sendEmailOTP,
+  verifyEmailOTP,
   googleLogin,
   updatePushToken
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
-import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
+import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
@@ -130,6 +132,52 @@ router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken)
  *         description: Reset email sent
  */
 router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
+
+/**
+ * @swagger
+ * /accounts/auth/send-password-reset-otp:
+ *   post:
+ *     summary: Send a 6-digit OTP by email for password reset
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: OTP sent (if the email exists)
+ */
+router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
+
+/**
+ * @swagger
+ * /accounts/auth/reset-password-otp:
+ *   post:
+ *     summary: Verify OTP and set a new password
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ */
+router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
 
 /**
  * @swagger

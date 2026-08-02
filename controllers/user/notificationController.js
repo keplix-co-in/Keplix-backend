@@ -6,11 +6,29 @@
 // @route   GET /interactions/api/users/:user_id/notifications/
 export const getNotifications = async (req, res) => {
     try {
-        const notifications = await prisma.notification.findMany({
-            where: { userId: parseInt(req.params.user_id) },
-            orderBy: { createdAt: 'desc' }
+        const { page = 1, limit = 20 } = req.query;
+        const skip = (page - 1) * limit;
+        const where = { userId: parseInt(req.params.user_id) };
+
+        const [notifications, total] = await Promise.all([
+            prisma.notification.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                skip: Number(skip),
+                take: Number(limit)
+            }),
+            prisma.notification.count({ where })
+        ]);
+
+        res.json({
+            data: notifications,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / limit)
+            }
         });
-        res.json(notifications);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

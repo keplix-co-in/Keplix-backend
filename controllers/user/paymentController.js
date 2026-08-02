@@ -277,30 +277,39 @@ export const verifyPayment = async (req, res) => {
       vendorPayoutStatus: "pending",
     };
 
-    let payment;
-    if (bookingId) {
-      payment = await prisma.payment.upsert({
-        where: { bookingId: Number(bookingId) },
-        update: paymentData,
-        create: {
-          bookingId: Number(bookingId),
-          ...paymentData,
-        },
-      });
-    } else {
-      payment = await prisma.payment.create({
-        data: paymentData,
-      });
-    }
+    // Payment record + booking status update must commit together — if the
+    // booking update failed after the payment was already saved, we'd have
+    // a "paid" payment left dangling with no confirmed booking.
+    const { payment, updatedBooking } = await prisma.$transaction(async (tx) => {
+      let payment;
+      if (bookingId) {
+        payment = await tx.payment.upsert({
+          where: { bookingId: Number(bookingId) },
+          update: paymentData,
+          create: {
+            bookingId: Number(bookingId),
+            ...paymentData,
+          },
+        });
+      } else {
+        payment = await tx.payment.create({
+          data: paymentData,
+        });
+      }
 
-    // Update booking
-    if (bookingId) {
-      const updatedBooking = await prisma.booking.update({
-        where: { id: Number(bookingId) },
-        data: { status: "confirmed" },
-        include: { service: true }
-      });
+      let updatedBooking = null;
+      if (bookingId) {
+        updatedBooking = await tx.booking.update({
+          where: { id: Number(bookingId) },
+          data: { status: "confirmed" },
+          include: { service: true }
+        });
+      }
 
+      return { payment, updatedBooking };
+    });
+
+    if (bookingId) {
       // Notify Vendor about successful payment
       if (updatedBooking.service && updatedBooking.service.vendorId) {
         await createNotification(
