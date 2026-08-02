@@ -254,11 +254,13 @@ async function main() {
               });
           }        // Add Review if completed
         if (['completed', 'user_confirmed'].includes(status)) {
+            const rating = getRandomInt(4, 5);
             await prisma.review.create({
                 data: {
                     bookingId: booking.id,
                     userId: user1.id,
-                    rating: getRandomInt(4, 5),
+                    vendorId: vendor1.id,
+                    rating: rating,
                     comment: getRandomElement([
                         "Fantastic experience with Vendor 1!",
                         "Professional and quick.",
@@ -266,6 +268,21 @@ async function main() {
                         "Highly recommended."
                     ]),
                     createdAt: new Date(bookingDate.getTime() + 24 * 60 * 60 * 1000)
+                }
+            });
+
+            // Update vendor stats manually in seed
+            const vendorProfile = await prisma.vendorProfile.findUnique({ where: { userId: vendor1.id } });
+            const oldCount = vendorProfile.numReviews || 0;
+            const oldRating = vendorProfile.rating || 0;
+            const newCount = oldCount + 1;
+            const newAvg = ((oldRating * oldCount) + rating) / newCount;
+
+            await prisma.vendorProfile.update({
+                where: { userId: vendor1.id },
+                data: {
+                    rating: newAvg,
+                    numReviews: newCount
                 }
             });
         }

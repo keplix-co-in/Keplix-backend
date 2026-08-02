@@ -9,6 +9,7 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
+import { blacklistToken } from "../middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
 
@@ -283,12 +284,7 @@ export const logoutUser = async (req, res) => {
 
     const decoded = jwt.decode(token);
 
-    await prisma.blacklistedToken.create({
-      data: {
-        token,
-        expiresAt: new Date(decoded.exp * 1000),
-      },
-    });
+    await blacklistToken(token, decoded.exp);
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -710,9 +706,15 @@ export const verifyEmailOTP = async (req, res) => {
   }
 };
 
+// Strict server-side whitelist for self-selectable signup roles.
+// Defense-in-depth: enforced here independently of the Zod route validator,
+// so a client-supplied role can never reach prisma.user.create() unvalidated.
+const ALLOWED_SIGNUP_ROLES = ["user", "vendor"];
+
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
+  const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
 
   try {
     let email;
@@ -768,13 +770,13 @@ export const googleLogin = async (req, res) => {
         data: {
           email,
           password: "", // Social login has no password
-          role: role || "user",
+          role: safeRole,
           is_active: true,
         },
       });
 
       // Create Profile
-      if (role === "vendor") {
+      if (safeRole === "vendor") {
         await prisma.vendorProfile.create({
           data: {
             userId: user.id,

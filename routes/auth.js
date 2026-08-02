@@ -17,6 +17,7 @@ import {
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
+import { strictAuthLimiter } from '../middleware/rateLimitMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
@@ -60,7 +61,7 @@ const uploadProfileFields = uploadFieldss([
  *         description: Bad request
  */
 router.post('/register', validateRequest(registerSchema), registerUser);
-router.post('/signup', validateRequest(registerSchema), registerUser); // Alias for compatibility
+router.post('/signup', strictAuthLimiter, validateRequest(registerSchema), registerUser); // Alias for compatibility
 
 /**
  * @swagger
@@ -87,7 +88,7 @@ router.post('/signup', validateRequest(registerSchema), registerUser); // Alias 
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', validateRequest(loginSchema), authUser);
+router.post('/login', strictAuthLimiter, validateRequest(loginSchema), authUser);
 
 /**
  * @swagger
@@ -204,7 +205,7 @@ router.post('/google', validateRequest(googleLoginSchema), googleLogin);
  *       200:
  *         description: OTP sent
  */
-router.post('/send-phone-otp', validateRequest(requestOtpSchema), sendPhoneOTP);
+router.post('/send-phone-otp', strictAuthLimiter, validateRequest(requestOtpSchema), sendPhoneOTP);
 
 /**
  * @swagger
@@ -248,7 +249,7 @@ router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOT
  *       200:
  *         description: OTP sent
  */
-router.post('/send-email-otp', validateRequest(requestOtpSchema), sendEmailOTP);
+router.post('/send-email-otp', strictAuthLimiter, validateRequest(requestOtpSchema), sendEmailOTP);
 
 /**
  * @swagger
@@ -332,8 +333,8 @@ router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
 router.put('/push-token', protect, updatePushToken);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
-router.post('/signup/', validateRequest(registerSchema), registerUser);
-router.post('/login/', validateRequest(loginSchema), authUser);
+router.post('/signup/', strictAuthLimiter, validateRequest(registerSchema), registerUser);
+router.post('/login/', strictAuthLimiter, validateRequest(loginSchema), authUser);
 router.post('/token/refresh/', validateRequest(refreshTokenSchema), refreshToken);
 
 export default router;
