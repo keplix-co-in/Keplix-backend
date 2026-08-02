@@ -4,9 +4,15 @@ import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/
 
 
 
-// @desc    Get vendor profile
-// @route   GET /accounts/vendor/profile/
-// @access  Private (Vendor)
+/**
+ * Get vendor profile with aggregated stats (total orders, earnings, avg rating).
+ * Stats are computed via DB-level COUNT/SUM/AVG instead of loading all rows into memory.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {Object} res - Express response object
+ * @returns {Object} Vendor profile merged with { rating, total_orders, total_earnings }
+ */
 export const getVendorProfile = async (req, res) => {
     try {
         const vendorProfile = await prisma.vendorProfile.findUnique({
@@ -14,65 +20,75 @@ export const getVendorProfile = async (req, res) => {
             include: { user: true }
         });
 
-        if (vendorProfile) {
-            // Calculate dynamic statistics
-            const vendorId = req.user.id;
-            
-            // 1. Get all services by this vendor
-            const services = await prisma.service.findMany({
-                where: { vendorId },
-                select: { id: true }
-            });
-            const serviceIds = services.map(s => s.id);
-            
-            // 2. Get all bookings for vendor's services
-            const bookings = await prisma.booking.findMany({
-                where: { 
-                    serviceId: { in: serviceIds },
-                    status: { in: ['completed', 'confirmed', 'ongoing'] }
-                },
-                include: { 
-                    payment: true,
-                    review: true 
-                }
-            });
-            
-            // 3. Calculate total orders
-            const total_orders = bookings.length;
-            
-            // 4. Calculate total earnings from completed payments
-            const total_earnings = bookings.reduce((sum, booking) => {
-                if (booking.payment && booking.payment.status === 'success') {
-                    return sum + parseFloat(booking.payment.vendorAmount || booking.payment.amount || 0);
-                }
-                return sum;
-            }, 0);
-            
-            // 5. Calculate average rating from reviews
-            const reviews = bookings.filter(b => b.review).map(b => b.review);
-            const average_rating = reviews.length > 0 
-                ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-                : "0.0";
-            
-            // Return profile with calculated stats
-            res.json({
-                ...vendorProfile,
-                rating: average_rating,
-                total_orders,
-                total_earnings: total_earnings.toFixed(2)
-            });
-        } else {
-            res.status(404).json({ message: 'Vendor profile not found' });
+        if (!vendorProfile) {
+            return res.status(404).json({ message: 'Vendor profile not found' });
         }
+
+        const vendorId = req.user.id;
+
+        const [orderCount, earningsResult, ratingResult] = await Promise.all([
+            // COUNT bookings with active statuses for this vendor's services
+            prisma.booking.count({
+                where: {
+                    service: { vendorId },
+                    status: { in: ['completed', 'confirmed', 'ongoing'] }
+                }
+            }),
+
+            // SUM vendorAmount from successful payments on this vendor's bookings
+            prisma.payment.aggregate({
+                where: {
+                    status: 'success',
+                    booking: {
+                        service: { vendorId },
+                        status: { in: ['completed', 'confirmed', 'ongoing'] }
+                    }
+                },
+                _sum: { vendorAmount: true, amount: true }
+            }),
+
+            // AVG rating from reviews on this vendor's bookings
+            prisma.review.aggregate({
+                where: {
+                    booking: {
+                        service: { vendorId },
+                        status: { in: ['completed', 'confirmed', 'ongoing'] }
+                    }
+                },
+                _avg: { rating: true }
+            })
+        ]);
+
+        const total_orders = orderCount;
+        const total_earnings = parseFloat(earningsResult._sum.vendorAmount ?? earningsResult._sum.amount ?? 0);
+        const average_rating = ratingResult._avg.rating
+            ? ratingResult._avg.rating.toFixed(1)
+            : "0.0";
+
+        res.json({
+            ...vendorProfile,
+            rating: average_rating,
+            total_orders,
+            total_earnings: total_earnings.toFixed(2)
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Update vendor profile
-// @route   PUT /accounts/vendor/profile/
-// @access  Private (Vendor)
+/**
+ * Update an existing vendor profile with partial fields, image uploads, and address auto-combination.
+ * Falls back to createVendorProfile if the profile doesn't exist yet (P2025 error).
+ * Also triggers payout account update if bank/UPI details change.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {Object} req.body - Partial vendor profile fields to update (business_name, phone, address components, bank details, etc.)
+ * @param {Object} [req.files] - Multer file uploads ({ image: [...], cover_image: [...] })
+ * @param {Object} res - Express response object
+ * @returns {Object} Updated vendor profile with userId mapped to .user for frontend compatibility
+ */
 export const updateVendorProfile = async (req, res) => {
     // Destructure all possible fields from the validated body
     let { 
@@ -214,9 +230,17 @@ export const updateVendorProfile = async (req, res) => {
     }
 };
 
-// @desc    Create vendor profile
-// @route   POST /accounts/vendor/profile/
-// @access  Private
+/**
+ * Create a new vendor profile during onboarding. Sets user role to 'vendor' and optionally sets up payout account.
+ * Returns 400 if a profile already exists for this user.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated user's ID
+ * @param {Object} req.body - Vendor profile fields (business_name, business_type, description, phone, address components, GST, bank details, etc.)
+ * @param {Object} [req.files] - Multer file uploads ({ image: [...], cover_image: [...] })
+ * @param {Object} res - Express response object
+ * @returns {Object} Created vendor profile (201) with userId mapped to .user
+ */
 export const createVendorProfile = async (req, res) => {
      // Identical to Update but uses create
     const { 
@@ -314,9 +338,15 @@ export const createVendorProfile = async (req, res) => {
     }
 };
 
-// @desc    Update vendor online status
-// @route   PATCH /accounts/vendor/profile/online-status
-// @access  Private (Vendor)
+/**
+ * Toggle vendor's online/offline status. Expects a boolean is_online in the request body.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {boolean} req.body.is_online - New online status (true = online, false = offline)
+ * @param {Object} res - Express response object
+ * @returns {Object} { message, is_online }
+ */
 export const updateOnlineStatus = async (req, res) => {
     try {
         const { is_online } = req.body;

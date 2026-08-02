@@ -27,6 +27,7 @@ model User {
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
+  vendorReviews       Review[]             @relation("VendorReviews")
   services            Service[]            @relation("VendorServices")
   userProfile         UserProfile?
   VendorPayoutAccount VendorPayoutAccount?
@@ -89,6 +90,8 @@ model VendorProfile {
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+  rating               Float   @default(0.0)
+  numReviews           Int     @default(0)
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -208,6 +211,7 @@ model Review {
   id        Int      @id @default(autoincrement())
   bookingId Int      @unique
   userId    Int
+  vendorId  Int?
   rating    Int
   comment   String?
   reply     String?
@@ -215,6 +219,7 @@ model Review {
   updatedAt DateTime @updatedAt
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+  vendor    User?    @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
 }
 
 model Promotion {
@@ -282,16 +287,17 @@ model VendorPayoutAccount {
 }
 
 model Admin {
-  id          Int         @id @default(autoincrement())
-  name        String
-  email       String      @unique
-  password    String
-  phone       String?
-  status      AdminStatus @default(ACTIVE)
-  lastLoginAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  role        String      @default("admin")
+  id           Int         @id @default(autoincrement())
+  name         String
+  email        String      @unique
+  password     String
+  phone        String?
+  status       AdminStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  role         String      @default("admin")
+  refreshToken String?
 
   @@index([email])
   @@index([status])
