@@ -1,7 +1,6 @@
 import prisma from "../../util/prisma.js";
-import { addPayoutJob } from "../../queues/payoutQueue.js";
-import { createNotification, sendPushNotification } from "../../util/notificationHelper.js";
-import { updateVendorRatingStats } from "../../util/ratingHelper.js";
+import { sendPushNotification } from "../../util/notificationHelper.js";
+import { confirmBookingAndQueuePayout, BookingConfirmationError } from "../../services/bookingConfirmationService.js";
 
 /**
  * @desc    User confirms service completion
@@ -23,124 +22,15 @@ export const confirmServiceCompletion = async (req, res) => {
       return res.status(400).json({ message: "Invalid user or booking ID" });
     }
 
-    // Initial check (outside transaction for efficiency)
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: {
-        service: {
-          select: { vendorId: true, name: true }
-        },
-        payment: true
-      }
-    });
-
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    if (booking.userId !== userId) {
-      return res.status(403).json({ message: "Not authorized to confirm this booking" });
-    }
-
-    if (booking.status !== "service_completed") {
-      return res.status(400).json({ 
-        message: "Cannot confirm booking. Vendor must mark service as completed first.",
-        currentStatus: booking.status 
-      });
-    }
-
     if (confirmed !== true) {
-      return res.status(400).json({ 
-        message: "Service not confirmed. Please use the dispute endpoint if you have concerns." 
+      return res.status(400).json({
+        message: "Service not confirmed. Please use the dispute endpoint if you have concerns."
       });
     }
 
-    // Wrap DB operations in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Re-fetch booking inside transaction to ensure consistency
-      const currentBooking = await tx.booking.findUnique({
-        where: { id: bookingId },
-        include: {
-          service: { select: { vendorId: true, name: true } },
-          payment: true
-        }
-      });
+    await confirmBookingAndQueuePayout({ userId, bookingId, rating, comment });
 
-      if (currentBooking.status !== "service_completed") {
-        throw new Error(`Booking status has changed to ${currentBooking.status}`);
-      }
-
-      const payment = currentBooking.payment;
-      if (!payment) {
-        throw new Error("No payment found for this booking");
-      }
-
-      if (payment.status !== "success") {
-        throw new Error("Payment not successful, cannot process payout");
-      }
-
-      if (payment.vendorPayoutStatus === "paid") {
-        throw new Error("Vendor payout already processed");
-      }
-
-      // 2. Update booking status to user_confirmed
-      await tx.booking.update({
-        where: { id: bookingId },
-        data: { status: "user_confirmed" }
-      });
-
-      // 3. Create review if rating provided
-      if (rating !== undefined && rating !== null) {
-        const ratingValue = Math.round(parseFloat(rating));
-        if (!isNaN(ratingValue)) {
-          const vendorId = currentBooking.service?.vendorId;
-          
-          const existingReview = await tx.review.findUnique({
-            where: { bookingId: bookingId }
-          });
-
-          if (!existingReview) {
-            await tx.review.create({
-              data: {
-                bookingId: bookingId,
-                userId: userId,
-                vendorId: vendorId,
-                rating: ratingValue,
-                comment: comment || null
-              }
-            });
-
-            if (vendorId) {
-              await updateVendorRatingStats(tx, vendorId, ratingValue, false);
-            }
-          }
-        }
-      }
-
-      // 4. Update payout status to 'processing'
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: { vendorPayoutStatus: "processing" }
-      });
-
-      return {
-        success: true,
-        paymentId: payment.id,
-        vendorId: currentBooking.service.vendorId,
-        bookingId: bookingId
-      };
-    }, {
-      timeout: 20000 // External payout APIs can be slow
-    });
-
-    // 5. QUEUE THE PAYOUT JOB (Outside transaction)
-    await addPayoutJob({
-      paymentId: result.paymentId,
-      vendorId: result.vendorId,
-      bookingId: result.bookingId
-    });
-
-    return res.json({ 
+    return res.json({
       success: true,
       message: "Service confirmed. Vendor payout is being processed.",
       booking: {
@@ -152,21 +42,14 @@ export const confirmServiceCompletion = async (req, res) => {
 
   } catch (error) {
     console.error("Service confirmation error:", error);
-    
-    const clientErrors = [
-      "Booking status has changed",
-      "No payment found",
-      "Payment not successful",
-      "Vendor payout already processed"
-    ];
 
-    if (clientErrors.some(msg => error.message.includes(msg))) {
-      return res.status(400).json({ message: error.message });
+    if (error instanceof BookingConfirmationError) {
+      return res.status(error.statusCode).json({ message: error.message });
     }
 
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Service confirmation failed",
-      error: error.message 
+      error: error.message
     });
   }
 };

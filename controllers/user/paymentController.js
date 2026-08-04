@@ -175,6 +175,7 @@ import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
+import { verifyAndRecordPayment, PaymentError } from "../../services/paymentService.js";
 
 
 
@@ -235,119 +236,19 @@ export const createPaymentOrder = async (req, res) => {
  */
 export const verifyPayment = async (req, res) => {
   try {
-    const {
+    const { orderId, paymentId, signature, bookingId, gateway } = req.body;
+
+    const { payment, updatedBooking, platformFee, vendorAmount } = await verifyAndRecordPayment({
+      bookingId,
+      requestingUserId: req.user.id,
       orderId,
       paymentId,
       signature,
-      bookingId,
-      gateway
-    } = req.body;
-
-    if (!bookingId) {
-      return res.status(400).json({ message: "Booking ID is required" });
-    }
-
-    // The amount is never trusted from the client — it is always re-derived
-    // below from Service.price via the booking, so platformFee/vendorAmount
-    // can't be manipulated by a tampered request body.
-    const booking = await prisma.booking.findUnique({
-      where: { id: Number(bookingId) },
-      include: { service: true },
-    });
-
-    if (!booking || !booking.service) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    const cashLikeGateways = ['cash', 'card', 'upi', 'netbanking'];
-    const isCashLike = cashLikeGateways.includes(gateway);
-
-    if (isCashLike) {
-      // No online gateway is involved for these methods — there is no
-      // signature to verify. Only an authenticated request for the user's
-      // own booking (enforced by `protect` + ownership check below) can
-      // mark it paid; this still requires the booking to belong to the
-      // requesting user.
-      if (booking.userId !== req.user.id) {
-        return res.status(403).json({ message: "Not authorized for this booking" });
-      }
-    } else {
-      // Razorpay (or any online gateway): the signature is the actual proof
-      // that Razorpay processed this payment, so it must always be checked.
-      const body = orderId + "|" + paymentId;
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(body)
-        .digest("hex");
-
-      if (expectedSignature !== signature) {
-        return res.status(400).json({ message: "Invalid payment signature" });
-      }
-    }
-    // Verified
-
-    // Platform Fee Configuration
-    const ENABLE_PLATFORM_FEE = true; // Set to false to disable platform charges
-    const PLATFORM_FEE_PERCENTAGE = 0.1; // 10% fee
-
-    // Commission calculation — derived from the booking's service price,
-    // never from the client-supplied amount.
-    const totalAmount = parseFloat(booking.service.price.toString());
-    let platformFee = 0;
-
-    if (ENABLE_PLATFORM_FEE) {
-      platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
-    }
-
-    const vendorAmount = totalAmount - platformFee;
-
-
-    // Save payment
-    const paymentData = {
-      amount: totalAmount,
-      currency: "INR",
-      status: "success",
-      method: gateway || "razorpay", // Use provided gateway method
-      transactionId: paymentId || `TXN${Date.now()}`,
-      platformFee,
-      vendorAmount,
-      vendorPayoutStatus: "pending",
-    };
-
-    // Payment record + booking status update must commit together — if the
-    // booking update failed after the payment was already saved, we'd have
-    // a "paid" payment left dangling with no confirmed booking.
-    const { payment, updatedBooking } = await prisma.$transaction(async (tx) => {
-      let payment;
-      if (bookingId) {
-        payment = await tx.payment.upsert({
-          where: { bookingId: Number(bookingId) },
-          update: paymentData,
-          create: {
-            bookingId: Number(bookingId),
-            ...paymentData,
-          },
-        });
-      } else {
-        payment = await tx.payment.create({
-          data: paymentData,
-        });
-      }
-
-      let updatedBooking = null;
-      if (bookingId) {
-        updatedBooking = await tx.booking.update({
-          where: { id: Number(bookingId) },
-          data: { status: "confirmed" },
-          include: { service: true }
-        });
-      }
-
-      return { payment, updatedBooking };
+      gateway,
     });
 
     // Notify Vendor about successful payment
-    if (bookingId && updatedBooking) {
+    if (updatedBooking) {
       if (updatedBooking.service && updatedBooking.service.vendorId) {
         await createNotification(
           updatedBooking.service.vendorId,
@@ -378,6 +279,9 @@ export const verifyPayment = async (req, res) => {
     });
   } catch (error) {
     console.error("Verify payment error:", error);
+    if (error instanceof PaymentError) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
     res.status(500).json({ message: "Payment verification failed" });
   }
 };

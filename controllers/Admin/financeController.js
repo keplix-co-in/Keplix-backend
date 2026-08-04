@@ -1,5 +1,5 @@
 import prisma from "../../util/prisma.js";
-import { addPayoutJob } from "../../queues/payoutQueue.js";
+import { claimAndQueuePayout, PayoutError } from "../../services/payoutService.js";
 
 export const getFinanceKpis = async (req, res) => {
   try {
@@ -129,81 +129,20 @@ export const getPendingPayouts = async (req, res) => {
  */
 export const settlePayout = async (req, res) => {
   try {
-    const { id } = req.params;
-    const paymentId = Number(id);
+    const paymentId = Number(req.params.id);
 
-    if (!id || !Number.isInteger(paymentId) || paymentId <= 0) {
-      return res.status(400).json({ success: false, message: "Invalid payment id" });
-    }
-
-    let payment;
-    let vendorId;
-
-    try {
-      const txResult = await prisma.$transaction(async (tx) => {
-        const p = await tx.payment.findUnique({
-          where: { id: paymentId },
-          include: {
-            booking: {
-              include: { service: true }
-            }
-          }
-        });
-
-        if (!p) return { error: "Payment not found", status: 404 };
-        if (p.status !== "success") return { error: "Payment not successful", status: 400 };
-
-        if (p.vendorPayoutStatus === "settled" || p.vendorPayoutStatus === "paid") {
-          return { error: "Already settled!", status: 400 };
-        }
-        if (p.vendorPayoutStatus === "processing") {
-          return { error: "Payout already in progress", status: 400 };
-        }
-
-        // Handle Prisma Decimal correctly
-        const vendorAmountInRupees = parseFloat(p.vendorAmount?.toString() || "0");
-        if (!vendorAmountInRupees || vendorAmountInRupees <= 0) {
-          return { error: "Zero amount or invalid vendor amount", status: 400 };
-        }
-
-        const vId = p.booking?.service?.vendorId;
-        if (!vId) return { error: "Vendor not found for booking", status: 400 };
-
-        // Lock the row by marking it "processing" so concurrent settle
-        // requests for the same payment can't both pass the checks above.
-        await tx.payment.update({
-          where: { id: p.id },
-          data: { vendorPayoutStatus: "processing" }
-        });
-
-        return { payment: p, vendorId: vId };
-      });
-
-      if (txResult.error) {
-        return res.status(txResult.status).json({ success: false, message: txResult.error });
-      }
-
-      payment = txResult.payment;
-      vendorId = txResult.vendorId;
-    } catch (txError) {
-      console.error("Settle payout transaction error:", txError);
-      return res.status(500).json({ success: false, message: "Failed to settle payout entirely" });
-    }
-
-    // Gateway call happens off the request thread, inside the payout worker.
-    await addPayoutJob({
-      paymentId: payment.id,
-      vendorId,
-      bookingId: payment.bookingId
-    });
+    const { payment } = await claimAndQueuePayout(paymentId);
 
     res.status(202).json({
       success: true,
       message: "Payout queued for processing",
-      payment: { ...payment, vendorPayoutStatus: "processing" }
+      payment
     });
   } catch (error) {
     console.error("Payout Gateway Error: ", error);
+    if (error instanceof PayoutError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: error.message || "Failed to settle payout entirely" });
   }
 };
