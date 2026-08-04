@@ -17,10 +17,13 @@ import loggerMiddleware from "./middleware/loggerMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
+import redisConnection from "./util/redis.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import swaggerSpec from "./config/swagger.js";
 import notificationWorker from "./workers/notificationWorker.js";
 import payoutWorker from "./workers/payoutWorker.js";
+import otpCleanupWorker from "./workers/otpCleanupWorker.js";
+import { scheduleOtpCleanup } from "./queues/otpCleanupQueue.js";
 
 // --- ROUTES IMPORTS ---
 
@@ -136,22 +139,43 @@ app.use(cors(corsOptions));
 app.use("/media", express.static(path.join(__dirname, "media")));
 
 // --- HEALTH CHECK ---
+// Actually pings the DB and Redis rather than just checking the client
+// objects were constructed, so a downed Supabase/Redis instance causes
+// Cloud Run to see this as unhealthy instead of reporting "healthy" while
+// every real request fails.
 app.get('/health', async (req, res) => {
+  const checks = { database: 'unknown', redis: 'unknown' };
+  let healthy = true;
+
   try {
-    res.status(200).json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: env.NODE_ENV,
-      database: !!prisma ? 'configured' : 'not configured'
-    });
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ]);
+    checks.database = 'ok';
   } catch (error) {
-    res.status(500).json({
-      status: 'unhealthy',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    checks.database = 'unreachable';
+    healthy = false;
   }
+
+  try {
+    await Promise.race([
+      redisConnection.ping(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ]);
+    checks.redis = 'ok';
+  } catch (error) {
+    checks.redis = 'unreachable';
+    healthy = false;
+  }
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: env.NODE_ENV,
+    checks
+  });
 });
 
 // Swagger
@@ -219,6 +243,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
 
   bookingStatusManager.start();
+  scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule OTP cleanup job:', err));
 });
 
 // --- GRACEFUL SHUTDOWN ---
@@ -240,6 +265,14 @@ const gracefulShutdown = () => {
       Logger.info('Payout worker closed.');
     }).catch(err => {
       Logger.error('Error closing payout worker:', err);
+    });
+  }
+
+  if (otpCleanupWorker) {
+    otpCleanupWorker.close().then(() => {
+      Logger.info('OTP cleanup worker closed.');
+    }).catch(err => {
+      Logger.error('Error closing OTP cleanup worker:', err);
     });
   }
 

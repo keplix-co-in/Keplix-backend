@@ -95,6 +95,10 @@ model VendorProfile {
   rating               Float   @default(0)
   numReviews           Int     @default(0)
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([city])
+  @@index([status])
+  @@index([is_online])
 }
 
 model Document {
@@ -105,6 +109,8 @@ model Document {
   status        String   @default("pending")
   createdAt     DateTime @default(now())
   vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Service {
@@ -135,7 +141,11 @@ model Booking {
   completion_images String?
   vendor_status     String        @default("pending")
   service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: deleting a User must never silently wipe their
+  // booking/payment/payout history. Users with any booking history are
+  // soft-deleted (User.is_active = false) instead — see deleteUser in
+  // controllers/Admin/userController.js.
+  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Restrict)
   conversation      Conversation?
   payment           Payment?      @relation("BookingPayment")
   review            Review?
@@ -161,8 +171,13 @@ model Payment {
   vendorAmount       Decimal?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
-  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
+  // Restrict: a Booking with a Payment record must never be deleted in a
+  // way that silently destroys the payment/financial audit trail with it.
+  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
   payoutSettlement   PayoutSettlement?
+
+  @@index([status])
+  @@index([vendorPayoutStatus])
 }
 
 // Durable, idempotent record of a payout attempt. Written BEFORE the gateway
@@ -182,7 +197,9 @@ model PayoutSettlement {
   lastError       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  payment        Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  // Restrict: never let deleting a Payment silently take its settlement
+  // record (the durable payout audit trail) with it.
+  payment        Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 }
 
 model Inventory {
@@ -192,6 +209,8 @@ model Inventory {
   stock_level Int
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Availability {
@@ -203,6 +222,8 @@ model Availability {
   is_available Boolean  @default(true)
   createdAt    DateTime @default(now())
   vendor       User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Conversation {
@@ -243,6 +264,8 @@ model Review {
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
   vendor    User?    @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Promotion {
@@ -256,6 +279,8 @@ model Promotion {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Notification {
@@ -278,6 +303,8 @@ model Feedback {
   category  String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model EmailOTP {
@@ -287,6 +314,8 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([email])
 }
 
 model PhoneOTP {
