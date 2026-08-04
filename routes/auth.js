@@ -132,7 +132,7 @@ router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken)
  *       200:
  *         description: Reset email sent
  */
-router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
+router.post('/forgot-password', strictAuthLimiter, validateRequest(forgotPasswordSchema), forgotPassword);
 
 /**
  * @swagger
@@ -153,7 +153,7 @@ router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPas
  *       200:
  *         description: OTP sent (if the email exists)
  */
-router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
+router.post('/send-password-reset-otp', strictAuthLimiter, validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
 
 /**
  * @swagger
@@ -178,7 +178,7 @@ router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), s
  *       200:
  *         description: Password reset successfully
  */
-router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
+router.post('/reset-password-otp', strictAuthLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
 
 /**
  * @swagger
@@ -210,7 +210,7 @@ router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), 
  *       200:
  *         description: Password reset successful
  */
-router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);
+router.post('/reset-password/:uid/:token', strictAuthLimiter, validateRequest(resetPasswordSchema), resetPassword);
 
 /**
  * @swagger

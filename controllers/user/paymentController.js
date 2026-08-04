@@ -240,22 +240,48 @@ export const verifyPayment = async (req, res) => {
       paymentId,
       signature,
       bookingId,
-      amount,
       gateway
     } = req.body;
 
-    // Verify Razorpay or Skip for Cash/Demo
-    // Also skip if signature is explicitly a mock one (for dev mode)
-    if (gateway !== 'cash' && gateway !== 'card' && gateway !== 'upi' && gateway !== 'netbanking' && !signature.startsWith('mock_')) {
+    if (!bookingId) {
+      return res.status(400).json({ message: "Booking ID is required" });
+    }
+
+    // The amount is never trusted from the client — it is always re-derived
+    // below from Service.price via the booking, so platformFee/vendorAmount
+    // can't be manipulated by a tampered request body.
+    const booking = await prisma.booking.findUnique({
+      where: { id: Number(bookingId) },
+      include: { service: true },
+    });
+
+    if (!booking || !booking.service) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    const cashLikeGateways = ['cash', 'card', 'upi', 'netbanking'];
+    const isCashLike = cashLikeGateways.includes(gateway);
+
+    if (isCashLike) {
+      // No online gateway is involved for these methods — there is no
+      // signature to verify. Only an authenticated request for the user's
+      // own booking (enforced by `protect` + ownership check below) can
+      // mark it paid; this still requires the booking to belong to the
+      // requesting user.
+      if (booking.userId !== req.user.id) {
+        return res.status(403).json({ message: "Not authorized for this booking" });
+      }
+    } else {
+      // Razorpay (or any online gateway): the signature is the actual proof
+      // that Razorpay processed this payment, so it must always be checked.
       const body = orderId + "|" + paymentId;
       const expectedSignature = crypto
         .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
         .update(body)
         .digest("hex");
-        //console.log(expectedSignature, signature)
 
       if (expectedSignature !== signature) {
-          return res.status(400).json({ message: "Invalid payment signature" });
+        return res.status(400).json({ message: "Invalid payment signature" });
       }
     }
     // Verified
@@ -264,14 +290,15 @@ export const verifyPayment = async (req, res) => {
     const ENABLE_PLATFORM_FEE = true; // Set to false to disable platform charges
     const PLATFORM_FEE_PERCENTAGE = 0.1; // 10% fee
 
-    // Commission calculation
-    const totalAmount = Number(amount);
+    // Commission calculation — derived from the booking's service price,
+    // never from the client-supplied amount.
+    const totalAmount = parseFloat(booking.service.price.toString());
     let platformFee = 0;
-    
+
     if (ENABLE_PLATFORM_FEE) {
       platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
     }
-    
+
     const vendorAmount = totalAmount - platformFee;
 
 

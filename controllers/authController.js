@@ -9,11 +9,16 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
-import { blacklistToken } from "../middleware/authMiddleware.js";
+import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
 
 const JWT_SECRET = process.env.JWT_SECRET;
+// Refresh tokens are signed with their own secret so a leaked access-token
+// secret alone can't be used to forge a long-lived refresh token, and vice
+// versa. Falls back to JWT_SECRET only outside production so local/dev
+// setups that haven't set it yet don't break.
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET;
 
 if (!JWT_SECRET) {
   const errorMsg = 'JWT_SECRET environment variable is required';
@@ -25,6 +30,16 @@ if (!JWT_SECRET) {
   }
 }
 
+if (!process.env.JWT_REFRESH_SECRET) {
+  const errorMsg = 'JWT_REFRESH_SECRET environment variable is required';
+  console.error(errorMsg);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMsg);
+  } else {
+    console.warn('Using JWT_SECRET as a fallback JWT_REFRESH_SECRET for development');
+  }
+}
+
 const generateAccessToken = (id) => {
   return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
     expiresIn: "1d",
@@ -32,7 +47,7 @@ const generateAccessToken = (id) => {
 };
 
 const generateRefreshToken = (id) => {
-  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
+  return jwt.sign({ id, type: 'refresh' }, JWT_REFRESH_SECRET, {
     expiresIn: "30d",
   });
 };
@@ -256,15 +271,29 @@ export const refreshToken = async (req, res) => {
     return res.status(400).json({ message: "Refresh token required" });
 
   try {
-    const decoded = jwt.verify(refresh, JWT_SECRET);
+    const blacklisted = await isRefreshTokenBlacklisted(refresh);
+    if (blacklisted) {
+      return res.status(401).json({ message: "Refresh token has been revoked" });
+    }
+
+    const decoded = jwt.verify(refresh, JWT_REFRESH_SECRET);
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
+    // Rotate: the presented refresh token is single-use — blacklist it and
+    // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
+    // limited window before it's replaced, and reuse of an old token after
+    // rotation is detectable/rejected.
+    await blacklistToken(refresh, decoded.exp);
+
     res.json({
       access: generateToken(user.id),
-      // Optionally rotate refresh token
-      refresh: refresh,
+      refresh: generateRefreshToken(user.id),
     });
   } catch (error) {
     console.error("Token refresh error:", error);
@@ -542,9 +571,7 @@ export const sendPhoneOTP = async (req, res) => {
     }
   } catch (error) {
     console.error("sendPhoneOTP error:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to send OTP", details: error.message });
+    res.status(500).json({ error: "Failed to send OTP" });
   }
 };
 

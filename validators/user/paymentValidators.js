@@ -13,16 +13,13 @@ export const createPaymentSchema = z.object({
 });
 
 export const verifyPaymentSchema = z.object({
-  orderId: z.string({ required_error: "orderId is required" }),
-  paymentId: z.string({ required_error: "paymentId is required" }),
-  signature: z.string({ required_error: "signature is required" }),
+  orderId: z.string().optional(),
+  paymentId: z.string().optional(),
+  signature: z.string().optional(),
 
   bookingId: z
-    .number()
-    .optional()
+    .number({ required_error: "bookingId is required" })
     .or(z.string().transform((val) => Number(val))),
 
-  amount: z
-    .number({ required_error: "amount is required" })
-    .or(z.string().transform((val) => Number(val))),
+  gateway: z.string().optional(),
 });

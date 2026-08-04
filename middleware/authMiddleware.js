@@ -92,6 +92,14 @@ const isTokenBlacklisted = async (token) => {
 };
 
 /**
+ * Checks whether a refresh token has been blacklisted (e.g. by a prior
+ * rotation or logout). Same fail-closed semantics as isTokenBlacklisted.
+ * @param {string} token - Raw refresh JWT string to check.
+ * @returns {Promise<boolean>} True if blacklisted or if the Redis check errored; false otherwise.
+ */
+export const isRefreshTokenBlacklisted = isTokenBlacklisted;
+
+/**
  * Express middleware that authenticates a request via Bearer JWT, checking a
  * Redis-backed token blacklist and a Redis-backed user cache before falling
  * back to the database, then attaches the resolved user to req.user.

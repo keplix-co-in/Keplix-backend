@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-const isProd = process.env.NODE_ENV === "production";
+// Fail closed: only relax CORS when explicitly running in development, not
+// merely "whenever NODE_ENV isn't 'production'" (e.g. if it's unset).
+const isDev = process.env.NODE_ENV === "development";
 
 // Read allowed origins from env (comma separated) or default for dev
 const allowedOrigins = [
@@ -27,11 +29,11 @@ const corsOptions = {
     }
 
     //Development Mode → Allow all
-    if (!isProd) {
+    if (isDev) {
       return callback(null, true);
     }
 
-    //Production Mode → Allow only whitelisted origins
+    //Everything else (production, test, unset/misconfigured) → Allow only whitelisted origins
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
