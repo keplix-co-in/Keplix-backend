@@ -43,9 +43,27 @@ router.put('/users/fcm-token', protect, updateFcmToken);
  *         required: true
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of notifications per page
+ *       - in: query
+ *         name: isRead
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *         description: Filter by read/unread status
  *     responses:
  *       200:
- *         description: List of notifications
+ *         description: List of notifications with pagination info
  */
 router.get('/users/:user_id', protect, getNotifications);
 

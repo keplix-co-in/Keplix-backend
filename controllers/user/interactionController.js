@@ -1,4 +1,4 @@
-﻿import prisma from "../../util/prisma.js";
+import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
@@ -148,6 +148,8 @@ export const getMessages = async (req, res) => {
     const { conversationId } = req.params;
     const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
+    const safeLimit = Math.min(Number(limit), 100);
+
     const where = { conversationId: Number(conversationId) };
     if (before) {
       where.id = { lt: Number(before) };
@@ -156,8 +158,8 @@ export const getMessages = async (req, res) => {
     // Fetch newest-first (bounded by `take`), then reverse for chronological display.
     const messages = await prisma.message.findMany({
       where,
-      orderBy: { sent_at: "desc" },
-      take: Number(limit),
+      orderBy: { id: "desc" },
+      take: safeLimit,
       include: {
         sender: {
           select: {
@@ -168,7 +170,17 @@ export const getMessages = async (req, res) => {
       },
     });
 
-    res.json(messages.reverse());
+    const nextCursor =
+      messages.length === safeLimit
+        ? messages[messages.length - 1].id
+        : null;
+
+    res.json({
+      success: true,
+      count: messages.length,
+      data: messages.reverse(),
+      nextCursor: nextCursor,
+    });
   } catch (error) {
     console.error("Get Messages Error:", error);
     res.status(500).json({ message: "Failed to fetch messages" });

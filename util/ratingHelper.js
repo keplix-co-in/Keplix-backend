@@ -1,42 +1,47 @@
-// Incrementally updates a vendor's cached average rating instead of
-// re-aggregating the full review table on every review write.
-// Must be called with a transaction client (tx) so the review create and
-// the rating update commit atomically.
-export const applyReviewToVendorRating = async (tx, vendorId, newRating) => {
+/**
+ * Utility to update vendor rating and review count incrementally.
+ * Should be called within a Prisma transaction.
+ *
+ * @param {object} tx - Prisma transaction client
+ * @param {number} vendorId - ID of the vendor (User ID)
+ * @param {number} ratingValue - The rating value of the new or deleted review
+ * @param {boolean} isDeletion - Whether this is a deletion operation
+ */
+export const updateVendorRatingStats = async (tx, vendorId, ratingValue, isDeletion = false) => {
+  if (!vendorId) return;
+
   const vendorProfile = await tx.vendorProfile.findUnique({
     where: { userId: vendorId },
-    select: { rating: true, numReviews: true },
+    select: { rating: true, numReviews: true }
   });
 
   if (!vendorProfile) return;
 
-  const oldCount = vendorProfile.numReviews;
-  const oldAvg = vendorProfile.rating;
-  const newCount = oldCount + 1;
-  const newAvg = (oldAvg * oldCount + newRating) / newCount;
+  const currentCount = vendorProfile.numReviews || 0;
+  const currentAvg = vendorProfile.rating || 0;
+
+  let newCount, newAvg;
+
+  if (isDeletion) {
+    if (currentCount <= 0) return; // Should not happen
+    newCount = currentCount - 1;
+    if (newCount === 0) {
+      newAvg = 0;
+    } else {
+      // Formula: (TotalSum - DeletedRating) / NewCount
+      newAvg = ((currentAvg * currentCount) - ratingValue) / newCount;
+    }
+  } else {
+    newCount = currentCount + 1;
+    // Formula: (TotalSum + NewRating) / NewCount
+    newAvg = ((currentAvg * currentCount) + ratingValue) / newCount;
+  }
 
   await tx.vendorProfile.update({
     where: { userId: vendorId },
-    data: { rating: newAvg, numReviews: newCount },
-  });
-};
-
-// Inverse of applyReviewToVendorRating — call when a review is deleted.
-export const removeReviewFromVendorRating = async (tx, vendorId, removedRating) => {
-  const vendorProfile = await tx.vendorProfile.findUnique({
-    where: { userId: vendorId },
-    select: { rating: true, numReviews: true },
-  });
-
-  if (!vendorProfile || vendorProfile.numReviews <= 0) return;
-
-  const oldCount = vendorProfile.numReviews;
-  const oldAvg = vendorProfile.rating;
-  const newCount = oldCount - 1;
-  const newAvg = newCount > 0 ? (oldAvg * oldCount - removedRating) / newCount : 0;
-
-  await tx.vendorProfile.update({
-    where: { userId: vendorId },
-    data: { rating: newAvg, numReviews: newCount },
+    data: {
+      rating: Math.max(0, newAvg),
+      numReviews: newCount
+    }
   });
 };

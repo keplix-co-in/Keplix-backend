@@ -1,4 +1,4 @@
-// import Razorpay from 'razorpay';
+﻿// import Razorpay from 'razorpay';
 // import Stripe from 'stripe';
 // import prisma from "../../util/prisma.js";
 
@@ -189,32 +189,22 @@ const razorpay = new Razorpay({
  */
 export const createPaymentOrder = async (req, res) => {
   try {
-    const { amount, currency = "INR", gateway, bookingId } = req.body;
+    const { amount, currency = "INR", gateway } = req.body;
 
     if (!amount) {
       return res.status(400).json({ message: "Amount is required" });
     }
-
-    if (!bookingId) {
-      return res.status(400).json({ message: "Booking ID is required" });
-    }
-
-    // Generate idempotency key using bookingId hash (MD5 used for 32-char length to fit Razorpay's 36-char limit)
-    const idempotencyKey = crypto.createHash("md5").update(String(bookingId)).digest("hex");
+    
 
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency,
-      receipt: `rcpt_bk_${bookingId}`,
-    }, {
-      "X-Razorpay-Idempotency-Key": idempotencyKey
+      receipt: `order_${Date.now()}`,
     });
 
-    const finalOrderId = order.id || order.orderId;
-
     const responseData = {
-      id: finalOrderId, // This must be present and a string!
-      orderId: finalOrderId, 
+      id: order.id || order.orderId, // This must be present and a string!
+      orderId: order.id, 
       amount: order.amount,
       currency: order.currency,
       key_id: process.env.RAZORPAY_KEY_ID, 
@@ -287,40 +277,31 @@ export const verifyPayment = async (req, res) => {
       vendorPayoutStatus: "pending",
     };
 
-    // Payment record + booking status update must commit together — if the
-    // booking update failed after the payment was already saved, we'd have
-    // a "paid" payment left dangling with no confirmed booking.
-    const { payment, updatedBooking } = await prisma.$transaction(async (tx) => {
-      let payment;
-      if (bookingId) {
-        payment = await tx.payment.upsert({
-          where: { bookingId: Number(bookingId) },
-          update: paymentData,
-          create: {
-            bookingId: Number(bookingId),
-            ...paymentData,
-          },
-        });
-      } else {
-        payment = await tx.payment.create({
-          data: paymentData,
-        });
-      }
+    let payment;
+    if (bookingId) {
+      payment = await prisma.payment.upsert({
+        where: { bookingId: Number(bookingId) },
+        update: paymentData,
+        create: {
+          bookingId: Number(bookingId),
+          ...paymentData,
+        },
+      });
+    } else {
+      payment = await prisma.payment.create({
+        data: paymentData,
+      });
+    }
 
-      let updatedBooking = null;
-      if (bookingId) {
-        updatedBooking = await tx.booking.update({
-          where: { id: Number(bookingId) },
-          data: { status: "confirmed" },
-          include: { service: true }
-        });
-      }
+    // Update booking
+    if (bookingId) {
+      const updatedBooking = await prisma.booking.update({
+        where: { id: Number(bookingId) },
+        data: { status: "confirmed" },
+        include: { service: true }
+      });
 
-      return { payment, updatedBooking };
-    });
-
-    // Notify Vendor about successful payment
-    if (bookingId && updatedBooking) {
+      // Notify Vendor about successful payment
       if (updatedBooking.service && updatedBooking.service.vendorId) {
         await createNotification(
           updatedBooking.service.vendorId,
@@ -440,21 +421,18 @@ async function handlePaymentFailed(payment) {
     });
 
     if (existingPayment) {
-      await prisma.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { id: existingPayment.id },
-          data: { status: 'failed' }
-        });
-        
-        // Update booking back to pending
-        if (existingPayment.bookingId) {
-          await tx.booking.update({
-            where: { id: existingPayment.bookingId },
-            data: { status: 'pending' }
-          });
-        }
+      await prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: { status: 'failed' }
       });
-      Logger.info(`[Webhook] Payment ${id} updated to failed and booking reverted to pending`);
+      
+      // Update booking back to pending
+      if (existingPayment.bookingId) {
+        await prisma.booking.update({
+          where: { id: existingPayment.bookingId },
+          data: { status: 'pending' }
+        });
+      }
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);

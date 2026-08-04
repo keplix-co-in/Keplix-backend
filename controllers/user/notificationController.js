@@ -1,4 +1,4 @@
-﻿import prisma from "../../util/prisma.js";
+import prisma from "../../util/prisma.js";
 
 
 
@@ -6,26 +6,32 @@
 // @route   GET /interactions/api/users/:user_id/notifications/
 export const getNotifications = async (req, res) => {
     try {
-        const { page = 1, limit = 20 } = req.query;
-        const skip = (page - 1) * limit;
-        const where = { userId: parseInt(req.params.user_id) };
+        const userId = parseInt(req.params.user_id);
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const isRead = req.query.isRead;
+
+        const where = { userId };
+        if (isRead !== undefined) {
+            where.is_read = isRead === 'true';
+        }
 
         const [notifications, total] = await Promise.all([
             prisma.notification.findMany({
                 where,
                 orderBy: { createdAt: 'desc' },
-                skip: Number(skip),
-                take: Number(limit)
+                skip: (page - 1) * limit,
+                take: limit
             }),
             prisma.notification.count({ where })
         ]);
 
         res.json({
-            data: notifications,
+            notifications,
             pagination: {
                 total,
-                page: Number(page),
-                limit: Number(limit),
+                page,
+                limit,
                 totalPages: Math.ceil(total / limit)
             }
         });
