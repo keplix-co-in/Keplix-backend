@@ -63,6 +63,8 @@ import adminBookingRoutes from "./routes/Admin/bookings.js";
 import adminUserRoutes from "./routes/Admin/user.js";
 import adminVendorRoutes from "./routes/Admin/vendor.js";
 import adminFinanceRoutes from "./routes/Admin/finance.js";
+import adminBlogRoutes from "./routes/Admin/blog.js";
+import publicBlogRoutes from "./routes/public/blog.js";
 
 // --- CONFIGURATION ---
 
@@ -227,6 +229,10 @@ app.use("/admin", adminBookingRoutes);
 app.use("/admin", adminUserRoutes);
 app.use("/admin", adminVendorRoutes);
 app.use("/admin", adminFinanceRoutes);
+app.use("/admin", adminBlogRoutes);
+
+// Public content (no auth) — consumed by the marketing site
+app.use("/content", publicBlogRoutes);
 
 // --- ERROR HANDLING ---
 app.use(notFound);

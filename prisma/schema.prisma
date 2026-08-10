@@ -7,33 +7,33 @@ datasource db {
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  email               String               @unique
-  password            String
-  role                String               @default("user")
-  is_active           Boolean              @default(true)
+  id                   Int                  @id @default(autoincrement())
+  email                String               @unique
+  password             String
+  role                 String               @default("user")
+  is_active            Boolean              @default(true)
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
-  is_verified         Boolean              @default(false)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  fcmToken            String?
-  device_type         String?
-  pushToken           String?
-  Availability        Availability[]
-  bookings            Booking[]            @relation("UserBookings")
-  documents           Document[]
-  feedbacks           Feedback[]
-  inventory           Inventory[]
-  sentMessages        Message[]            @relation("UserSentMessages")
-  notifications       Notification[]
-  promotions          Promotion[]
-  reviews             Review[]             @relation("UserReviews")
-  vendorReviews       Review[]             @relation("VendorReviews")
-  services            Service[]            @relation("VendorServices")
-  userProfile         UserProfile?
-  VendorPayoutAccount VendorPayoutAccount?
-  vendorProfile       VendorProfile?
+  is_verified          Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  fcmToken             String?
+  device_type          String?
+  pushToken            String?
+  Availability         Availability[]
+  bookings             Booking[]            @relation("UserBookings")
+  documents            Document[]
+  feedbacks            Feedback[]
+  inventory            Inventory[]
+  sentMessages         Message[]            @relation("UserSentMessages")
+  notifications        Notification[]
+  promotions           Promotion[]
+  reviews              Review[]             @relation("UserReviews")
+  vendorReviews        Review[]             @relation("VendorReviews")
+  services             Service[]            @relation("VendorServices")
+  userProfile          UserProfile?
+  VendorPayoutAccount  VendorPayoutAccount?
+  vendorProfile        VendorProfile?
 
   @@index([email])
   @@index([role])
@@ -158,22 +158,22 @@ model Booking {
 }
 
 model Payment {
-  id                 Int      @id @default(autoincrement())
-  bookingId          Int?     @unique
+  id                 Int               @id @default(autoincrement())
+  bookingId          Int?              @unique
   amount             Decimal
-  currency           String   @default("INR")
-  status             String   @default("pending")
+  currency           String            @default("INR")
+  status             String            @default("pending")
   method             String
   transactionId      String?
-  vendorPayoutStatus String?  @default("pending")
+  vendorPayoutStatus String?           @default("pending")
   vendorPayoutId     String?
   platformFee        Decimal?
   vendorAmount       Decimal?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   // Restrict: a Booking with a Payment record must never be deleted in a
   // way that silently destroys the payment/financial audit trail with it.
-  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
+  booking            Booking?          @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
   payoutSettlement   PayoutSettlement?
 
   @@index([status])
@@ -199,7 +199,7 @@ model PayoutSettlement {
   updatedAt       DateTime @updatedAt
   // Restrict: never let deleting a Payment silently take its settlement
   // record (the durable payout audit trail) with it.
-  payment        Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 }
 
 model Inventory {
@@ -350,9 +350,31 @@ model Admin {
   updatedAt    DateTime    @updatedAt
   role         String      @default("admin")
   refreshToken String?
+  blogPosts    BlogPost[]
 
   @@index([email])
   @@index([status])
+}
+
+model BlogPost {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  content     String // sanitized HTML from the admin editor
+  coverImage  String?
+  category    String    @default("General")
+  readTime    Int? // minutes, derived from content length
+  status      String    @default("draft") // draft | published
+  publishedAt DateTime?
+  authorId    Int?
+  author      Admin?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([publishedAt])
 }
 
 enum AdminStatus {
