@@ -21,6 +21,22 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
 }));
 
 const mockVerifyIdToken = jest.fn();
+// util/redis.js opens a live IORedis connection at import time and is reached
+// transitively through middleware/authMiddleware.js. Left unmocked it both
+// requires a running Redis and keeps an open handle that stops jest exiting.
+jest.unstable_mockModule('../../util/redis.js', () => ({
+  default: {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    setex: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+    exists: jest.fn().mockResolvedValue(0),
+    ping: jest.fn().mockResolvedValue('PONG'),
+    quit: jest.fn().mockResolvedValue('OK'),
+    on: jest.fn(),
+  },
+}));
+
 jest.unstable_mockModule('../../util/firebase.js', () => ({
   default: {
     auth: () => ({ verifyIdToken: mockVerifyIdToken }),

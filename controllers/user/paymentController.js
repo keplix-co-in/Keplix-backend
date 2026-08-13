@@ -1,181 +1,10 @@
-// import Razorpay from 'razorpay';
-// import Stripe from 'stripe';
-// import prisma from "../../util/prisma.js";
-
-// 
-
-// const razorpay = new Razorpay({
-//     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-//     key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
-// });
-
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
-
-// // @desc    Create Payment Order
-// // @route   POST /service_api/payments/order/create/
-// export const createPaymentOrder = async (req, res) => {
-//     try {
-//         const { amount, currency = "INR", gateway } = req.body;
-
-//         if (!amount) {
-//             return res.status(400).json({ message: "Amount is required" });
-//         }
-
-//         if (gateway === 'stripe') {
-//             // Stripe Payment Intent
-//             const paymentIntent = await stripe.paymentIntents.create({
-//                 amount: Math.round(amount * 100), // Stripe expects smallest currency unit
-//                 currency: currency.toLowerCase(),
-//                 automatic_payment_methods: {
-//                     enabled: true,
-//                 },
-//             });
-
-//             return res.json({
-//                 id: paymentIntent.id,
-//                 clientSecret: paymentIntent.client_secret,
-//                 gateway: 'stripe'
-//             });
-
-//         } else {
-//             // Default to Razorpay
-//             const options = {
-//                 amount: Math.round(amount * 100), // Razorpay also expects paise
-//                 currency: currency,
-//                 receipt: "order_" + Date.now(),
-//             };
-
-//             const order = await razorpay.orders.create(options);
-
-//             console.log('âœ… [Razorpay] Order created successfully:', {
-//                 orderId: order.id,
-//                 amount: order.amount,
-//                 currency: order.currency,
-//                 receipt: order.receipt,
-//                 status: order.status
-//             });
-
-//             return res.json({
-//                 id: order.id,
-//                 amount: order.amount,
-//                 currency: order.currency,
-//                 gateway: 'razorpay',
-//                 key_id: process.env.RAZORPAY_KEY_ID,
-//                 receipt: order.receipt,
-//                 status: order.status
-//             });
-//         }
-//     } catch (error) {
-//         console.error("Payment Order Error:", error);
-//         res.status(500).json({ message: "Payment creation failed", error: error.message });
-//     }
-// };
-
-// // @desc    Verify and Save Payment
-// // @route   POST /service_api/payments/verify/
-// export const verifyPayment = async (req, res) => {
-//     try {
-//         const { id, amount, currency, gateway, status, paymentId, signature, bookingId } = req.body;
-        
-//         // id = order ID (from create response)
-//         // paymentId = actual payment ID (if payment was completed)
-//         const orderId = id;
-//         const transactionId = paymentId || id; // Use paymentId if available, otherwise orderId
-
-//         console.log('[Payment Verify] Request received:', {
-//             orderId: id,
-//             paymentId,
-//             bookingId,
-//             gateway,
-//             amount,
-//             status
-//         });
-
-//         // For testing: bookingId is optional
-//         // In production, you should require it
-
-//         // 1. Verify Signature (Skipped for demo - assume secure if gateway confirms)
-//         // In prod, use razorpay.utils.verifyPaymentSignature or Stripe Webhooks
-
-//         // 2. Save to DB
-//         // Calculate Platform Fee (e.g., 10%)
-//         const totalAmount = parseFloat(amount || 0); 
-//         const platformFee = totalAmount * 0.10; 
-//         const vendorAmount = totalAmount - platformFee;
-
-//         const paymentData = {
-//             amount: totalAmount,
-//             currency: currency || 'INR',
-//             method: gateway || 'unknown',
-//             transactionId: transactionId,
-//             status: paymentId ? 'success' : 'pending', // Success if paymentId provided, otherwise pending
-//             vendorPayoutStatus: 'pending', // Waiting for service completion
-//             platformFee: platformFee,
-//             vendorAmount: vendorAmount
-//         };
-
-//         // Only link to booking if bookingId is provided
-//         if (bookingId) {
-//             paymentData.bookingId = parseInt(bookingId);
-//         }
-
-//         const payment = await prisma.payment.create({
-//             data: paymentData
-//         });
-
-//         console.log('âœ… [Payment Verify] Payment saved to database:', {
-//             paymentId: payment.id,
-//             amount: payment.amount,
-//             status: payment.status,
-//             transactionId: payment.transactionId
-//         });
-
-//         // 3. Update Booking Status to Confirmed (if bookingId provided)
-//         if (bookingId) {
-//             try {
-//                 await prisma.booking.update({
-//                     where: { id: parseInt(bookingId) },
-//                     data: { status: 'confirmed' }
-//                 });
-//                 console.log('âœ… [Payment Verify] Booking status updated to confirmed');
-//             } catch (bookingError) {
-//                 console.warn('âš ï¸  [Payment Verify] Could not update booking:', bookingError.message);
-//             }
-//         }
-
-//         res.json({ 
-//             status: "success", 
-//             message: bookingId 
-//                 ? "Payment verified and held in Escrow" 
-//                 : "Payment verified (test mode - no booking linked)", 
-//             paymentId: payment.id,
-//             amount: payment.amount,
-//             platformFee: payment.platformFee,
-//             vendorAmount: payment.vendorAmount
-//         });
-
-//     } catch (error) {
-//         console.error("Payment Verification Error:", error);
-//         res.status(500).json({ 
-//             message: "Payment verification failed",
-//             error: error.message 
-//         });
-//     }
-// };
-
-// // @desc    Get User Payments
-// // @route   GET /service_api/user/:user_id/payments/
-// export const getUserPayments = async (req, res) => {
-//     res.json([]); // Return empty list for now
-// };
-
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
-import { verifyAndRecordPayment, PaymentError } from "../../services/paymentService.js";
+import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
 
 
 
@@ -190,15 +19,31 @@ const razorpay = new Razorpay({
  */
 export const createPaymentOrder = async (req, res) => {
   try {
-    const { amount, currency = "INR", gateway, bookingId } = req.body;
-
-    if (!amount) {
-      return res.status(400).json({ message: "Amount is required" });
-    }
+    // `amount` is intentionally ignored — the client used to be able to
+    // request an order for any amount it liked (e.g. ₹1 against a ₹5,000
+    // booking), and verification never cross-checked it against the booking
+    // price, so a valid signature on a cheap order recorded a full-price
+    // payment. The price is now looked up server-side from the booking.
+    const { currency = "INR", bookingId } = req.body;
 
     if (!bookingId) {
       return res.status(400).json({ message: "Booking ID is required" });
     }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: Number(bookingId) },
+      include: { service: true },
+    });
+
+    if (!booking || !booking.service) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.userId !== req.user.id) {
+      return res.status(403).json({ message: "Not authorized for this booking" });
+    }
+
+    const amount = parseFloat(booking.service.price.toString());
 
     // Generate idempotency key using bookingId hash (MD5 used for 32-char length to fit Razorpay's 36-char limit)
     const idempotencyKey = crypto.createHash("md5").update(String(bookingId)).digest("hex");
@@ -207,6 +52,12 @@ export const createPaymentOrder = async (req, res) => {
       amount: Math.round(amount * 100),
       currency,
       receipt: `rcpt_bk_${bookingId}`,
+      // The webhook handler needs a reliable way to resolve which booking a
+      // captured payment belongs to when it's creating the payment record
+      // itself (client died before calling /verify) — notes are echoed back
+      // on both the order and payment webhook entities, unlike `receipt`
+      // parsing which is a string convention rather than a real contract.
+      notes: { bookingId: String(bookingId) },
     }, {
       "X-Razorpay-Idempotency-Key": idempotencyKey
     });
@@ -293,9 +144,13 @@ export const verifyPayment = async (req, res) => {
 export const handleRazorpayWebhook = async (req, res) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    
-    if (!webhookSecret) {
-      Logger.error('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured');
+
+    // The .env.example placeholder value is truthy, so a deployment that never
+    // set a real secret would otherwise sail past the `!webhookSecret` check
+    // and verify every webhook against a value nobody else could ever produce
+    // a valid HMAC for — meaning every real webhook silently fails forever.
+    if (!webhookSecret || webhookSecret === 'your_razorpay_webhook_secret_here') {
+      Logger.error('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured (missing or placeholder)');
       return res.status(500).json({ error: 'Webhook not configured' });
     }
 
@@ -309,6 +164,28 @@ export const handleRazorpayWebhook = async (req, res) => {
 
     const { event, payload } = req.body;
     Logger.info(`[Webhook] Received event: ${event}`);
+
+    // Dedupe/replay protection. Razorpay retries webhook delivery on
+    // timeout/non-2xx, and a captured valid webhook body+signature is
+    // otherwise replayable indefinitely (nothing about the signature check
+    // is single-use). eventId prefers Razorpay's own delivery id header;
+    // when absent, a deterministic key derived from the event contents is
+    // used instead so the same underlying event still collapses to one row.
+    const entityId = payload?.payment?.entity?.id || payload?.order?.entity?.id || 'unknown';
+    const eventId = req.headers['x-razorpay-event-id']
+      || `${event}:${entityId}:${req.body?.created_at || ''}`;
+
+    try {
+      await prisma.webhookEvent.create({
+        data: { eventId: String(eventId), eventType: String(event) },
+      });
+    } catch (dedupeErr) {
+      if (dedupeErr?.code === 'P2002') {
+        Logger.info(`[Webhook] Duplicate delivery ignored: ${eventId}`);
+        return res.json({ received: true, duplicate: true });
+      }
+      throw dedupeErr;
+    }
 
     // Handle different payment events
     switch (event) {
@@ -338,20 +215,29 @@ export const handleRazorpayWebhook = async (req, res) => {
 // Helper: Handle payment captured event
 async function handlePaymentCaptured(payment) {
   try {
-    const { id, order_id, amount, status } = payment;
-    
+    const { id, order_id, amount, notes } = payment;
+
     Logger.info(`[Webhook] Payment captured: ${id}, Amount: ${amount / 100}`);
-    
-    // Update payment record if exists
-    const existingPayment = await prisma.payment.findFirst({
-      where: { transactionId: id }
+
+    // If /verify already ran, this just flips status to success (or is a
+    // no-op if it's already there). If the client died before calling
+    // /verify at all, this is the only place that payment ever gets
+    // recorded — so it has to be able to create the row, not just update one
+    // that may not exist yet.
+    const result = await recordCapturedPaymentFromWebhook({
+      orderId: order_id,
+      paymentId: id,
+      amountPaise: amount,
+      bookingIdHint: notes?.bookingId,
     });
 
-    if (existingPayment) {
-      await prisma.payment.update({
-        where: { id: existingPayment.id },
-        data: { status: 'success' }
-      });
+    if (result.mismatch) {
+      Logger.error(`[Webhook] Payment ${id} captured amount does not match booking price — needs manual review`);
+    } else if (result.unresolved) {
+      Logger.error(`[Webhook] Payment ${id} could not be matched to a booking — needs manual review`);
+    } else if (result.created) {
+      Logger.info(`[Webhook] Payment ${id} created and booking confirmed from webhook (client never called /verify)`);
+    } else {
       Logger.info(`[Webhook] Payment ${id} updated to success`);
     }
   } catch (error) {
@@ -370,13 +256,18 @@ async function handlePaymentFailed(payment) {
       where: { transactionId: id }
     });
 
-    if (existingPayment) {
+    // A late payment.failed delivery must not revert a payment that has
+    // already succeeded and possibly been paid out to the vendor — webhook
+    // events aren't guaranteed to arrive in order, and Razorpay can retry
+    // deliveries, so a stale "failed" for an already-captured payment is a
+    // realistic case, not a hypothetical one.
+    if (existingPayment && existingPayment.status !== 'success') {
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
           where: { id: existingPayment.id },
           data: { status: 'failed' }
         });
-        
+
         // Update booking back to pending
         if (existingPayment.bookingId) {
           await tx.booking.update({
@@ -386,6 +277,8 @@ async function handlePaymentFailed(payment) {
         }
       });
       Logger.info(`[Webhook] Payment ${id} updated to failed and booking reverted to pending`);
+    } else if (existingPayment) {
+      Logger.warn(`[Webhook] Ignored stale payment.failed for already-successful payment ${id}`);
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);

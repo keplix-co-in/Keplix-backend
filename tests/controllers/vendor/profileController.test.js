@@ -12,6 +12,12 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     payment: {
       aggregate: jest.fn(),
     },
+    // getVendorProfile now reports payout readiness so the vendor app can
+    // prompt for bank details rather than letting a settlement fail silently
+    // weeks later.
+    vendorPayoutAccount: {
+      findUnique: jest.fn().mockResolvedValue({ vendorId: 1, isActive: true }),
+    },
   },
 }));
 
@@ -333,5 +339,63 @@ describe('getVendorProfile', () => {
     expect(response.city).toBe('Mumbai');
     expect(response.is_online).toBe(true);
     expect(response.user).toEqual({ id: 1, name: 'Vendor User' });
+  });
+});
+
+/**
+ * Payout readiness must be visible.
+ *
+ * A vendor with no VendorPayoutAccount cannot be paid — util/payoutHelper.js
+ * throws on settlement. Onboarding deliberately does not fail when RazorpayX
+ * setup errors (a gateway outage shouldn't discard the vendor's documents),
+ * but the failure used to be swallowed into a console.error and a plain
+ * success response, so nobody learned about it until a payout failed days
+ * later. These tests pin the reporting in place.
+ */
+describe('getVendorProfile — payout readiness reporting', () => {
+  const baseProfile = {
+    id: 10,
+    userId: 1,
+    business_name: 'Test Shop',
+    rating: 4.25,
+    numReviews: 4,
+    user: { id: 1 },
+  };
+
+  beforeEach(() => {
+    prisma.vendorProfile.findUnique.mockResolvedValue(baseProfile);
+    prisma.booking.count.mockResolvedValue(0);
+    prisma.payment.aggregate.mockResolvedValue({ _sum: { vendorAmount: null, amount: null } });
+  });
+
+  test('reports configured when an active payout account exists', async () => {
+    prisma.vendorPayoutAccount.findUnique.mockResolvedValue({ vendorId: 1, isActive: true });
+
+    const res = mockRes();
+    await getVendorProfile(mockReq(), res);
+
+    expect(res.json.mock.calls[0][0].payoutSetup).toEqual({ ok: true, configured: true });
+  });
+
+  test('reports the vendor as un-payable when no payout account exists', async () => {
+    prisma.vendorPayoutAccount.findUnique.mockResolvedValue(null);
+
+    const res = mockRes();
+    await getVendorProfile(mockReq(), res);
+
+    expect(res.json.mock.calls[0][0].payoutSetup).toEqual({
+      ok: false, configured: false, reason: 'no_payout_account',
+    });
+  });
+
+  test('reports an inactive payout account as un-payable', async () => {
+    prisma.vendorPayoutAccount.findUnique.mockResolvedValue({ vendorId: 1, isActive: false });
+
+    const res = mockRes();
+    await getVendorProfile(mockReq(), res);
+
+    expect(res.json.mock.calls[0][0].payoutSetup).toEqual({
+      ok: false, configured: false, reason: 'payout_account_inactive',
+    });
   });
 });

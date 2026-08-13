@@ -7,33 +7,31 @@ datasource db {
 }
 
 model User {
-  id                   Int                  @id @default(autoincrement())
-  email                String               @unique
-  password             String
-  role                 String               @default("user")
-  is_active            Boolean              @default(true)
-  resetPasswordToken   String?
-  resetPasswordExpires DateTime?
-  is_verified          Boolean              @default(false)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  fcmToken             String?
-  device_type          String?
-  pushToken            String?
-  Availability         Availability[]
-  bookings             Booking[]            @relation("UserBookings")
-  documents            Document[]
-  feedbacks            Feedback[]
-  inventory            Inventory[]
-  sentMessages         Message[]            @relation("UserSentMessages")
-  notifications        Notification[]
-  promotions           Promotion[]
-  reviews              Review[]             @relation("UserReviews")
-  vendorReviews        Review[]             @relation("VendorReviews")
-  services             Service[]            @relation("VendorServices")
-  userProfile          UserProfile?
-  VendorPayoutAccount  VendorPayoutAccount?
-  vendorProfile        VendorProfile?
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
+  password            String
+  role                String               @default("user")
+  is_active           Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  fcmToken            String?
+  device_type         String?
+  pushToken           String?
+  is_verified         Boolean              @default(false)
+  Availability        Availability[]
+  bookings            Booking[]            @relation("UserBookings")
+  documents           Document[]
+  feedbacks           Feedback[]
+  inventory           Inventory[]
+  sentMessages        Message[]            @relation("UserSentMessages")
+  notifications       Notification[]
+  promotions          Promotion[]
+  reviews             Review[]             @relation("UserReviews")
+  vendorReviews       Review[]             @relation("VendorReviews")
+  services            Service[]            @relation("VendorServices")
+  userProfile         UserProfile?
+  VendorPayoutAccount VendorPayoutAccount?
+  vendorProfile       VendorProfile?
 
   @@index([email])
   @@index([role])
@@ -86,12 +84,19 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
-  is_online            Boolean @default(true)
   image                String?
   cover_image          String?
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+  is_online            Boolean @default(true)
+  // Denormalised review aggregates maintained by util/ratingHelper.js.
+  // These were being read and written by that helper (from review creation,
+  // review deletion, and booking confirmation) but had never been added to
+  // the schema — so every one of those paths threw "Unknown field `rating`"
+  // at runtime. Most damagingly, confirming a booking WITH a rating is what
+  // releases escrow to the vendor, and the whole thing ran in one
+  // transaction, so a rating silently rolled back the payout claim too.
   rating               Float   @default(0)
   numReviews           Int     @default(0)
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -138,14 +143,10 @@ model Booking {
   notes             String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  completion_images String?
   vendor_status     String        @default("pending")
+  completion_images String?
   service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  // Restrict, not Cascade: deleting a User must never silently wipe their
-  // booking/payment/payout history. Users with any booking history are
-  // soft-deleted (User.is_active = false) instead — see deleteUser in
-  // controllers/Admin/userController.js.
-  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Restrict)
+  user              User          @relation("UserBookings", fields: [userId], references: [id])
   conversation      Conversation?
   payment           Payment?      @relation("BookingPayment")
   review            Review?
@@ -164,32 +165,29 @@ model Payment {
   currency           String            @default("INR")
   status             String            @default("pending")
   method             String
-  transactionId      String?
+  // Unique so the webhook path's "has this gateway payment already been
+  // recorded?" lookup is enforced by the DB rather than being an unguarded
+  // check-then-act. Postgres permits multiple NULLs in a unique index, so
+  // payments that have no gateway transaction yet are unaffected.
+  transactionId      String?           @unique
   vendorPayoutStatus String?           @default("pending")
   vendorPayoutId     String?
   platformFee        Decimal?
   vendorAmount       Decimal?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
-  // Restrict: a Booking with a Payment record must never be deleted in a
-  // way that silently destroys the payment/financial audit trail with it.
   booking            Booking?          @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
   payoutSettlement   PayoutSettlement?
+  refunds            Refund[]
 
   @@index([status])
   @@index([vendorPayoutStatus])
 }
 
-// Durable, idempotent record of a payout attempt. Written BEFORE the gateway
-// call and updated after, so a crash/DB-blip between "gateway confirmed" and
-// "Payment.vendorPayoutStatus updated" leaves a discoverable, retriable trail
-// instead of a silently stuck payment. paymentId is unique so re-invoking
-// settlePayout for the same payment reuses/checks this record instead of
-// blindly calling the gateway again.
 model PayoutSettlement {
   id              Int      @id @default(autoincrement())
   paymentId       Int      @unique
-  status          String   @default("initiated") // initiated -> gateway_confirmed -> settled | gateway_failed | reconciliation_needed
+  status          String   @default("initiated")
   gatewayPayoutId String?
   gatewayResponse String?
   amount          Decimal
@@ -197,9 +195,48 @@ model PayoutSettlement {
   lastError       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  // Restrict: never let deleting a Payment silently take its settlement
-  // record (the durable payout audit trail) with it.
+  payment         Payment  @relation(fields: [paymentId], references: [id])
+}
+
+// Records every Razorpay webhook delivery we've accepted (by Razorpay's own
+// event id), so a retried/replayed delivery of the same event is a no-op
+// instead of being reprocessed. Razorpay retries webhook delivery on
+// timeout/non-2xx, and a captured valid webhook body+signature is otherwise
+// replayable indefinitely — this is the guard against both.
+model WebhookEvent {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([eventType])
+}
+
+// A durable, gateway-idempotent record of a refund attempt — written before
+// the gateway call and updated after, mirroring PayoutSettlement's pattern
+// for payouts. idempotencyKey is what's sent to Razorpay's refund API so a
+// retried request (network blip, duplicate admin click) cannot create two
+// refunds for the same intent.
+model Refund {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int
+  amount          Decimal
+  reason          String?
+  status          String   @default("initiated") // initiated -> gateway_confirmed -> processed | gateway_failed | reconciliation_needed
+  gatewayRefundId String?
+  gatewayResponse String?
+  idempotencyKey  String   @unique
+  initiatedBy     Int? // User.id of the admin who issued it
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  // Restrict: a Payment with refund history must never be deleted in a way
+  // that silently destroys the refund audit trail with it.
   payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([status])
 }
 
 model Inventory {
@@ -255,12 +292,12 @@ model Review {
   id        Int      @id @default(autoincrement())
   bookingId Int      @unique
   userId    Int
-  vendorId  Int?
   rating    Int
   comment   String?
   reply     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  vendorId  Int?
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
   vendor    User?    @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
@@ -339,18 +376,17 @@ model VendorPayoutAccount {
 }
 
 model Admin {
-  id           Int         @id @default(autoincrement())
-  name         String
-  email        String      @unique
-  password     String
-  phone        String?
-  status       AdminStatus @default(ACTIVE)
-  lastLoginAt  DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  role         String      @default("admin")
-  refreshToken String?
-  blogPosts    BlogPost[]
+  id          Int         @id @default(autoincrement())
+  name        String
+  email       String      @unique
+  password    String
+  phone       String?
+  status      AdminStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  role        String      @default("admin")
+  blogPosts   BlogPost[]
 
   @@index([email])
   @@index([status])
@@ -361,20 +397,27 @@ model BlogPost {
   slug        String    @unique
   title       String
   excerpt     String?
-  content     String // sanitized HTML from the admin editor
+  content     String
   coverImage  String?
   category    String    @default("General")
-  readTime    Int? // minutes, derived from content length
-  status      String    @default("draft") // draft | published
+  readTime    Int?
+  status      String    @default("draft")
   publishedAt DateTime?
   authorId    Int?
-  author      Admin?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  author      Admin?    @relation(fields: [authorId], references: [id])
 
   @@index([status])
   @@index([category])
   @@index([publishedAt])
+}
+
+model PlatformSettings {
+  id                    Int      @id @default(autoincrement())
+  isPlatformFeeEnabled  Boolean  @default(true)
+  platformFeePercentage Float    @default(0.1)
+  updatedAt             DateTime
 }
 
 enum AdminStatus {

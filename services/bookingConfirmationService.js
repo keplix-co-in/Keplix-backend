@@ -67,6 +67,13 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
   let result;
   try {
     result = await prisma.$transaction(async (tx) => {
+      // Lock the booking's payment row before reading its payout status.
+      // This is the second of two independent paths that can enqueue a payout
+      // (the other is the admin settle in services/payoutService.js), so
+      // without a lock a customer confirmation racing an admin settle can
+      // both read a non-terminal status and both enqueue for the same payment.
+      await tx.$queryRaw`SELECT p.id FROM "Payment" p WHERE p."bookingId" = ${bookingId} FOR UPDATE`;
+
       const currentBooking = await tx.booking.findUnique({
         where: { id: bookingId },
         include: {
@@ -88,7 +95,11 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
         throw new Error("Payment not successful, cannot process payout");
       }
 
-      if (payment.vendorPayoutStatus === "paid") {
+      // "processing" and "settled" are just as disqualifying as "paid" — they
+      // mean another path (admin settle) has already claimed this payout and
+      // a job is in flight. Checking only "paid" let a confirmation enqueue a
+      // duplicate job for a payout that was already under way.
+      if (["paid", "settled", "processing"].includes(payment.vendorPayoutStatus)) {
         throw new Error("Vendor payout already processed");
       }
 

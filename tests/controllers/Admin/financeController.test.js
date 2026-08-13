@@ -19,6 +19,15 @@ jest.unstable_mockModule('../../../queues/payoutQueue.js', () => ({
   addPayoutJob: mockAddPayoutJob,
 }));
 
+// financeController now also imports services/refundService.js, which
+// constructs a Razorpay client at module load — mock it so that import
+// doesn't throw when RAZORPAY_KEY_ID isn't set in the test environment.
+jest.unstable_mockModule('razorpay', () => ({
+  default: jest.fn().mockImplementation(() => ({
+    payments: { refund: jest.fn() },
+  })),
+}));
+
 const { settlePayout } = await import('../../../controllers/Admin/financeController.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,6 +62,7 @@ function basePayment(overrides = {}) {
 function wireTransaction(payment) {
   const txUpdates = [];
   const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
     payment: {
       findUnique: jest.fn().mockResolvedValue(payment),
       update: jest.fn().mockImplementation(async ({ where, data }) => {
@@ -205,6 +215,7 @@ describe('settlePayout', () => {
     let queuedDuringTransaction = false;
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         payment: {
           findUnique: jest.fn().mockResolvedValue(basePayment()),
           update: jest.fn().mockImplementation(async ({ where, data }) => {
@@ -227,6 +238,7 @@ describe('settlePayout', () => {
     let queriedId = null;
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         payment: {
           findUnique: jest.fn().mockImplementation(async ({ where }) => {
             queriedId = where.id;
@@ -275,6 +287,7 @@ describe('settlePayout', () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const snapshot = basePayment({ vendorPayoutStatus: currentStatus });
       const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         payment: {
           findUnique: jest.fn().mockResolvedValue(snapshot),
           update: jest.fn().mockImplementation(async ({ data }) => {

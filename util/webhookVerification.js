@@ -30,12 +30,20 @@ export const verifyRazorpayWebhook = (req, webhookSecret) => {
       .update(body)
       .digest('hex');
 
-    const isValid = receivedSignature === expectedSignature;
-    
+    // Constant-time compare, and buffers must be equal length before
+    // timingSafeEqual (it throws otherwise) — a length mismatch is just an
+    // invalid signature, not an error.
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const receivedBuf = Buffer.from(String(receivedSignature), 'utf8');
+    const isValid =
+      expectedBuf.length === receivedBuf.length &&
+      crypto.timingSafeEqual(expectedBuf, receivedBuf);
+
     if (!isValid) {
+      // Never log the expected signature: it's a valid HMAC for this exact
+      // body, and logging it on every failed attempt effectively writes a
+      // usable forged signature to disk for anyone who can read the logs.
       Logger.error('[Webhook] Invalid signature detected');
-      Logger.error(`[Webhook] Expected: ${expectedSignature}`);
-      Logger.error(`[Webhook] Received: ${receivedSignature}`);
     }
 
     return isValid;

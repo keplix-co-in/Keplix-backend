@@ -1,5 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { claimAndQueuePayout, PayoutError } from "../../services/payoutService.js";
+import { issueRefund, RefundError } from "../../services/refundService.js";
 
 export const getFinanceKpis = async (req, res) => {
   try {
@@ -76,8 +77,16 @@ export const getPendingPayouts = async (req, res) => {
                 name: true,
                 vendor: {
                   select: {
+                    id: true,
                     vendorProfile: {
                       select: { business_name: true, city: true }
+                    },
+                    // A payout hard-fails without an active payout account
+                    // (util/payoutHelper.js throws). Fetching it here lets the
+                    // admin see the problem BEFORE clicking Pay Now, rather
+                    // than queueing a job that is guaranteed to fail.
+                    VendorPayoutAccount: {
+                      select: { isActive: true }
                     }
                   }
                 }
@@ -92,7 +101,19 @@ export const getPendingPayouts = async (req, res) => {
       }
     });
 
-    res.json(payouts);
+    // Flatten the payout-readiness check into a flag the UI can act on.
+    const withReadiness = payouts.map((p) => {
+      const account = p.booking?.service?.vendor?.VendorPayoutAccount;
+      return {
+        ...p,
+        payoutReady: Boolean(account?.isActive),
+        payoutBlockedReason: !account
+          ? 'Vendor has no payout account — they must add bank/UPI details before this can be settled.'
+          : (!account.isActive ? 'Vendor payout account is inactive.' : null),
+      };
+    });
+
+    res.json(withReadiness);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch payouts" });
@@ -144,5 +165,54 @@ export const settlePayout = async (req, res) => {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: error.message || "Failed to settle payout entirely" });
+  }
+};
+
+/**
+ * refundPayment
+ *
+ * Admin-only. Issues a full or partial refund via Razorpay for a successful
+ * payment. Requires the caller to supply an idempotencyKey — retrying the
+ * same request (network blip, accidental double-click) with the same key
+ * returns the original refund instead of issuing a second one.
+ *
+ * There is no product-defined refund/cancellation policy yet, so this
+ * endpoint enforces no eligibility rule beyond "payment is successful and
+ * the amount is available" — it's a mechanism, not a policy. Whatever
+ * refund windows/conditions the business settles on should be enforced by
+ * the caller (e.g. a booking-cancellation flow) before this is invoked.
+ */
+export const refundPayment = async (req, res) => {
+  try {
+    const paymentId = Number(req.params.id);
+    const { amount, reason, idempotencyKey } = req.body;
+
+    if (!idempotencyKey) {
+      return res.status(400).json({ success: false, message: "idempotencyKey is required" });
+    }
+
+    const result = await issueRefund({
+      paymentId,
+      amount,
+      reason,
+      idempotencyKey,
+      initiatedBy: req.user?.id,
+    });
+
+    res.json({
+      success: true,
+      refund: result.refund,
+      alreadyProcessed: result.alreadyProcessed,
+      payoutAlreadySettled: result.payoutAlreadySettled,
+      message: result.payoutAlreadySettled
+        ? "Refund processed. The vendor's payout for this booking was already settled — this amount needs to be manually recovered from the vendor."
+        : "Refund processed",
+    });
+  } catch (error) {
+    console.error("Refund error:", error);
+    if (error instanceof RefundError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    res.status(500).json({ success: false, message: error.message || "Refund failed" });
   }
 };

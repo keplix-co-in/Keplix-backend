@@ -210,42 +210,33 @@ export const initiateVendorPayout = async (payment, vendorId) => {
             where: { vendorId }
         });
 
-        // Sandbox fallback: auto-provision a mock bank account if the vendor
-        // hasn't configured real payout details yet, so admin can still settle
-        // in non-production environments.
-        if (!payoutAccount && payment.method === 'razorpay') {
-            Logger.info(`[Payout System] No payout account for vendor ${vendorId}, auto-provisioning sandbox account`);
-            payoutAccount = await setupVendorPayoutAccount(vendorId, {
-                business_name: `Vendor ${vendorId}`,
-                bank_account_number: '765432123456789',
-                ifsc_code: 'HDFC0000053'
-            });
-        }
-
+        // There used to be a fallback here that silently auto-provisioned a
+        // fund account using a hardcoded bank account/IFSC when a vendor had
+        // none configured, so that money could be settled even without real
+        // payout details — with no NODE_ENV gate, so it applied in production
+        // too. A vendor with no verified payout account must block the payout
+        // rather than have money routed to a shared placeholder account.
         if (!payoutAccount || !payoutAccount.isActive) {
             throw new Error('Vendor payout account not found or inactive');
         }
 
         if (payment.method === 'stripe') {
-            Logger.info(`[Payout System] Processing Stripe Transfer to ${payoutAccount.fundAccountId}`);
-
-            // ACTUAL IMPLEMENTATION (Commented out until Connected Accounts are set up)
-            /*
-            const transfer = await stripe.transfers.create({
-                amount: Math.round(payment.vendorAmount * 100),
-                currency: "inr",
-                destination: payoutAccount.fundAccountId, // This would need to be a Stripe connected account
-            });
-            return { success: true, payoutId: transfer.id, status: 'paid' };
-            */
-
-           // Mock Success
-           return { success: true, payoutId: "tr_" + Date.now(), status: "paid" };
-
+            // Stripe payouts were never actually implemented — this used to
+            // return a fabricated { success: true, payoutId: "tr_"+Date.now() }
+            // without calling Stripe at all, which marked the payment "paid"
+            // while no money moved. Stripe isn't an accepted payment method on
+            // the collection side either (see controllers/vendor/paymentController.js),
+            // so a payment reaching here with method 'stripe' is already a bug
+            // upstream — fail loudly instead of mocking success.
+            throw new Error('Stripe payouts are not implemented');
         } else if (payment.method === 'razorpay') {
              Logger.info(`[Payout System] Processing RazorpayX Transfer to ${payoutAccount.fundAccountId}`);
 
-             // ACTUAL IMPLEMENTATION using RazorpayX
+             // X-Payout-Idempotency ensures a retried request (network blip,
+             // worker restart) that reuses the same key returns the original
+             // payout instead of creating a second transfer. reference_id alone
+             // is stored for search/lookup on Razorpay's side, but it is not a
+             // deduplication key — only the idempotency header is.
              const payout = await razorpayX.payouts.create({
                  account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER, // Keplix X account
                  fund_account_id: payoutAccount.fundAccountId,
@@ -254,6 +245,8 @@ export const initiateVendorPayout = async (payment, vendorId) => {
                  mode: "IMPS",
                  purpose: "payout",
                  reference_id: `payment_${payment.id}`,
+             }, {
+                 "X-Payout-Idempotency": `payout_payment_${payment.id}`,
              });
 
              return { success: true, payoutId: payout.id, status: 'paid' };

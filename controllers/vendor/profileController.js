@@ -1,6 +1,23 @@
 ﻿
 import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
+import Logger from "../../util/logger.js";
+
+/**
+ * Reports whether a vendor can actually be paid out.
+ *
+ * Payouts hard-fail without an active VendorPayoutAccount
+ * (util/payoutHelper.js throws "Vendor payout account not found or inactive"),
+ * and nothing in the apps or the admin panel used to show that state — so the
+ * first symptom was a failed settlement long after onboarding. Exposing it on
+ * the profile lets the vendor app prompt for bank details instead.
+ */
+export const describePayoutAccount = async (vendorId) => {
+    const account = await prisma.vendorPayoutAccount.findUnique({ where: { vendorId } });
+    if (!account) return { ok: false, configured: false, reason: 'no_payout_account' };
+    if (!account.isActive) return { ok: false, configured: false, reason: 'payout_account_inactive' };
+    return { ok: true, configured: true };
+};
 
 
 
@@ -55,11 +72,17 @@ export const getVendorProfile = async (req, res) => {
         const total_orders = orderCount;
         const total_earnings = parseFloat(earningsResult._sum.vendorAmount ?? earningsResult._sum.amount ?? 0);
 
+        // Surfaced so the vendor app can prompt for bank details when payouts
+        // aren't set up, instead of the vendor discovering it when a
+        // settlement fails weeks later.
+        const payoutSetup = await describePayoutAccount(vendorId);
+
         res.json({
             ...vendorProfile,
-            rating: vendorProfile.rating.toFixed(1),
+            rating: Number(vendorProfile.rating ?? 0).toFixed(1),
             total_orders,
-            total_earnings: total_earnings.toFixed(2)
+            total_earnings: total_earnings.toFixed(2),
+            payoutSetup
         });
     } catch (error) {
         console.error(error);
@@ -200,19 +223,34 @@ export const updateVendorProfile = async (req, res) => {
             return profile;
         });
 
-        // Setup or update payout account if bank/UPI details were provided
+        // Setup or update payout account if bank/UPI details were provided.
+        //
+        // A failure here is NOT fatal to the profile update — a RazorpayX
+        // outage shouldn't discard the vendor's photos, address and documents.
+        // But it must not be invisible either, which is what it used to be:
+        // the error went to console.error (which never reaches logs/error.log)
+        // and the response was a plain success, so the vendor believed they
+        // were onboarded and nobody found out until a payout failed days
+        // later. The outcome is now logged properly AND reported in the
+        // response so the client can tell the vendor to fix it.
+        let payoutSetup = { ok: true, configured: true };
         if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
             updates.upi_id !== undefined) {
             try {
                 await updateVendorPayoutAccount(req.user.id, vendorProfile);
             } catch (payoutError) {
-                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
-                // Don't fail the profile update if payout setup fails
+                Logger.error(
+                    `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
+                    `Profile was saved, but this vendor cannot be paid out until it is fixed.`
+                );
+                payoutSetup = { ok: false, configured: false, error: payoutError.message };
             }
+        } else {
+            payoutSetup = await describePayoutAccount(req.user.id);
         }
 
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
-        res.json({ ...vendorProfile, user: vendorProfile.userId });
+        res.json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
         console.error(error);
         if (error.code === 'P2025') {
@@ -315,17 +353,23 @@ export const createVendorProfile = async (req, res) => {
             data: { role: 'vendor' }
         });
 
-        // Setup payout account if bank/UPI details were provided
+        // Setup payout account if bank/UPI details were provided. Same
+        // reasoning as the update path above: non-fatal, but never silent.
+        let payoutSetup = { ok: true, configured: false, reason: 'no_bank_details_supplied' };
         if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
             try {
                 await setupVendorPayoutAccount(req.user.id, vendorProfile);
+                payoutSetup = { ok: true, configured: true };
             } catch (payoutError) {
-                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
-                // Don't fail the profile creation if payout setup fails
+                Logger.error(
+                    `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
+                    `Profile was created, but this vendor cannot be paid out until it is fixed.`
+                );
+                payoutSetup = { ok: false, configured: false, error: payoutError.message };
             }
         }
 
-        res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
+        res.status(201).json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
         console.error("Create Vendor Profile Error:", error); // Added detailed logging
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging

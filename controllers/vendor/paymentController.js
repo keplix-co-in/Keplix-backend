@@ -70,29 +70,52 @@ export const verifyVendorPayment = async (req, res) => {
     } = req.body;
 
     // ---------------- RAZORPAY VERIFY ----------------
-    if (gateway === "razorpay") {
-      const body = orderId + "|" + paymentId;
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(body)
-        .digest("hex");
-
-      if (expectedSignature !== signature) {
-        return res.status(400).json({ message: "Invalid Razorpay signature" });
-      }
+    // Any gateway value other than "razorpay" previously skipped signature
+    // verification entirely and still recorded a "success" payment with a
+    // client-chosen amount — this is Keplix's own revenue (vendor paying
+    // Keplix for subscription/ads), so an unverified request here was a
+    // direct way to fabricate platform revenue records. Only razorpay is
+    // accepted; anything else is rejected instead of silently trusted.
+    if (gateway !== "razorpay") {
+      return res.status(400).json({ message: "Unsupported or missing gateway" });
     }
 
+    if (!orderId || !paymentId || !signature) {
+      return res.status(400).json({ message: "orderId, paymentId and signature are required" });
+    }
+
+    const body = orderId + "|" + paymentId;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest("hex");
+
+    const expectedBuf = Buffer.from(expectedSignature, "utf8");
+    const signatureBuf = Buffer.from(String(signature), "utf8");
+    const signatureValid =
+      expectedBuf.length === signatureBuf.length &&
+      crypto.timingSafeEqual(expectedBuf, signatureBuf);
+
+    if (!signatureValid) {
+      return res.status(400).json({ message: "Invalid Razorpay signature" });
+    }
+
+    // Fetch the Razorpay order to get the authoritative amount rather than
+    // trusting whatever the client sends back at verify time.
+    const order = await razorpay.orders.fetch(orderId);
+    const verifiedAmount = order.amount / 100; // paise -> rupees
+
     // ---------------- SAVE PAYMENT ----------------
-    
+
     await prisma.payment.create({
       data: {
-        amount: Number(amount),
+        amount: verifiedAmount,
         currency,
         status: "success",
         method: gateway,
         transactionId: paymentId,
         vendorPayoutStatus: "not_applicable", // IMPORTANT
-        platformFee: Number(amount), // full amount is Keplix earning
+        platformFee: verifiedAmount, // full amount is Keplix earning
         vendorAmount: 0,
       },
     });
@@ -117,6 +140,19 @@ export const verifyVendorPayment = async (req, res) => {
 export const getVendorPayments = async (req, res) => {
   try {
     const vendorId = Number(req.params.vendor_id);
+
+    // vendorId from the URL was previously parsed but never applied to the
+    // query, so this returned every vendor's Keplix-payment rows to any
+    // authenticated caller who knew the route shape. As a stopgap this now at
+    // least requires the caller to BE the vendor named in the URL — but the
+    // Payment rows created by verifyVendorPayment carry no vendorId column,
+    // so the query itself still cannot be scoped to a single vendor.
+    // FOLLOW-UP (Phase 2): add a vendorId column to Payment (or a join table)
+    // for vendor->Keplix payments so this can filter at the query level
+    // instead of only gating on the URL parameter.
+    if (!req.user || req.user.id !== vendorId) {
+      return res.status(403).json({ message: "Not authorized to view these payments" });
+    }
 
     const payments = await prisma.payment.findMany({
       where: {

@@ -94,6 +94,7 @@ describe('confirmServiceCompletion', () => {
 
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn() },
         payment: { update: jest.fn() },
         review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() }
@@ -129,6 +130,7 @@ describe('confirmServiceCompletion', () => {
     
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         booking: { findUnique: jest.fn().mockResolvedValue(mockBooking) }
       };
       await callback(tx);

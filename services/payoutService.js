@@ -44,6 +44,14 @@ export const claimAndQueuePayout = async (paymentId) => {
 
   try {
     const txResult = await prisma.$transaction(async (tx) => {
+      // Take a row lock BEFORE reading the payout status. The status flip
+      // below is a check-then-act, and under the default Read Committed
+      // isolation two concurrent settle requests could each read "pending",
+      // each write "processing", and each enqueue a payout job for the same
+      // payment. Locking the row first serialises them, so the loser reads
+      // "processing" and is rejected before any money moves.
+      await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
+
       const p = await tx.payment.findUnique({
         where: { id: paymentId },
         include: {
