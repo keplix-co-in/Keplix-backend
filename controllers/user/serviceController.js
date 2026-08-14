@@ -234,7 +234,7 @@ export const getServiceCategories = async (req, res) => {
  */
 export const getFeaturedServices = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, latitude, longitude, online_only } = req.query;
     const skip = (page - 1) * limit;
 
     const where = {
@@ -272,17 +272,9 @@ export const getFeaturedServices = async (req, res) => {
           : `${req.protocol}://${req.get("host")}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`
         : null;
 
-      return {
-        ...service,
-        image_url: fullImageUrl,
-        image: fullImageUrl,
-        vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
-        vendor_image: service.vendor?.vendorProfile?.image || null,
-        cover_image: service.vendor?.vendorProfile?.cover_image || null,
-      };
-    });
-
       // Calculate distance if user location and vendor location are available
+      let distance = null;
+      let distanceText = null;
       if (latitude && longitude && service.vendor?.vendorProfile?.latitude && service.vendor?.vendorProfile?.longitude) {
         const lat1 = parseFloat(latitude);
         const lon1 = parseFloat(longitude);
@@ -302,35 +294,26 @@ export const getFeaturedServices = async (req, res) => {
         distance = R * c;
 
         // Format distance text
-        if (distance < 1) {
-          distanceText = `${Math.round(distance * 1000)}m away`;
-        } else {
-          distanceText = `${distance.toFixed(1)}km away`;
-        }
+        distanceText = distance < 1
+          ? `${Math.round(distance * 1000)}m away`
+          : `${distance.toFixed(1)}km away`;
       }
 
       return {
         ...service,
-        image_url: service.image_url
-          ? service.image_url.startsWith("http") 
-            ? service.image_url 
-            : `${req.protocol}://${req.get("host")}${service.image_url}`
-          : null,
-        image: service.image_url
-          ? service.image_url.startsWith("http") 
-            ? service.image_url 
-            : `${req.protocol}://${req.get("host")}${service.image_url}`
-          : null,
+        image_url: fullImageUrl,
+        image: fullImageUrl,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
         cover_image: service.vendor?.vendorProfile?.cover_image || null,
-        distance: distance,
-        distanceText: distanceText,
+        distance,
+        distanceText,
         vendor_address: service.vendor?.vendorProfile?.address || null,
         vendor_city: service.vendor?.vendorProfile?.city || null,
       };
     });
 
+    res.json(enrichedServices);
   } catch (error) {
     console.error("Error in getFeaturedServices:", error);
     res.status(500).json({ message: "Server Error" });
