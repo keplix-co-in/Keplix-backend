@@ -249,6 +249,17 @@ export const updateVendorProfile = async (req, res) => {
             payoutSetup = await describePayoutAccount(req.user.id);
         }
 
+        // Setup or update payout account if bank/UPI details were provided
+        if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
+            updates.upi_id !== undefined) {
+            try {
+                await updateVendorPayoutAccount(req.user.id, vendorProfile);
+            } catch (payoutError) {
+                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
+                // Don't fail the profile update if payout setup fails
+            }
+        }
+
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
         res.json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {

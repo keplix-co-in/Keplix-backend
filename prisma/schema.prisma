@@ -654,3 +654,54 @@ model PhoneIdentity {
 
   @@index([userId])
 }
+
+model EmailOTP {
+  id        Int      @id @default(autoincrement())
+  email     String
+  otp       String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model PhoneOTP {
+  id           Int      @id @default(autoincrement())
+  phone_number String   @unique
+  otp          String
+  expiresAt    DateTime
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model VendorPayoutAccount {
+  id            Int      @id @default(autoincrement())
+  vendorId      Int      @unique
+  contactId     String
+  fundAccountId String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model Admin {
+  id          Int         @id @default(autoincrement())
+  name        String
+  email       String      @unique
+  password    String
+  phone       String?
+  status      AdminStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  role        String      @default("admin")
+
+  @@index([email])
+  @@index([status])
+}
+
+enum AdminStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}

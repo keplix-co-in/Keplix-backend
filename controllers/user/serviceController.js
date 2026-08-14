@@ -243,6 +243,17 @@ export const getFeaturedServices = async (req, res) => {
       vendor: { vendorProfile: { is_online: true } }
     };
 
+    // Filter by online vendors if requested
+    if (online_only === 'true') {
+      const onlineVendors = await prisma.vendorProfile.findMany({
+        where: { is_online: true },
+        select: { userId: true }
+      });
+      const vendorIds = onlineVendors.map(v => v.userId);
+      where.vendorId = { in: vendorIds };
+    }
+
+    // Get all services with vendor profile info
     const services = await prisma.service.findMany({
       where,
       skip: Number(skip),
@@ -271,14 +282,53 @@ export const getFeaturedServices = async (req, res) => {
       };
     });
 
-    res.json({
-      data: enrichedServices,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
+      // Calculate distance if user location and vendor location are available
+      if (latitude && longitude && service.vendor?.vendorProfile?.latitude && service.vendor?.vendorProfile?.longitude) {
+        const lat1 = parseFloat(latitude);
+        const lon1 = parseFloat(longitude);
+        const lat2 = parseFloat(service.vendor.vendorProfile.latitude);
+        const lon2 = parseFloat(service.vendor.vendorProfile.longitude);
+
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * (Math.PI / 180)) *
+            Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // Format distance text
+        if (distance < 1) {
+          distanceText = `${Math.round(distance * 1000)}m away`;
+        } else {
+          distanceText = `${distance.toFixed(1)}km away`;
+        }
+      }
+
+      return {
+        ...service,
+        image_url: service.image_url
+          ? service.image_url.startsWith("http") 
+            ? service.image_url 
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
+          : null,
+        image: service.image_url
+          ? service.image_url.startsWith("http") 
+            ? service.image_url 
+            : `${req.protocol}://${req.get("host")}${service.image_url}`
+          : null,
+        vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
+        vendor_image: service.vendor?.vendorProfile?.image || null,
+        cover_image: service.vendor?.vendorProfile?.cover_image || null,
+        distance: distance,
+        distanceText: distanceText,
+        vendor_address: service.vendor?.vendorProfile?.address || null,
+        vendor_city: service.vendor?.vendorProfile?.city || null,
+      };
     });
 
   } catch (error) {

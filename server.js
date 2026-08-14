@@ -89,3 +89,26 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
   Logger.error('Uncaught Exception:', error);
 });
+
+// --- GRACEFUL SHUTDOWN ---
+const gracefulShutdown = () => {
+  Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
+
+  bookingStatusManager.stop();
+
+  httpServer.close(() => {
+    Logger.info('HTTP server closed.');
+    process.exit(0);
+  });
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+process.on('unhandledRejection', (reason, promise) => {
+  Logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  Logger.error('Uncaught Exception:', error);
+});
