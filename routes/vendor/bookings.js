@@ -136,7 +136,7 @@ router.patch('/:vendorId/bookings/:id/respond', protect, validateRequest(respond
  *       200:
  *         description: Booking status updated successfully
  */
-router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss('images'), (req, res, next) => {
+router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
   next();
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
@@ -179,7 +179,7 @@ router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss('images'), 
  *       200:
  *         description: Booking status updated successfully
  */
-router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss('images'), (req, res, next) => {
+router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
   next(); // Keep PATCH for backward compatibility if needed, but prefer POST for files
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 

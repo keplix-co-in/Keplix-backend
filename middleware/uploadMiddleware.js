@@ -64,7 +64,35 @@ export const uploadSingle = (fieldName) => [
   },
 ];
 
-// MULTIPLE FILES 
+/**
+ * Accepts any field name, unlike uploadFieldss which needs a fixed
+ * [{name,maxCount}] list known at route-definition time. Needed for health
+ * sheets: components come from the HealthComponent template table (an admin
+ * can add a 6th without a deploy), so the set of valid field names —
+ * `photo_<component.key>` — can change at runtime. multer.any() puts results
+ * in req.files as an ARRAY (not an object keyed by field name, like
+ * uploadFieldss produces) — every field is grouped by fieldname downstream in
+ * the caller, not here, since only the caller knows which field names are
+ * actually valid components.
+ */
+export const uploadAny = () => [
+  multerUpload.any(),
+  async (req, res, next) => {
+    try {
+      if (!req.files || req.files.length === 0) return next();
+
+      for (const file of req.files) {
+        file.cloudinary = await processFile(file, file.fieldname);
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  },
+];
+
+// MULTIPLE FILES
 export const uploadFieldss = (fields) => [
   multerUpload.fields(fields),
   async (req, res, next) => {

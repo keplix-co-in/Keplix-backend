@@ -72,8 +72,4 @@ router.post('/payments/order/create', protect , validateRequest(createPaymentSch
  */
 router.post('/payments/verify', protect , validateRequest(verifyPaymentSchema), verifyPayment);
 
-// Aliases
-router.post('/payments/order/create/', validateRequest(createPaymentSchema), createPaymentOrder);
-router.post('/payments/verify/', validateRequest(verifyPaymentSchema), verifyPayment);
-
 export default router;

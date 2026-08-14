@@ -191,16 +191,18 @@ export const getDashboardDetails = async (req, res) => {
             select: {
               id: true,
               service: {
-                select: { name: true }
-              },
-              vendor_status: true,
-              user: {
-                select: { 
-                  vendorProfile: {
-                    select: { business_name: true, city: true }
+                select: {
+                  name: true,
+                  vendor: {
+                    select: {
+                      vendorProfile: {
+                        select: { business_name: true, city: true }
+                      }
+                    }
                   }
                 }
-              }
+              },
+              vendor_status: true
             }
           }
         },

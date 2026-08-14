@@ -45,6 +45,8 @@ export const errorHandler = (err, req, res, next) => {
         success: false,
         message: err.message || "An unexpected error occurred",
         code: errorCode,
-        stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+        // Fail closed: only include the stack trace when explicitly running
+        // in development, not merely "whenever NODE_ENV isn't 'production'".
+        stack: process.env.NODE_ENV === 'development' ? err.stack : null,
     });
 };

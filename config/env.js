@@ -10,6 +10,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
 
   CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
+
+  REDIS_HOST: z.string().default("localhost"),
+  REDIS_PORT: z.string().default("6379"),
 });
 
 export const env = envSchema.parse(process.env);

@@ -1,10 +1,17 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { triggerVendorPayout } from "../../controllers/vendor/vendorPayoutController.js";
 import { protect } from "../../middleware/authMiddleware.js";
-import { validateRequest } from "../../middleware/validationMiddleware.js"; // don't have schema for this yet
 
 
 const router = express.Router();
+const vendorPayoutLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many payout requests. Please try again later." },
+});
 
 /**
  * @swagger
@@ -29,6 +36,6 @@ const router = express.Router();
  *       200:
  *         description: Payout triggered successfully
  */
-router.post("/vendor/payout", protect, triggerVendorPayout );
+router.post("/vendor/payout", vendorPayoutLimiter, protect, triggerVendorPayout );
 
 export default router;

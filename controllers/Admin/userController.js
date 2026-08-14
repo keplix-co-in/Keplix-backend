@@ -147,18 +147,26 @@ export const getUsers = async (req, res) => {
 
 export const deleteUser = async (req, res) => {
   try {
-
     const { id } = req.params;
+    const userId = Number(id);
 
-    await prisma.user.delete({
-      where: {
-        id: Number(id)
-      }
+    const bookingCount = await prisma.booking.count({ where: { userId } });
+
+    if (bookingCount === 0) {
+      // No booking/payment history — safe to hard-delete.
+      await prisma.user.delete({ where: { id: userId } });
+      return res.json({ message: "User deleted successfully" });
+    }
+
+    // Has booking history: Booking.user is now onDelete: Restrict, so a
+    // hard delete would fail (correctly) rather than silently wiping the
+    // payment/payout audit trail. Soft-delete instead.
+    await prisma.user.update({
+      where: { id: userId },
+      data: { is_active: false },
     });
 
-    res.json({
-      message: "User deleted successfully"
-    });
+    res.json({ message: "User deactivated (has existing booking history, so the account was deactivated rather than deleted)" });
 
   } catch (error) {
     console.error(error);
