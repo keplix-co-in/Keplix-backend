@@ -2,6 +2,7 @@
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
+import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 
 
 
@@ -173,16 +174,26 @@ export const respondToServiceRequest = async (req, res) => {
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
   const { status, notes } = req.body;
-  const files = req.files || [];
 
   try {
 
-    // Validate Status Transitions for "Ongoing" Tab Features
-    const currentBooking = await prisma.booking.findUnique({
-      where: { id: parseInt(req.params.id) },
-      select: { status: true }
+    // Scoped to the caller's own services. This previously used findUnique on
+    // the id alone, which meant any authenticated vendor could drive any
+    // booking — including to service_completed, the step that puts a booking
+    // on the escrow-release path. respondToServiceRequest above already
+    // filters this way; this function was simply missing it.
+    const currentBooking = await prisma.booking.findFirst({
+      where: {
+        id: parseInt(req.params.id),
+        service: {
+          vendorId: req.user.id
+        }
+      },
+      select: { id: true, status: true, createdAt: true }
     });
 
+    // Deliberately 404, not 403: a vendor should not be able to probe which
+    // booking ids exist on other vendors.
     if (!currentBooking) {
       return res.status(404).json({ message: "Booking not found" });
     }
@@ -190,8 +201,8 @@ export const updateBookingStatus = async (req, res) => {
     if (status) {
         // 1. Start Service: confirmed -> in_progress
         if (status === 'in_progress' && currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
-            return res.status(400).json({ 
-                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}` 
+            return res.status(400).json({
+                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
             });
         }
 
@@ -201,22 +212,61 @@ export const updateBookingStatus = async (req, res) => {
              // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
              // User prompt: "in_progress -> service_completed" logic implies flow.
              if (currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
-                return res.status(400).json({ 
-                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}` 
+                return res.status(400).json({
+                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`
                 });
              }
         }
+
+        // Mandatory-inspection gate. Same rule, same rollout anchoring as
+        // walk-in job completion — see services/healthSheetService.js and
+        // the PlatformSettings comment in schema.prisma. 409, not 400, so the
+        // app can branch on this specific code and deep-link into the
+        // inspection form rather than showing a generic validation error.
+        // Anchored to currentBooking.createdAt, not "now": flipping the
+        // rollout flag must never strand a booking that was already in
+        // flight before any garage had a way to see this form — completion
+        // is what releases escrow.
+        //
+        // Gated on 'completed' too, not just 'service_completed': despite
+        // this function's own comments describing service_completed as the
+        // completion step, the partner app's actual ServiceCompletion.jsx
+        // screen submits status: 'completed' directly. A gate that only
+        // checked 'service_completed' would never fire on a real completion
+        // — caught by testing the request the app actually sends, not the
+        // string this code talks about sending.
+        if (status === 'service_completed' || status === 'completed') {
+          const gate = await assertHealthSheetPresent({
+            createdAt: currentBooking.createdAt,
+            bookingId: currentBooking.id,
+          });
+          if (!gate.ok) {
+            return res.status(409).json({ code: gate.code, message: gate.message });
+          }
+        }
     }
-    
+
     // Prepare update data
     const updateData = { status };
     if (notes) {
       updateData.notes = notes;
     }
 
-    if (files.length > 0) {
-        const imageUrls = files.map(file => file.path); // Cloudinary uses 'path' or 'secure_url'
-        updateData.completion_images = imageUrls;
+    // uploadFieldss sets req.files to an OBJECT keyed by field name, not an
+    // array. The previous code did `(req.files || []).length > 0`, which is
+    // `undefined > 0` — always false — so completion images were silently
+    // never saved. It also read file.path, which is empty under
+    // multer.memoryStorage(); the Cloudinary URL is on file.cloudinary.
+    const uploadedFiles = Object.values(req.files ?? {}).flat();
+    const imageUrls = uploadedFiles
+      .map((file) => file?.cloudinary?.secure_url)
+      .filter(Boolean);
+
+    if (imageUrls.length > 0) {
+        // The column is `String?`, so an array would be a type error. Nothing
+        // reads this back yet (it has never contained data), so comma-separated
+        // is a free choice — but whatever consumes it must split on ','.
+        updateData.completion_images = imageUrls.join(',');
     }
 
     const booking = await prisma.booking.update({

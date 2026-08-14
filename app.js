@@ -24,6 +24,8 @@ import authRoutes, { logoutRouter } from "./routes/auth.js";
 import vendorProfileRoutes from "./routes/vendor/profile.js";
 import vendorServiceRoutes from "./routes/vendor/services.js";
 import vendorBookingRoutes from "./routes/vendor/bookings.js";
+import vendorWalkInJobRoutes from "./routes/vendor/walkInJobs.js";
+import vendorHealthSheetRoutes from "./routes/vendor/healthSheets.js";
 import inventoryRoutes from "./routes/vendor/inventory.js";
 import availabilityRoutes from "./routes/vendor/availability.js";
 import documentRoutes from "./routes/vendor/documents.js";
@@ -36,6 +38,7 @@ import vendorNotificationRoutes from "./routes/vendor/notifications.js";
 
 // User
 import userProfileRoutes from "./routes/user/profile.js";
+import userGarageRoutes from "./routes/user/garage.js";
 import userServiceRoutes from "./routes/user/services.js";
 import userBookingRoutes from "./routes/user/bookings.js";
 import userPaymentRoutes from "./routes/user/payments.js";
@@ -52,7 +55,11 @@ import adminUserRoutes from "./routes/Admin/user.js";
 import adminVendorRoutes from "./routes/Admin/vendor.js";
 import adminFinanceRoutes from "./routes/Admin/finance.js";
 import adminBlogRoutes from "./routes/Admin/blog.js";
+import adminWalkInJobRoutes from "./routes/Admin/walkInJobs.js";
+import adminHealthComponentRoutes from "./routes/Admin/healthComponents.js";
+import adminSettingsRoutes from "./routes/Admin/settings.js";
 import publicBlogRoutes from "./routes/public/blog.js";
+import publicJobSheetRoutes from "./routes/public/jobSheet.js";
 
 /**
  * The Express application: middleware, routes and error handling only.
@@ -191,6 +198,8 @@ app.use("/accounts/vendor", vendorProfileRoutes);
 app.use("/accounts/documents", documentRoutes);
 app.use("/service_api/vendor", vendorServiceRoutes);
 app.use("/service_api/vendor", vendorBookingRoutes);
+app.use("/service_api/vendor", vendorWalkInJobRoutes);
+app.use("/service_api/vendor", vendorHealthSheetRoutes);
 // POST /service_api/vendor/payout was removed — it called the gateway
 // synchronously and bypassed both the PayoutSettlement idempotency ledger and
 // the BullMQ queue that /admin/finance/payouts/:id/settle uses, making it a
@@ -208,6 +217,7 @@ app.use("/interactions/api/vendor", vendorNotificationRoutes);
 app.use("/service_api/user", userServiceRoutes);
 app.use("/service_api/user", userBookingRoutes);
 app.use("/service_api/user", userProfileRoutes);
+app.use("/service_api/user", userGarageRoutes);
 
 // Shared
 app.use("/service_api", userServiceRoutes);
@@ -228,9 +238,13 @@ app.use("/admin", adminUserRoutes);
 app.use("/admin", adminVendorRoutes);
 app.use("/admin", adminFinanceRoutes);
 app.use("/admin", adminBlogRoutes);
+app.use("/admin", adminWalkInJobRoutes);
+app.use("/admin", adminHealthComponentRoutes);
+app.use("/admin", adminSettingsRoutes);
 
 // Public content (no auth) — consumed by the marketing site
 app.use("/content", publicBlogRoutes);
+app.use("/content", publicJobSheetRoutes);
 
 // --- ERROR HANDLING ---
 app.use(notFound);

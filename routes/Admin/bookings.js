@@ -1,5 +1,5 @@
 import express from 'express';
-import { getBookingMetrics, getBookings } from '../../controllers/Admin/bookingController.js';
+import { getBookingMetrics, getBookings, forceCompleteBooking } from '../../controllers/Admin/bookingController.js';
 import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
@@ -30,5 +30,16 @@ router.get("/bookings/counts", authAdmin, authorizeAdmin, getBookingMetrics);
  *         description: Bookings retrieved successfully
  */
 router.get("/bookings", authAdmin, authorizeAdmin, getBookings);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/force-complete:
+ *   post:
+ *     summary: Force-complete a booking, bypassing the mandatory health-sheet gate
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/bookings/:id/force-complete", authAdmin, authorizeAdmin, forceCompleteBooking);
 
 export default router;

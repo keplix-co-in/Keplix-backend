@@ -9,6 +9,7 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
+import { normalizeIndianPhone } from "../util/phone.js";
 import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
@@ -529,10 +530,19 @@ export const resetPasswordWithOTP = async (req, res) => {
 
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
-  const { phone_number } = req.body;
+  const { phone_number: rawPhoneNumber } = req.body;
 
-  if (!phone_number) {
+  if (!rawPhoneNumber) {
     return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  // Normalised here so PhoneOTP is keyed identically to how the walk-in
+  // job / vehicle / claim flows store phones. Previously this column held
+  // whatever the client sent, so "9876543210" and "+919876543210" were two
+  // different OTP records — verifying with the other form always failed.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
   try {
@@ -577,10 +587,17 @@ export const sendPhoneOTP = async (req, res) => {
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-  const { phone_number, otp } = req.body;
+  const { phone_number: rawPhoneNumber, otp } = req.body;
 
-  if (!phone_number || !otp) {
+  if (!rawPhoneNumber || !otp) {
     return res.status(400).json({ error: "Phone number and OTP are required" });
+  }
+
+  // Must match the normalisation applied in sendPhoneOTP, or a correctly
+  // entered number in a different format will never find its OTP row.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
   try {
@@ -612,7 +629,16 @@ export const verifyPhoneOTP = async (req, res) => {
       data: { verified: true },
     });
 
-    // Also mark the user as verified
+    // Also mark the user as verified.
+    // NOTE: phone_number is now normalised (+91XXXXXXXXXX), but
+    // UserProfile.phone / VendorProfile.phone are free text and may still
+    // hold whatever format a profile form originally sent (bare 10-digit,
+    // spaces, etc). This match was already an exact string comparison before
+    // this change — normalising phone_number does not make it more fragile,
+    // but it does mean a profile phone stored in a different format than the
+    // OTP will not match here. Fixing that needs a backfill of
+    // UserProfile/VendorProfile.phone through normalizeIndianPhone, which is
+    // a separate, data-touching change and out of scope here.
     const matchedUsers = await prisma.user.findMany({
       where: {
         OR: [
