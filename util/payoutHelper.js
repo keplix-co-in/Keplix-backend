@@ -1,4 +1,3 @@
-import Stripe from 'stripe';
 import Razorpay from 'razorpay';
 import prisma from '../util/prisma.js';
 import Logger from './logger.js';
@@ -10,7 +9,6 @@ import Logger from './logger.js';
 // (or worse, hit Razorpay's real test placeholders) without anyone noticing.
 if (process.env.NODE_ENV === 'production') {
     const required = [
-        'STRIPE_SECRET_KEY',
         'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET',
         'RAZORPAYX_KEY_ID', 'RAZORPAYX_KEY_SECRET'
     ];
@@ -20,7 +18,6 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
     key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
