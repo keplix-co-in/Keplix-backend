@@ -17,6 +17,7 @@ model User {
   fcmToken            String?
   device_type         String?
   pushToken           String?
+  is_verified         Boolean              @default(false)
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -26,10 +27,19 @@ model User {
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
+  vendorReviews       Review[]             @relation("VendorReviews")
   services            Service[]            @relation("VendorServices")
   userProfile         UserProfile?
   VendorPayoutAccount VendorPayoutAccount?
   vendorProfile       VendorProfile?
+
+  // Walk-in jobs / vehicles / health sheets (see those models for rationale).
+  vehicles         Vehicle[]     @relation("UserVehicles")
+  createdVehicles  Vehicle[]     @relation("VendorCreatedVehicles")
+  walkInJobs       WalkInJob[]   @relation("UserWalkInJobs")
+  vendorWalkInJobs WalkInJob[]   @relation("VendorWalkInJobs")
+  healthSheets     HealthSheet[] @relation("VendorHealthSheets")
+  phoneIdentity    PhoneIdentity?
 
   @@index([email])
   @@index([role])
@@ -82,13 +92,26 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
-  is_online            Boolean @default(true)
   image                String?
   cover_image          String?
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+  is_online            Boolean @default(true)
+  // Denormalised review aggregates maintained by util/ratingHelper.js.
+  // These were being read and written by that helper (from review creation,
+  // review deletion, and booking confirmation) but had never been added to
+  // the schema — so every one of those paths threw "Unknown field `rating`"
+  // at runtime. Most damagingly, confirming a booking WITH a rating is what
+  // releases escrow to the vendor, and the whole thing ran in one
+  // transaction, so a rating silently rolled back the payout claim too.
+  rating               Float   @default(0)
+  numReviews           Int     @default(0)
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([city])
+  @@index([status])
+  @@index([is_online])
 }
 
 model Document {
@@ -99,6 +122,8 @@ model Document {
   status        String   @default("pending")
   createdAt     DateTime @default(now())
   vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Service {
@@ -126,13 +151,17 @@ model Booking {
   notes             String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  completion_images String?
   vendor_status     String        @default("pending")
+  completion_images String?
   service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
+  user              User          @relation("UserBookings", fields: [userId], references: [id])
   conversation      Conversation?
   payment           Payment?      @relation("BookingPayment")
   review            Review?
+  // Virtual back-relation only — generates no SQL on Booking. HealthSheet
+  // holds the FK (bookingId), which is why this is compatible with the rule
+  // that Booking itself must not be modified.
+  healthSheet       HealthSheet?
 
   @@index([userId])
   @@index([serviceId])
@@ -142,20 +171,84 @@ model Booking {
 }
 
 model Payment {
-  id                 Int      @id @default(autoincrement())
-  bookingId          Int?     @unique
+  id                 Int               @id @default(autoincrement())
+  bookingId          Int?              @unique
   amount             Decimal
-  currency           String   @default("INR")
-  status             String   @default("pending")
+  currency           String            @default("INR")
+  status             String            @default("pending")
   method             String
-  transactionId      String?
-  vendorPayoutStatus String?  @default("pending")
+  // Unique so the webhook path's "has this gateway payment already been
+  // recorded?" lookup is enforced by the DB rather than being an unguarded
+  // check-then-act. Postgres permits multiple NULLs in a unique index, so
+  // payments that have no gateway transaction yet are unaffected.
+  transactionId      String?           @unique
+  vendorPayoutStatus String?           @default("pending")
   vendorPayoutId     String?
   platformFee        Decimal?
   vendorAmount       Decimal?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  booking            Booking?          @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
+  payoutSettlement   PayoutSettlement?
+  refunds            Refund[]
+
+  @@index([status])
+  @@index([vendorPayoutStatus])
+}
+
+model PayoutSettlement {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int      @unique
+  status          String   @default("initiated")
+  gatewayPayoutId String?
+  gatewayResponse String?
+  amount          Decimal
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  payment         Payment  @relation(fields: [paymentId], references: [id])
+}
+
+// Records every Razorpay webhook delivery we've accepted (by Razorpay's own
+// event id), so a retried/replayed delivery of the same event is a no-op
+// instead of being reprocessed. Razorpay retries webhook delivery on
+// timeout/non-2xx, and a captured valid webhook body+signature is otherwise
+// replayable indefinitely — this is the guard against both.
+model WebhookEvent {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([eventType])
+}
+
+// A durable, gateway-idempotent record of a refund attempt — written before
+// the gateway call and updated after, mirroring PayoutSettlement's pattern
+// for payouts. idempotencyKey is what's sent to Razorpay's refund API so a
+// retried request (network blip, duplicate admin click) cannot create two
+// refunds for the same intent.
+model Refund {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int
+  amount          Decimal
+  reason          String?
+  status          String   @default("initiated") // initiated -> gateway_confirmed -> processed | gateway_failed | reconciliation_needed
+  gatewayRefundId String?
+  gatewayResponse String?
+  idempotencyKey  String   @unique
+  initiatedBy     Int? // User.id of the admin who issued it
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  // Restrict: a Payment with refund history must never be deleted in a way
+  // that silently destroys the refund audit trail with it.
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([status])
 }
 
 model Inventory {
@@ -165,6 +258,8 @@ model Inventory {
   stock_level Int
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Availability {
@@ -176,6 +271,8 @@ model Availability {
   is_available Boolean  @default(true)
   createdAt    DateTime @default(now())
   vendor       User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Conversation {
@@ -212,8 +309,12 @@ model Review {
   reply     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  vendorId  Int?
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+  vendor    User?    @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Promotion {
@@ -227,6 +328,8 @@ model Promotion {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }
 
 model Notification {
@@ -249,6 +352,307 @@ model Feedback {
   category  String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EmailOTP {
+  id        Int      @id @default(autoincrement())
+  email     String
+  otp       String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model PhoneOTP {
+  id           Int      @id @default(autoincrement())
+  phone_number String   @unique
+  otp          String
+  expiresAt    DateTime
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model VendorPayoutAccount {
+  id            Int      @id @default(autoincrement())
+  vendorId      Int      @unique
+  contactId     String
+  fundAccountId String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model Admin {
+  id          Int         @id @default(autoincrement())
+  name        String
+  email       String      @unique
+  password    String
+  phone       String?
+  status      AdminStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  role        String      @default("admin")
+  blogPosts   BlogPost[]
+
+  @@index([email])
+  @@index([status])
+}
+
+model BlogPost {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  content     String
+  coverImage  String?
+  category    String    @default("General")
+  readTime    Int?
+  status      String    @default("draft")
+  publishedAt DateTime?
+  authorId    Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  author      Admin?    @relation(fields: [authorId], references: [id])
+
+  @@index([status])
+  @@index([category])
+  @@index([publishedAt])
+}
+
+model PlatformSettings {
+  id                    Int       @id @default(autoincrement())
+  isPlatformFeeEnabled  Boolean   @default(true)
+  platformFeePercentage Float     @default(0.1)
+  updatedAt             DateTime
+  // Mandatory-inspection rollout gate (walk-in jobs / health sheets).
+  // Default false: the gate must never be live the moment this deploys, since
+  // completion sits on Booking's escrow-release path. When enabled, only
+  // bookings/walk-ins created at or after healthSheetRequiredFrom are gated —
+  // anchoring to createdAt is what stops flipping this flag from instantly
+  // stranding every job already in flight with no way to complete it.
+  isHealthSheetRequired   Boolean   @default(false)
+  healthSheetRequiredFrom DateTime?
+}
+
+enum AdminStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum HealthStatus {
+  GOOD
+  ATTENTION
+  REPLACE
+}
+
+enum WalkInJobStatus {
+  open
+  in_progress
+  completed
+  cancelled
+}
+
+// A car. Cars did not exist anywhere in this schema before — Booking carries
+// no vehicle fields, so this is genuinely new ground, not a rename.
+//
+// registration is scoped unique PER VENDOR, not globally. A global unique
+// means the second garage to type a plate the first garage already recorded
+// hits a constraint error it cannot see or resolve (it can't read the other
+// vendor's row). The cost is that one physical car serviced at three garages
+// is three Vehicle rows; "My Garage" dedupes by normalised registration at
+// read time instead of the write being forced to a single row up front.
+model Vehicle {
+  id       Int @id @default(autoincrement())
+
+  // Uppercased, whitespace-stripped at write time (see util/vehicle.js).
+  registration String
+  make         String?
+  model        String?
+  year         Int?
+  fuel_type    String?
+  colour       String?
+  odometer_km  Int?
+
+  // Ownership is dual-track. A claimed vehicle has ownerUserId set. An
+  // unclaimed walk-in vehicle only has owner_phone (E.164, via
+  // util/phone.js) — there is deliberately no join to UserProfile.phone here,
+  // see PhoneIdentity below for why.
+  ownerUserId Int?
+  owner_phone String?
+  owner_name  String?
+
+  // The vendor that first recorded this car — scopes the uniqueness above,
+  // and lets a garage see "my customers' cars" before any claim happens.
+  createdByVendorId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner           User?       @relation("UserVehicles", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdByVendor User?       @relation("VendorCreatedVehicles", fields: [createdByVendorId], references: [id], onDelete: SetNull)
+  walkInJobs      WalkInJob[]
+
+  @@unique([registration, createdByVendorId], name: "vehicle_reg_per_vendor")
+  @@index([ownerUserId])
+  @@index([owner_phone])
+  @@index([registration])
+}
+
+// Offline (walk-in) customer job. Deliberately NOT a Booking: Booking.userId
+// and Booking.serviceId are both required FKs, and a walk-in has neither a
+// User (no signup happened) nor a Service (amounts are often custom). This
+// keeps Booking — the payment/escrow-critical model — completely untouched.
+//
+// v1 is record-only: no escrow, no payout, no platform fee. The
+// commission/settlement columns exist now, nullable, so turning commission on
+// later is a code change against existing columns, not a migration.
+model WalkInJob {
+  id       Int             @id @default(autoincrement())
+  vendorId Int
+  vehicleId Int?
+
+  // Denormalised customer identity — walk-ins have no User row at creation.
+  customer_name   String
+  customer_phone  String                    // normalised E.164
+  claimedByUserId Int?                      // set once the phone owner signs up and claims (see PhoneIdentity)
+
+  description String?
+  status      WalkInJobStatus @default(open)
+
+  amount_collected  Decimal?  @db.Decimal(10, 2)
+  payment_mode      String?                 // cash | upi | card
+  commission_rate   Float?                  // null = no commission applied (v1 default for all rows)
+  commission_amount Decimal?  @db.Decimal(10, 2)
+  settlement_status String    @default("not_applicable") // not_applicable | pending | settled
+  settled_at        DateTime?
+
+  // Public, non-guessable token for the unauthenticated tracking page
+  // (keplix.co.in/job/<token>). Generated with crypto.randomBytes(24) —
+  // @unique alone gives the btree index this lookup needs.
+  public_token     String    @unique
+  token_expires_at DateTime?
+
+  // Set by workers/notificationWorker.js after attempting delivery. Lets the
+  // partner app show "SMS failed — resend" instead of a customer silently
+  // never getting their tracking link.
+  notification_status String    @default("pending") // pending | sent | failed
+  notified_at         DateTime?
+
+  started_at   DateTime?
+  completed_at DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vendor        User        @relation("VendorWalkInJobs", fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle?    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  claimedByUser User?       @relation("UserWalkInJobs", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  healthSheet   HealthSheet?
+
+  @@index([vendorId, status])
+  @@index([customer_phone])
+  @@index([claimedByUserId])
+  @@index([createdAt])
+}
+
+// The 5 (extensible) inspection components a mechanic checks off. A template
+// table, not a hardcoded list or enum, so adding a 6th component (wipers,
+// coolant, ...) is an admin action against this table, not a migration.
+model HealthComponent {
+  id            Int      @id @default(autoincrement())
+  key           String   @unique // stable machine key, e.g. "brakes"
+  label         String              // display label, e.g. "Brakes & Brake Pads"
+  display_order Int      @default(0)
+  is_active     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  items HealthSheetItem[]
+
+  @@index([is_active])
+}
+
+// Attaches to EITHER a Booking or a WalkInJob via nullable dual FKs, enforced
+// to exactly-one by a raw CHECK constraint (Prisma cannot express XOR, so the
+// constraint is applied separately via prisma db execute — see the migration
+// notes alongside this schema). Rejected a shared "Job" supertype: that would
+// need a new column (and a backfill) on Booking, which must not be touched.
+// Rejected a jobType+jobId polymorphic pair: Prisma can't turn that into a
+// real relation, so reads become manual two-step fetches and onDelete:Cascade
+// stops working, i.e. orphaned health sheets on a deleted booking.
+//
+// Booking cannot carry its own public_token (Booking is untouched), so a
+// booking's tracking link is this row's token instead.
+model HealthSheet {
+  id Int @id @default(autoincrement())
+
+  bookingId   Int? @unique
+  walkInJobId Int? @unique
+
+  vendorId  Int    // denormalised for auth + vendor-scoped queries without a join through Booking->Service
+  vehicleId Int?
+
+  odometer_km   Int?
+  overall_notes String?
+
+  public_token String   @unique
+  submitted_at DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  booking   Booking?   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  walkInJob WalkInJob? @relation(fields: [walkInJobId], references: [id], onDelete: Cascade)
+  vendor    User       @relation("VendorHealthSheets", fields: [vendorId], references: [id], onDelete: Cascade)
+  items     HealthSheetItem[]
+
+  @@index([vendorId])
+  @@index([vehicleId])
+}
+
+// One row per inspected component. Relational rather than a JSON blob so (a)
+// "how many cars needed brake work this month" is a GROUP BY instead of a
+// jsonb scan, and (b) the mandatory-completion gate can check completeness
+// with a _count instead of parsing an opaque blob that might be malformed.
+// photos is capped at 2 by a raw CHECK constraint (see migration notes) since
+// Prisma has no array-length validator.
+model HealthSheetItem {
+  id            Int          @id @default(autoincrement())
+  healthSheetId Int
+  componentId   Int
+  status        HealthStatus
+  notes         String?
+  photos        String[]     @default([])
+
+  healthSheet HealthSheet     @relation(fields: [healthSheetId], references: [id], onDelete: Cascade)
+  component   HealthComponent @relation(fields: [componentId], references: [id])
+
+  @@unique([healthSheetId, componentId])
+  @@index([status])
+}
+
+// The single authoritative phone -> User mapping, populated ONLY through a
+// verified PhoneOTP round trip (never bulk-imported, never set from
+// UserProfile.phone directly). UserProfile.phone stays exactly as it is —
+// nullable, non-unique, unverified free text — because making it unique would
+// fail outright against a live table that almost certainly already has
+// duplicates and nulls. This table exists so that "does this walk-in
+// history belong to the person now signing up" is decidable without ever
+// trusting an unverified phone field to be unique.
+model PhoneIdentity {
+  id          Int       @id @default(autoincrement())
+  phone_e164  String    @unique
+  userId      Int?      @unique
+  verified_at DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
 }
 
 model EmailOTP {

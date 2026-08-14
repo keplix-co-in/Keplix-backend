@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-const isProd = process.env.NODE_ENV === "production";
+// Fail closed: only relax CORS when explicitly running in development, not
+// merely "whenever NODE_ENV isn't 'production'" (e.g. if it's unset).
+const isDev = process.env.NODE_ENV === "development";
 
 // Read allowed origins from env (comma separated) or default for dev
 const allowedOrigins = [
@@ -27,17 +29,19 @@ const corsOptions = {
     }
 
     //Development Mode → Allow all
-    if (!isProd) {
+    if (isDev) {
       return callback(null, true);
     }
 
-    //Production Mode → Allow only whitelisted origins
+    //Everything else (production, test, unset/misconfigured) → Allow only whitelisted origins
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     
-    // Always allow admin subdomain and vercel branch domains
-    if (origin.includes("keplix.co.in") || origin.includes("vercel.app") || origin.includes("localhost")) {
+    // Always allow keplix.co.in subdomains and vercel preview domains (anchored, not substring)
+    const keplixSubdomain = /^https:\/\/([a-z0-9-]+\.)*keplix\.co\.in$/i;
+    const vercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+    if (keplixSubdomain.test(origin) || vercelPreview.test(origin)) {
       return callback(null, true);
     }
 

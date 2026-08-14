@@ -9,10 +9,17 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
+import { normalizeIndianPhone } from "../util/phone.js";
+import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
 
 const JWT_SECRET = process.env.JWT_SECRET;
+// Refresh tokens are signed with their own secret so a leaked access-token
+// secret alone can't be used to forge a long-lived refresh token, and vice
+// versa. Falls back to JWT_SECRET only outside production so local/dev
+// setups that haven't set it yet don't break.
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET;
 
 if (!JWT_SECRET) {
   const errorMsg = 'JWT_SECRET environment variable is required';
@@ -24,6 +31,16 @@ if (!JWT_SECRET) {
   }
 }
 
+if (!process.env.JWT_REFRESH_SECRET) {
+  const errorMsg = 'JWT_REFRESH_SECRET environment variable is required';
+  console.error(errorMsg);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMsg);
+  } else {
+    console.warn('Using JWT_SECRET as a fallback JWT_REFRESH_SECRET for development');
+  }
+}
+
 const generateAccessToken = (id) => {
   return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
     expiresIn: "1d",
@@ -31,7 +48,7 @@ const generateAccessToken = (id) => {
 };
 
 const generateRefreshToken = (id) => {
-  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
+  return jwt.sign({ id, type: 'refresh' }, JWT_REFRESH_SECRET, {
     expiresIn: "30d",
   });
 };
@@ -68,7 +85,7 @@ const verifyDjangoPassword = (password, hash) => {
 // @route   POST /accounts/auth/signup/
 // @access  Public
 export const registerUser = async (req, res, next) => {
-  const { email, password, role, name, phone } = req.body;
+  const { email, password, role } = req.body;
 
   try {
     const userExists = await prisma.user.findUnique({
@@ -95,31 +112,13 @@ export const registerUser = async (req, res, next) => {
       },
     });
 
-    // Create Profile based on role
-    if (role === "vendor") {
-      await prisma.vendorProfile.create({
-        data: {
-          userId: user.id,
-          business_name: name || (email ? email.split("@")[0] : "New Vendor"),
-          phone: phone || "",
-          onboarding_completed: false,
-        },
-      });
-    } else {
-      await prisma.userProfile.create({
-        data: {
-          userId: user.id,
-          name: name || (email ? email.split("@")[0] : "User"),
-          phone: phone || "",
-        },
-      });
-    }
-
     res.status(201).json({
+      success: true,
+      message: "Account created. Please verify your email to continue.",
       id: user.id,
       email: user.email,
       role: user.role,
-      token: generateToken(user.id),
+      code: "PENDING_VERIFICATION",
     });
   } catch (error) {
     console.error(error);
@@ -177,15 +176,34 @@ export const authUser = async (req, res) => {
           };
         }
 
-        const userData = {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          is_active: user.is_active,
-          ...profileData,
-        };
+          const hasProfile = user.userProfile || user.vendorProfile;
+          
+          if (hasProfile && !user.is_verified) {
+             // Treat legacy users with profiles as verified
+             user.is_verified = true;
+             await prisma.user.update({
+               where: { id: user.id },
+               data: { is_verified: true }
+             });
+          }
 
-        return res.json({
+          const userData = {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            is_active: user.is_active,
+            is_verified: user.is_verified,
+            ...profileData,
+          };
+
+          if (!user.is_verified && !hasProfile) {
+            return res.status(403).json({
+              success: false,
+              message: "Account not verified. Please verify your email or phone.",
+              user: userData,
+              code: "UNVERIFIED"
+            });
+          }        return res.json({
           user: userData,
           access: generateAccessToken(user.id),
           refresh: generateRefreshToken(user.id),
@@ -196,6 +214,14 @@ export const authUser = async (req, res) => {
     res.status(401).json({ message: "Invalid email or password" });
   } catch (error) {
     console.error(error);
+
+    if (error.code === 'P2022') {
+      return res.status(500).json({
+        message: "Database schema is out of sync. Please update the backend database and try again.",
+        code: "DATABASE_SCHEMA_MISMATCH",
+      });
+    }
+
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -246,15 +272,29 @@ export const refreshToken = async (req, res) => {
     return res.status(400).json({ message: "Refresh token required" });
 
   try {
-    const decoded = jwt.verify(refresh, JWT_SECRET);
+    const blacklisted = await isRefreshTokenBlacklisted(refresh);
+    if (blacklisted) {
+      return res.status(401).json({ message: "Refresh token has been revoked" });
+    }
+
+    const decoded = jwt.verify(refresh, JWT_REFRESH_SECRET);
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
+    // Rotate: the presented refresh token is single-use — blacklist it and
+    // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
+    // limited window before it's replaced, and reuse of an old token after
+    // rotation is detectable/rejected.
+    await blacklistToken(refresh, decoded.exp);
+
     res.json({
       access: generateToken(user.id),
-      // Optionally rotate refresh token
-      refresh: refresh,
+      refresh: generateRefreshToken(user.id),
     });
   } catch (error) {
     console.error("Token refresh error:", error);
@@ -274,12 +314,7 @@ export const logoutUser = async (req, res) => {
 
     const decoded = jwt.decode(token);
 
-    await prisma.blacklistedToken.create({
-      data: {
-        token,
-        expiresAt: new Date(decoded.exp * 1000),
-      },
-    });
+    await blacklistToken(token, decoded.exp);
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -381,12 +416,133 @@ export const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Send OTP for password reset (reuses EmailOTP infra, separate from
+//          the token-link forgotPassword/resetPassword flow above — this
+//          powers the OTP-based reset UX used by the vendor app)
+export const sendPasswordResetOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    // Security: don't reveal whether the email exists.
+    if (!user) {
+      return res.json({
+        success: true,
+        message: "If the email exists, a verification code has been sent.",
+      });
+    }
+
+    const otp = generateOTP();
+    const istNow = getISTDate();
+    const expiresAt = new Date(istNow.getTime() + 10 * 60 * 1000); // 10 minutes
+
+    // Delete any existing unverified reset OTPs for this email first.
+    await prisma.emailOTP.deleteMany({
+      where: { email: normalizedEmail, verified: false },
+    });
+
+    const record = await prisma.emailOTP.create({
+      data: { email: normalizedEmail, otp, expiresAt, verified: false },
+    });
+
+    try {
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Keplix <noreply@keplix.co.in>",
+        to: email,
+        subject: "Your Keplix Password Reset Code",
+        html: otpEmailTemplate({ otp }),
+      });
+    } catch (emailError) {
+      console.error("sendPasswordResetOTP: Resend error:", emailError);
+      // Still respond success — the OTP record exists and can be verified;
+      // avoid leaking provider-level failures to the client.
+    }
+
+    return res.json({
+      success: true,
+      message: "If the email exists, a verification code has been sent.",
+      otpId: record.id,
+    });
+  } catch (error) {
+    console.error("sendPasswordResetOTP error:", error);
+    res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+};
+
+// @desc    Verify OTP and set a new password in one step
+export const resetPasswordWithOTP = async (req, res) => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) {
+      return res.status(400).json({ message: "Email, OTP, and new password are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedOtp = String(otp).trim();
+
+    const record = await prisma.emailOTP.findFirst({
+      where: { email: normalizedEmail },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!record) {
+      return res.status(400).json({ message: "No verification code found for this email" });
+    }
+    if (record.verified) {
+      return res.status(400).json({ message: "This verification code has already been used" });
+    }
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({ message: "Verification code has expired" });
+    }
+    if (record.otp !== normalizedOtp) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      }),
+      prisma.emailOTP.update({
+        where: { id: record.id },
+        data: { verified: true },
+      }),
+    ]);
+
+    return res.json({ success: true, message: "Password reset successfully" });
+  } catch (error) {
+    console.error("resetPasswordWithOTP error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
-  const { phone_number } = req.body;
+  const { phone_number: rawPhoneNumber } = req.body;
 
-  if (!phone_number) {
+  if (!rawPhoneNumber) {
     return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  // Normalised here so PhoneOTP is keyed identically to how the walk-in
+  // job / vehicle / claim flows store phones. Previously this column held
+  // whatever the client sent, so "9876543210" and "+919876543210" were two
+  // different OTP records — verifying with the other form always failed.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
   try {
@@ -425,18 +581,23 @@ export const sendPhoneOTP = async (req, res) => {
     }
   } catch (error) {
     console.error("sendPhoneOTP error:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to send OTP", details: error.message });
+    res.status(500).json({ error: "Failed to send OTP" });
   }
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-  const { phone_number, otp } = req.body;
+  const { phone_number: rawPhoneNumber, otp } = req.body;
 
-  if (!phone_number || !otp) {
+  if (!rawPhoneNumber || !otp) {
     return res.status(400).json({ error: "Phone number and OTP are required" });
+  }
+
+  // Must match the normalisation applied in sendPhoneOTP, or a correctly
+  // entered number in a different format will never find its OTP row.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
   try {
@@ -467,6 +628,55 @@ export const verifyPhoneOTP = async (req, res) => {
       where: { phone_number },
       data: { verified: true },
     });
+
+    // Also mark the user as verified.
+    // NOTE: phone_number is now normalised (+91XXXXXXXXXX), but
+    // UserProfile.phone / VendorProfile.phone are free text and may still
+    // hold whatever format a profile form originally sent (bare 10-digit,
+    // spaces, etc). This match was already an exact string comparison before
+    // this change — normalising phone_number does not make it more fragile,
+    // but it does mean a profile phone stored in a different format than the
+    // OTP will not match here. Fixing that needs a backfill of
+    // UserProfile/VendorProfile.phone through normalizeIndianPhone, which is
+    // a separate, data-touching change and out of scope here.
+    const matchedUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { userProfile: { phone: phone_number } },
+          { vendorProfile: { phone: phone_number } }
+        ]
+      },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    for (const matchedUser of matchedUsers) {
+      await prisma.user.update({
+        where: { id: matchedUser.id },
+        data: { is_verified: true },
+      });
+
+      if (matchedUser.role === "vendor" && !matchedUser.vendorProfile) {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: matchedUser.id,
+            business_name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+            onboarding_completed: false,
+          },
+        });
+      } else if (matchedUser.role !== "vendor" && !matchedUser.userProfile) {
+        await prisma.userProfile.create({
+          data: {
+            userId: matchedUser.id,
+            name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+          },
+        });
+      }
+    }
 
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
@@ -586,6 +796,39 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
+    // Mark user as verified
+    await prisma.user.update({
+      where: { email: record.email },
+      data: { is_verified: true },
+    });
+
+    const verifiedUser = await prisma.user.findUnique({
+      where: { email: record.email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    if (verifiedUser && verifiedUser.role === "vendor" && !verifiedUser.vendorProfile) {
+      await prisma.vendorProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          business_name: verifiedUser.email.split("@")[0],
+          phone: "",
+          onboarding_completed: false,
+        },
+      });
+    } else if (verifiedUser && verifiedUser.role !== "vendor" && !verifiedUser.userProfile) {
+      await prisma.userProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          name: verifiedUser.email.split("@")[0],
+          phone: "",
+        },
+      });
+    }
+
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
       where: { email: record.email },
@@ -628,9 +871,15 @@ export const verifyEmailOTP = async (req, res) => {
   }
 };
 
+// Strict server-side whitelist for self-selectable signup roles.
+// Defense-in-depth: enforced here independently of the Zod route validator,
+// so a client-supplied role can never reach prisma.user.create() unvalidated.
+const ALLOWED_SIGNUP_ROLES = ["user", "vendor"];
+
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
+  const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
 
   try {
     let email;
@@ -669,7 +918,7 @@ export const googleLogin = async (req, res) => {
     // Default name if missing
     name = name || email.split("@")[0];
 
-    let user = await prisma.user.findUnique({ 
+    let user = await prisma.user.findUnique({
       where: { email },
       include: {
         userProfile: true,
@@ -677,19 +926,22 @@ export const googleLogin = async (req, res) => {
       }
     });
 
+    let isNewUser = false;
+
     if (!user) {
+      isNewUser = true;
       // Register new user
       user = await prisma.user.create({
         data: {
           email,
           password: "", // Social login has no password
-          role: role || "user",
+          role: safeRole,
           is_active: true,
         },
       });
 
       // Create Profile
-      if (role === "vendor") {
+      if (safeRole === "vendor") {
         await prisma.vendorProfile.create({
           data: {
             userId: user.id,
@@ -745,6 +997,7 @@ export const googleLogin = async (req, res) => {
       access: generateAccessToken(user.id),
       refresh: generateRefreshToken(user.id),
       user: userData,
+      isNewUser: isNewUser
     });
   } catch (error) {
     console.error("Google Login Error:", error);

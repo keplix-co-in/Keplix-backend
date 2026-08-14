@@ -60,6 +60,8 @@ export const createVendorConversation = async (req, res) => {
 export const getVendorConversations = async (req, res) => {
     try {
         const userId = req.user.id; // Vendor User ID
+        const { page = 1, limit = 20 } = req.query;
+        const skip = (page - 1) * limit;
 
         // 2. As Vendor: Find bookings for my services
         const vendorServices = await prisma.service.findMany({
@@ -67,31 +69,46 @@ export const getVendorConversations = async (req, res) => {
             select: { id: true }
         });
         const vendorServiceIds = vendorServices.map(s => s.id);
-        
+
         const vendorBookings = await prisma.booking.findMany({
             where: { serviceId: { in: vendorServiceIds } },
             select: { id: true }
         });
 
         const allBookingIds = vendorBookings.map(b => b.id);
+        const where = { bookingId: { in: allBookingIds } };
 
-        const conversations = await prisma.conversation.findMany({
-            where: { bookingId: { in: allBookingIds } },
-            include: {
-                booking: {
-                    include: {
-                        user: { include: { userProfile: true } }, // Customer details
-                        service: { include: { vendor: { include: { vendorProfile: true } } } } 
+        const [conversations, total] = await Promise.all([
+            prisma.conversation.findMany({
+                where,
+                include: {
+                    booking: {
+                        include: {
+                            user: { include: { userProfile: true } }, // Customer details
+                            service: { include: { vendor: { include: { vendorProfile: true } } } }
+                        }
+                    },
+                    messages: {
+                        orderBy: { sent_at: 'desc' },
+                        take: 1
                     }
                 },
-                messages: {
-                    orderBy: { sent_at: 'desc' },
-                    take: 1
-                }
+                orderBy: { updatedAt: 'desc' },
+                skip: Number(skip),
+                take: Number(limit)
+            }),
+            prisma.conversation.count({ where })
+        ]);
+
+        res.json({
+            data: conversations,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / limit)
             }
         });
-
-        res.json(conversations);
 
     } catch (error) {
         console.error(error);
@@ -104,15 +121,23 @@ export const getVendorConversations = async (req, res) => {
 export const getVendorMessages = async (req, res) => {
     try {
         const conversationId = req.params.conversationId || req.query.conversation_id;
+        const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
         if (!conversationId) {
             return res.status(400).json({ message: 'Conversation ID required' });
         }
 
+        const where = { conversationId: Number(conversationId) };
+        if (before) {
+            where.id = { lt: Number(before) };
+        }
+
+        // Fetch newest-first (bounded by `take`), then reverse for chronological display.
         const messages = await prisma.message.findMany({
-            where: { conversationId: Number(conversationId) },
-            orderBy: { sent_at: 'asc' }, // Ensure correct ordering
-            include: { 
+            where,
+            orderBy: { sent_at: 'desc' },
+            take: Number(limit),
+            include: {
                 sender: {
                     select: {
                         id: true,
@@ -122,7 +147,7 @@ export const getVendorMessages = async (req, res) => {
             }
         });
 
-        res.json(messages); 
+        res.json(messages.reverse());
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

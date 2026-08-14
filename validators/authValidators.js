@@ -31,6 +31,12 @@ export const forgotPasswordSchema = z.object({
   email: z.string().email(),
 });
 
+export const resetPasswordWithOtpSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().length(6, { message: "OTP must be 6 digits" }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters long" }),
+});
+
 export const googleLoginSchema = z.object({
   idToken: z.string().min(1, { message: "Google ID Token is required" }),
   role: z.enum(['user', 'vendor']).optional(),

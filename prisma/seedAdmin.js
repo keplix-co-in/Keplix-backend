@@ -2,24 +2,24 @@ import prisma from "../util/prisma.js";
 import bcrypt from "bcryptjs";
 
 const seedAdmin = async () => {
-  const emailAdmin = "prajapatiaakash816@gmail.com";
-  const nameAdmin = "Akash Prajapati";
-  const phoneAdmin = "6377517817";
+  const emailAdmin = process.env.SEED_ADMIN_EMAIL;
+  const nameAdmin = process.env.SEED_ADMIN_NAME || "Admin";
+  const phoneAdmin = process.env.SEED_ADMIN_PHONE || "0000000000";
+  const passwordAdmin = process.env.SEED_ADMIN_PASSWORD;
   const roleAdmin = "admin";
 
-  const existAdmin = await prisma.admin.findUnique({
-    where: { email: emailAdmin },
-  });
-
-  if (existAdmin) {
-    console.log("Admin already exists");
-    return;
+  if (!emailAdmin || !passwordAdmin) {
+    throw new Error(
+      "SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD env vars are required to seed the admin account"
+    );
   }
 
-  const hashedPassword = await bcrypt.hash("akash1234", 10);
+  const hashedPassword = await bcrypt.hash(passwordAdmin, 10);
 
-  await prisma.admin.create({
-    data: {
+  await prisma.admin.upsert({
+    where: { email: emailAdmin },
+    update: {},
+    create: {
       name: nameAdmin,
       email: emailAdmin,
       password: hashedPassword,

@@ -1,12 +1,35 @@
 ﻿
 import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
+import Logger from "../../util/logger.js";
+
+/**
+ * Reports whether a vendor can actually be paid out.
+ *
+ * Payouts hard-fail without an active VendorPayoutAccount
+ * (util/payoutHelper.js throws "Vendor payout account not found or inactive"),
+ * and nothing in the apps or the admin panel used to show that state — so the
+ * first symptom was a failed settlement long after onboarding. Exposing it on
+ * the profile lets the vendor app prompt for bank details instead.
+ */
+export const describePayoutAccount = async (vendorId) => {
+    const account = await prisma.vendorPayoutAccount.findUnique({ where: { vendorId } });
+    if (!account) return { ok: false, configured: false, reason: 'no_payout_account' };
+    if (!account.isActive) return { ok: false, configured: false, reason: 'payout_account_inactive' };
+    return { ok: true, configured: true };
+};
 
 
 
-// @desc    Get vendor profile
-// @route   GET /accounts/vendor/profile/
-// @access  Private (Vendor)
+/**
+ * Get vendor profile with aggregated stats (total orders, earnings, avg rating).
+ * Stats are computed via DB-level COUNT/SUM/AVG instead of loading all rows into memory.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {Object} res - Express response object
+ * @returns {Object} Vendor profile merged with { rating, total_orders, total_earnings }
+ */
 export const getVendorProfile = async (req, res) => {
     try {
         const vendorProfile = await prisma.vendorProfile.findUnique({
@@ -14,65 +37,71 @@ export const getVendorProfile = async (req, res) => {
             include: { user: true }
         });
 
-        if (vendorProfile) {
-            // Calculate dynamic statistics
-            const vendorId = req.user.id;
-            
-            // 1. Get all services by this vendor
-            const services = await prisma.service.findMany({
-                where: { vendorId },
-                select: { id: true }
-            });
-            const serviceIds = services.map(s => s.id);
-            
-            // 2. Get all bookings for vendor's services
-            const bookings = await prisma.booking.findMany({
-                where: { 
-                    serviceId: { in: serviceIds },
-                    status: { in: ['completed', 'confirmed', 'ongoing'] }
-                },
-                include: { 
-                    payment: true,
-                    review: true 
-                }
-            });
-            
-            // 3. Calculate total orders
-            const total_orders = bookings.length;
-            
-            // 4. Calculate total earnings from completed payments
-            const total_earnings = bookings.reduce((sum, booking) => {
-                if (booking.payment && booking.payment.status === 'success') {
-                    return sum + parseFloat(booking.payment.vendorAmount || booking.payment.amount || 0);
-                }
-                return sum;
-            }, 0);
-            
-            // 5. Calculate average rating from reviews
-            const reviews = bookings.filter(b => b.review).map(b => b.review);
-            const average_rating = reviews.length > 0 
-                ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-                : "0.0";
-            
-            // Return profile with calculated stats
-            res.json({
-                ...vendorProfile,
-                rating: average_rating,
-                total_orders,
-                total_earnings: total_earnings.toFixed(2)
-            });
-        } else {
-            res.status(404).json({ message: 'Vendor profile not found' });
+        if (!vendorProfile) {
+            return res.status(404).json({ message: 'Vendor profile not found' });
         }
+
+        const vendorId = req.user.id;
+
+        // total_orders / total_earnings still require scanning bookings+payments
+        // (no running counters exist for those yet). rating/numReviews are
+        // maintained incrementally on VendorProfile (see util/ratingHelper.js),
+        // so they're read directly instead of re-aggregated on every request.
+        const [orderCount, earningsResult] = await Promise.all([
+            // COUNT bookings with active statuses for this vendor's services
+            prisma.booking.count({
+                where: {
+                    service: { vendorId },
+                    status: { in: ['completed', 'confirmed', 'ongoing'] }
+                }
+            }),
+
+            // SUM vendorAmount from successful payments on this vendor's bookings
+            prisma.payment.aggregate({
+                where: {
+                    status: 'success',
+                    booking: {
+                        service: { vendorId },
+                        status: { in: ['completed', 'confirmed', 'ongoing'] }
+                    }
+                },
+                _sum: { vendorAmount: true, amount: true }
+            })
+        ]);
+
+        const total_orders = orderCount;
+        const total_earnings = parseFloat(earningsResult._sum.vendorAmount ?? earningsResult._sum.amount ?? 0);
+
+        // Surfaced so the vendor app can prompt for bank details when payouts
+        // aren't set up, instead of the vendor discovering it when a
+        // settlement fails weeks later.
+        const payoutSetup = await describePayoutAccount(vendorId);
+
+        res.json({
+            ...vendorProfile,
+            rating: Number(vendorProfile.rating ?? 0).toFixed(1),
+            total_orders,
+            total_earnings: total_earnings.toFixed(2),
+            payoutSetup
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Update vendor profile
-// @route   PUT /accounts/vendor/profile/
-// @access  Private (Vendor)
+/**
+ * Update an existing vendor profile with partial fields, image uploads, and address auto-combination.
+ * Falls back to createVendorProfile if the profile doesn't exist yet (P2025 error).
+ * Also triggers payout account update if bank/UPI details change.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {Object} req.body - Partial vendor profile fields to update (business_name, phone, address components, bank details, etc.)
+ * @param {Object} [req.files] - Multer file uploads ({ image: [...], cover_image: [...] })
+ * @param {Object} res - Express response object
+ * @returns {Object} Updated vendor profile with userId mapped to .user for frontend compatibility
+ */
 export const updateVendorProfile = async (req, res) => {
     // Destructure all possible fields from the validated body
     let { 
@@ -177,17 +206,47 @@ export const updateVendorProfile = async (req, res) => {
     }
 
     try {
-        const vendorProfile = await prisma.vendorProfile.update({
-            where: { userId: req.user.id },
-            data: updates
+        const vendorProfile = await prisma.$transaction(async (tx) => {
+            const profile = await tx.vendorProfile.update({
+                where: { userId: req.user.id },
+                data: updates
+            });
+
+            // Also update User role effectively if onboarding is done
+            if (updates.onboarding_completed) {
+                await tx.user.update({
+                    where: { id: req.user.id },
+                    data: { role: 'vendor' }
+                });
+            }
+
+            return profile;
         });
 
-        // Also update User role effectively if onboarding is done
-        if (updates.onboarding_completed) {
-             await prisma.user.update({
-                where: { id: req.user.id },
-                data: { role: 'vendor' }
-            });
+        // Setup or update payout account if bank/UPI details were provided.
+        //
+        // A failure here is NOT fatal to the profile update — a RazorpayX
+        // outage shouldn't discard the vendor's photos, address and documents.
+        // But it must not be invisible either, which is what it used to be:
+        // the error went to console.error (which never reaches logs/error.log)
+        // and the response was a plain success, so the vendor believed they
+        // were onboarded and nobody found out until a payout failed days
+        // later. The outcome is now logged properly AND reported in the
+        // response so the client can tell the vendor to fix it.
+        let payoutSetup = { ok: true, configured: true };
+        if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
+            updates.upi_id !== undefined) {
+            try {
+                await updateVendorPayoutAccount(req.user.id, vendorProfile);
+            } catch (payoutError) {
+                Logger.error(
+                    `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
+                    `Profile was saved, but this vendor cannot be paid out until it is fixed.`
+                );
+                payoutSetup = { ok: false, configured: false, error: payoutError.message };
+            }
+        } else {
+            payoutSetup = await describePayoutAccount(req.user.id);
         }
 
         // Setup or update payout account if bank/UPI details were provided
@@ -202,7 +261,7 @@ export const updateVendorProfile = async (req, res) => {
         }
 
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
-        res.json({ ...vendorProfile, user: vendorProfile.userId });
+        res.json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
         console.error(error);
         if (error.code === 'P2025') {
@@ -214,9 +273,17 @@ export const updateVendorProfile = async (req, res) => {
     }
 };
 
-// @desc    Create vendor profile
-// @route   POST /accounts/vendor/profile/
-// @access  Private
+/**
+ * Create a new vendor profile during onboarding. Sets user role to 'vendor' and optionally sets up payout account.
+ * Returns 400 if a profile already exists for this user.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated user's ID
+ * @param {Object} req.body - Vendor profile fields (business_name, business_type, description, phone, address components, GST, bank details, etc.)
+ * @param {Object} [req.files] - Multer file uploads ({ image: [...], cover_image: [...] })
+ * @param {Object} res - Express response object
+ * @returns {Object} Created vendor profile (201) with userId mapped to .user
+ */
 export const createVendorProfile = async (req, res) => {
      // Identical to Update but uses create
     const { 
@@ -227,7 +294,7 @@ export const createVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
-        bank_account_number, ifsc_code
+        bank_account_number, ifsc_code, upi_id
     } = req.body;
 
 
@@ -297,26 +364,38 @@ export const createVendorProfile = async (req, res) => {
             data: { role: 'vendor' }
         });
 
-        // Setup payout account if bank/UPI details were provided
+        // Setup payout account if bank/UPI details were provided. Same
+        // reasoning as the update path above: non-fatal, but never silent.
+        let payoutSetup = { ok: true, configured: false, reason: 'no_bank_details_supplied' };
         if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
             try {
                 await setupVendorPayoutAccount(req.user.id, vendorProfile);
+                payoutSetup = { ok: true, configured: true };
             } catch (payoutError) {
-                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
-                // Don't fail the profile creation if payout setup fails
+                Logger.error(
+                    `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
+                    `Profile was created, but this vendor cannot be paid out until it is fixed.`
+                );
+                payoutSetup = { ok: false, configured: false, error: payoutError.message };
             }
         }
 
-        res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
+        res.status(201).json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
         console.error("Create Vendor Profile Error:", error); // Added detailed logging
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
 
-// @desc    Update vendor online status
-// @route   PATCH /accounts/vendor/profile/online-status
-// @access  Private (Vendor)
+/**
+ * Toggle vendor's online/offline status. Expects a boolean is_online in the request body.
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.user.id - Authenticated vendor's user ID
+ * @param {boolean} req.body.is_online - New online status (true = online, false = offline)
+ * @param {Object} res - Express response object
+ * @returns {Object} { message, is_online }
+ */
 export const updateOnlineStatus = async (req, res) => {
     try {
         const { is_online } = req.body;

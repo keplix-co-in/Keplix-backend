@@ -1,25 +1,26 @@
-﻿import prisma from "../../util/prisma.js";
-
-
+import prisma from "../../util/prisma.js";
+import { updateVendorRatingStats } from "../../util/ratingHelper.js";
 
 // @desc    Get Reviews
 // @route   GET /interactions/api/reviews/
 export const getReviews = async (req, res) => {
     try {
-        const { vendor_id, user_id } = req.query;
+        const { vendor_id, user_id, page = 1, limit = 20 } = req.query;
+        const skip = (page - 1) * limit;
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         let where = {};
 
         if (user_id) {
             where.userId = parseInt(user_id);
         } else if (vendor_id) {
-            where.booking = {
-                service: { vendorId: parseInt(vendor_id) },
-            };
+            where.vendorId = parseInt(vendor_id);
         }
 
+        const total = await prisma.review.count({ where });
         const reviews = await prisma.review.findMany({
             where,
+            skip: Number(skip),
+            take: Number(limit),
             include: {
                 user: {
                     select: {
@@ -88,7 +89,16 @@ export const getReviews = async (req, res) => {
             };
         });
 
-        res.json({ success: true, data: formatted });
+        res.json({
+            success: true,
+            data: formatted,
+            pagination: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / limit)
+            }
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -101,7 +111,8 @@ export const getReviews = async (req, res) => {
 export const createReview = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { bookingId, rating, comment } = req.body;
+    const { bookingId, rating: rawRating, comment } = req.body;
+    const rating = parseFloat(rawRating);
 
     // 1. Load the booking and verify it belongs to this user and is completed
     const booking = await prisma.booking.findFirst({
@@ -134,37 +145,26 @@ export const createReview = async (req, res) => {
       });
     }
 
-    // 3. Create the review
-    const review = await prisma.review.create({
-      data: {
-        bookingId: parseInt(bookingId),
-        userId,
-        rating: parseFloat(rating),
-        comment: comment || null,
-      },
-    });
-
-    // 4. Recalculate vendor average rating via VendorProfile
     const vendorId = booking.service?.vendorId;
-    if (vendorId) {
-      const vendorBookingIds = await prisma.booking.findMany({
-        where: { service: { vendorId } },
-        select: { id: true },
-      });
-      const ids = vendorBookingIds.map((b) => b.id);
-      const aggregates = await prisma.review.aggregate({
-        where: { bookingId: { in: ids } },
-        _avg: { rating: true },
-        _count: { rating: true },
-      });
-      await prisma.vendorProfile.updateMany({
-        where: { userId: vendorId },
+
+    // 3. Create review and update vendor stats in a transaction
+    const review = await prisma.$transaction(async (tx) => {
+      const createdReview = await tx.review.create({
         data: {
-          rating: aggregates._avg.rating || 0.0,
-          numReviews: aggregates._count.rating || 0,
+          bookingId: parseInt(bookingId),
+          userId,
+          vendorId,
+          rating,
+          comment: comment || null,
         },
       });
-    }
+
+      if (vendorId) {
+        await updateVendorRatingStats(tx, vendorId, rating, false);
+      }
+
+      return createdReview;
+    });
 
     res.status(201).json({
       success: true,
@@ -185,7 +185,10 @@ export const deleteReview = async (req, res) => {
     const userId = req.user.id;
     const reviewId = parseInt(req.params.id);
 
-    const review = await prisma.review.findUnique({ where: { id: reviewId } });
+    const review = await prisma.review.findUnique({
+      where: { id: reviewId },
+    });
+
     if (!review) {
       return res.status(404).json({ success: false, message: 'Review not found.' });
     }
@@ -193,7 +196,17 @@ export const deleteReview = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorised to delete this review.' });
     }
 
-    await prisma.review.delete({ where: { id: reviewId } });
+    const vendorId = review.vendorId;
+    const ratingValue = review.rating;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.review.delete({ where: { id: reviewId } });
+
+      if (vendorId) {
+        await updateVendorRatingStats(tx, vendorId, ratingValue, true);
+      }
+    });
+
     res.json({ success: true, message: 'Review deleted.' });
   } catch (error) {
     console.error('Delete Review Error:', error);
@@ -206,21 +219,40 @@ export const deleteReview = async (req, res) => {
 export const getVendorReviews = async (req, res) => {
   try {
     const { vendorId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+    const where = { vendorId: parseInt(vendorId) };
 
-    const reviews = await prisma.review.findMany({
-      where: { vendorId: parseInt(vendorId) },
-      include: {
-        user: {
-          select: { id: true, name: true, profileImage: true } // Fetch reviewer details
-        }
-      },
-      orderBy: { createdAt: 'desc' }
+    const [reviews, total] = await Promise.all([
+      prisma.review.findMany({
+        where,
+        skip: Number(skip),
+        take: Number(limit),
+        include: {
+          user: {
+            select: {
+              id: true,
+              userProfile: { select: { name: true, profile_picture: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.review.count({ where })
+    ]);
+
+    res.json({
+      success: true,
+      count: reviews.length,
+      data: reviews,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit)
+      }
     });
-
-    res.json({ success: true, count: reviews.length, data: reviews });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-

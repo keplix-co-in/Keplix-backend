@@ -62,6 +62,54 @@ export const sendSMS = async (to, message) => {
     }
 };
 
+/**
+ * WhatsApp via Twilio. Deliberately not sendSMS with a different `to` prefix:
+ * a business-initiated WhatsApp message outside the 24h session window (which
+ * this always is — the customer hasn't messaged in) must reference a
+ * pre-approved Content Template by SID with positional variables, not a free
+ * `body` string. Twilio also requires the `whatsapp:` address prefix and a
+ * separate `from` number. Same env-guard-and-mock-log shape as sendSMS so
+ * local dev without WhatsApp credentials behaves the same way.
+ *
+ * @param {string} to E.164 phone number, e.g. "+919876543210"
+ * @param {string} contentSid Twilio Content Template SID (HXxxxx)
+ * @param {Record<string,string>} variables positional template variables, e.g. { "1": "Rahul", "2": "Royal Auto Care" }
+ */
+export const sendWhatsApp = async (to, contentSid, variables = {}) => {
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_WHATSAPP_FROM) {
+        Logger.warn("[WhatsApp] Twilio WhatsApp not configured (Missing TWILIO_WHATSAPP_FROM or account credentials). Skipping.");
+        Logger.info(`[MOCK WHATSAPP] To: ${to} | Template: ${contentSid} | Vars: ${JSON.stringify(variables)}`);
+        return false;
+    }
+
+    if (!contentSid) {
+        Logger.warn("[WhatsApp] No contentSid provided — WhatsApp business-initiated messages require an approved template.");
+        return false;
+    }
+
+    try {
+        const twilio = await import('twilio');
+        const client = twilio.default(
+            process.env.TWILIO_ACCOUNT_SID,
+            process.env.TWILIO_AUTH_TOKEN
+        );
+
+        const result = await client.messages.create({
+            from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`,
+            to: `whatsapp:${to}`,
+            contentSid,
+            contentVariables: JSON.stringify(variables),
+        });
+
+        Logger.info(`[Twilio] WhatsApp sent successfully to ${to}: ${result.sid}`);
+        return true;
+    } catch (error) {
+        Logger.error(`[WhatsApp] Failed to send: ${error.message}`);
+        Logger.info(`[FALLBACK MOCK WHATSAPP] To: ${to} | Template: ${contentSid}`);
+        return false;
+    }
+};
+
 export const sendPushNotification = async (token, title, body, data = {}) => {
     if (!token) {
         Logger.warn("No FCM Token provided via push notification.");
