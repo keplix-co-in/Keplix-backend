@@ -128,6 +128,14 @@ export const getHistory = async (req, res) => {
         vehicle: w.vehicle ? { registration: w.vehicle.registration, model: w.vehicle.model } : null,
         garage_name: w.vendor?.vendorProfile?.business_name,
         health_sheet_id: w.healthSheet?.id ?? null,
+        // Projected so the customer's in-progress view can show "in progress
+        // since ..." and, once closed, what was actually charged. This
+        // endpoint is named "history" but returns open/in_progress jobs too,
+        // so it is the live-progress source as well as the past one.
+        amount_collected: w.amount_collected,
+        payment_mode: w.payment_mode,
+        started_at: w.started_at,
+        completed_at: w.completed_at,
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

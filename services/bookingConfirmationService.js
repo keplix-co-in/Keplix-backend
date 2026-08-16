@@ -129,7 +129,7 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
             });
 
             if (vendorId) {
-              await updateVendorRatingStats(tx, vendorId, ratingValue, false);
+              await updateVendorRatingStats(tx, vendorId);
             }
           }
         }

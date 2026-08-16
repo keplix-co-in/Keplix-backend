@@ -68,8 +68,10 @@ export const getAllServices = async (req, res) => {
           vp.business_name as vendor_name, 
           vp.image as vendor_image, 
           vp.cover_image, 
-          vp.address as vendor_address, 
+          vp.address as vendor_address,
           vp.city as vendor_city,
+          vp.rating as vendor_rating,
+          vp."numReviews" as vendor_reviews,
           ${distanceSql} as distance
         FROM "Service" s
         JOIN "VendorProfile" vp ON s."vendorId" = vp."userId"
@@ -151,6 +153,13 @@ export const getAllServices = async (req, res) => {
         distanceText: distanceText,
         vendor_address: service.vendor_address || vendorProfile.address || null,
         vendor_city: service.vendor_city || vendorProfile.city || null,
+        // Dual-sourced like the fields above: the raw-SQL branch (used when the
+        // caller sends coordinates) aliases these columns, while the Prisma
+        // branch reaches them through the included vendorProfile. Both must be
+        // populated or a card would show a rating only for located users.
+        // ?? rather than || so a genuine 0 rating isn't swapped for the fallback.
+        vendor_rating: service.vendor_rating ?? vendorProfile.rating ?? null,
+        vendor_reviews: service.vendor_reviews ?? vendorProfile.numReviews ?? 0,
       };
     });
 
@@ -234,7 +243,9 @@ export const getServiceCategories = async (req, res) => {
  */
 export const getFeaturedServices = async (req, res) => {
   try {
-    const { page = 1, limit = 10, latitude, longitude, online_only } = req.query;
+    const { latitude, longitude, online_only } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
     const skip = (page - 1) * limit;
 
     const where = {
@@ -256,8 +267,8 @@ export const getFeaturedServices = async (req, res) => {
     // Get all services with vendor profile info
     const services = await prisma.service.findMany({
       where,
-      skip: Number(skip),
-      take: Number(limit),
+      skip,
+      take: limit,
       include: { vendor: { include: { vendorProfile: true } } },
       orderBy: { id: "desc" },
     });
@@ -313,7 +324,15 @@ export const getFeaturedServices = async (req, res) => {
       };
     });
 
-    res.json(enrichedServices);
+    res.json({
+      data: enrichedServices,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
   } catch (error) {
     console.error("Error in getFeaturedServices:", error);
     res.status(500).json({ message: "Server Error" });

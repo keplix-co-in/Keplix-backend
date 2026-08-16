@@ -41,6 +41,9 @@ model User {
   healthSheets     HealthSheet[] @relation("VendorHealthSheets")
   phoneIdentity    PhoneIdentity?
 
+  // Offer slots this vendor has been specifically targeted by (see OfferSlot).
+  offerSlotTargets OfferSlotVendor[]
+
   @@index([email])
   @@index([role])
 }
@@ -137,8 +140,9 @@ model Service {
   image_url   String?
   is_active   Boolean   @default(true)
   is_featured Boolean   @default(false)
-  bookings    Booking[]
-  vendor      User      @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
+  bookings          Booking[]
+  walkInJobServices WalkInJobService[]
+  vendor            User               @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
 }
 
 model Booking {
@@ -307,6 +311,11 @@ model Review {
   rating    Int
   comment   String?
   reply     String?
+  // Set when a vendor replies. `updatedAt` cannot stand in for this: it moves
+  // on any write, so it can't distinguish "replied" from "edited". The vendor
+  // reply controller wrote this field before it existed on the model, which
+  // made every reply throw "Unknown arg `repliedAt`" at runtime.
+  repliedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   vendorId  Int?
@@ -314,6 +323,67 @@ model Review {
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
   vendor    User?    @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
 
+  @@index([vendorId])
+  // The vendor reviews list is always "this vendor, newest first, paginated".
+  // On [vendorId] alone Postgres still has to sort every one of a vendor's
+  // reviews to serve page 1; this lets it walk the index in order and stop.
+  @@index([vendorId, createdAt])
+}
+
+// Admin-managed promotional content, addressed by a stable placement `key` that
+// the client apps reference in code (e.g. 'home_banner_1'). Content lives here
+// so copy can change without an app release; every figure in the product used to
+// be a literal in a component.
+//
+// Deliberately NOT the Promotion model below: that one is vendor-owned, has no
+// placement dimension, and is dead code.
+//
+// `discount_type`/`discount_value` are present but unused — offers are display
+// only for now. They exist from the start so enabling real discounts later is an
+// additive change rather than a reshape. Nothing may read them until the pricing
+// path (which derives amounts in four separate places) is ready.
+model OfferSlot {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique // referenced from client code; immutable once set
+  label       String // admin-facing, e.g. "Homepage banner (first slide)"
+  description String? // where it appears, shown to the admin
+
+  headline   String? // "15%"
+  body       String? // "discount on the first order."
+  badge_text String? // "Flat ₹100 off"
+  image_url  String?
+
+  discount_type  String? // 'percent' | 'flat' — reserved, unused
+  discount_value Decimal? @db.Decimal(10, 2) // reserved, unused
+
+  is_active     Boolean   @default(false)
+  starts_at     DateTime?
+  ends_at       DateTime?
+  display_order Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  targets OfferSlotVendor[]
+
+  @@index([is_active])
+}
+
+// Vendor targeting for an OfferSlot.
+//
+// IMPORTANT: an EMPTY target set means the slot applies to every vendor; rows
+// present mean it applies to those vendors only. Absence is deliberately the
+// permissive case — the common setup is a platform-wide offer, and requiring a
+// row per vendor for that would mean backfilling on every new signup.
+model OfferSlotVendor {
+  id          Int @id @default(autoincrement())
+  offerSlotId Int
+  vendorId    Int
+
+  offerSlot OfferSlot @relation(fields: [offerSlotId], references: [id], onDelete: Cascade)
+  vendor    User      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([offerSlotId, vendorId])
   @@index([vendorId])
 }
 
@@ -395,6 +465,16 @@ model Admin {
   phone       String?
   status      AdminStatus @default(ACTIVE)
   lastLoginAt DateTime?
+  // bcrypt hash of the admin's current refresh token, so /auth/refresh can
+  // verify and rotate it and /auth/logout can revoke it server-side. Null means
+  // no active session.
+  //
+  // This column was missing entirely — the model never declared it and the
+  // table never had it — while controllers/Admin/authController.js has always
+  // written it on login. Every admin login therefore failed with
+  // "Unknown argument `refreshToken`". Storing the hash (never the token) is
+  // what makes a stolen refresh token revocable.
+  refreshToken String?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   role        String      @default("admin")
@@ -554,6 +634,7 @@ model WalkInJob {
   vehicle       Vehicle?    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   claimedByUser User?       @relation("UserWalkInJobs", fields: [claimedByUserId], references: [id], onDelete: SetNull)
   healthSheet   HealthSheet?
+  services      WalkInJobService[]
 
   @@index([vendorId, status])
   @@index([customer_phone])
@@ -620,19 +701,61 @@ model HealthSheet {
 // with a _count instead of parsing an opaque blob that might be malformed.
 // photos is capped at 2 by a raw CHECK constraint (see migration notes) since
 // Prisma has no array-length validator.
+// An item is EITHER a fixed inspection component (the booking path, unchanged)
+// OR one of the services chosen on a walk-in. Hence both foreign keys are
+// nullable and exactly one is set per row.
+//
+// `status` is nullable because the vendor can skip filling the inspection in:
+// skipping still writes the sheet (so the mandatory-inspection gate can never
+// strand a job) but leaves the per-item detail blank.
+//
+// `label` denormalises the display name — component label or service name — so
+// every reader has ONE field to read instead of branching on which FK is set.
+// Without it, controllers/public/jobSheetController.js would have to know about
+// both shapes, and it already dereferences `item.component.label` unguarded.
 model HealthSheetItem {
-  id            Int          @id @default(autoincrement())
-  healthSheetId Int
-  componentId   Int
-  status        HealthStatus
-  notes         String?
-  photos        String[]     @default([])
+  id                 Int           @id @default(autoincrement())
+  healthSheetId      Int
+  componentId        Int?
+  walkInJobServiceId Int?
+  label              String?
+  status             HealthStatus?
+  price              Decimal?      @db.Decimal(10, 2)
+  notes              String?
+  photos             String[]      @default([])
 
-  healthSheet HealthSheet     @relation(fields: [healthSheetId], references: [id], onDelete: Cascade)
-  component   HealthComponent @relation(fields: [componentId], references: [id])
+  healthSheet      HealthSheet       @relation(fields: [healthSheetId], references: [id], onDelete: Cascade)
+  component        HealthComponent?  @relation(fields: [componentId], references: [id])
+  walkInJobService WalkInJobService? @relation(fields: [walkInJobServiceId], references: [id], onDelete: Cascade)
 
+  // Postgres allows repeated NULLs in a unique index, so component rows and
+  // service rows coexist without colliding on either constraint.
   @@unique([healthSheetId, componentId])
+  @@unique([healthSheetId, walkInJobServiceId])
   @@index([status])
+}
+
+// A service selected when checking a walk-in customer in. WalkInJob previously
+// had no link to Service at all — work was free text — so there was nothing to
+// drive the inspection cards or a bill from.
+//
+// name/price are SNAPSHOTS, not lookups: renaming or repricing a catalogue
+// service, or deleting it outright, must never rewrite what a past job records
+// as having been done. serviceId is null for a one-off custom entry, and is set
+// null (rather than cascading the row away) if the catalogue service is deleted.
+model WalkInJobService {
+  id          Int      @id @default(autoincrement())
+  walkInJobId Int
+  serviceId   Int?
+  name        String
+  price       Decimal? @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  walkInJob  WalkInJob         @relation(fields: [walkInJobId], references: [id], onDelete: Cascade)
+  service    Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  sheetItems HealthSheetItem[]
+
+  @@index([walkInJobId])
 }
 
 // The single authoritative phone -> User mapping, populated ONLY through a

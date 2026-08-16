@@ -47,25 +47,79 @@ export const createHealthSheet = async (req, res) => {
       });
     }
 
+    // An item is EITHER a fixed inspection component (booking path) OR one of
+    // the services chosen on a walk-in. The two are validated separately so a
+    // walk-in sheet made of services is never rejected for "missing"
+    // components, and the booking path keeps its exact previous behaviour.
+    const componentItems = items.filter((i) => i.component_key);
+    const serviceItems = items.filter((i) => i.walk_in_service_id);
+
+    const mixed = items.filter((i) => i.component_key && i.walk_in_service_id);
+    if (mixed.length) {
+      return res.status(400).json({
+        message: 'An item may reference either a component or a walk-in service, not both.',
+      });
+    }
+    const orphans = items.filter((i) => !i.component_key && !i.walk_in_service_id);
+    if (orphans.length) {
+      return res.status(400).json({
+        message: 'Every item must reference a component or a walk-in service.',
+      });
+    }
+
     // Required components come from the live template table, not a
     // hardcoded list — this is the whole point of HealthComponent existing.
     const activeComponents = await prisma.healthComponent.findMany({
       where: { is_active: true },
-      select: { id: true, key: true },
+      select: { id: true, key: true, label: true },
     });
     const byKey = new Map(activeComponents.map((c) => [c.key, c]));
 
-    const unknownKeys = items.filter((i) => !byKey.has(i.component_key));
+    const unknownKeys = componentItems.filter((i) => !byKey.has(i.component_key));
     if (unknownKeys.length) {
       return res.status(400).json({
         message: `Unknown inspection component(s): ${unknownKeys.map((i) => i.component_key).join(', ')}`,
       });
     }
-    const missingKeys = [...byKey.keys()].filter((k) => !items.some((i) => i.component_key === k));
-    if (missingKeys.length) {
-      return res.status(400).json({
-        message: `Missing inspection item(s): ${missingKeys.join(', ')}`,
+
+    // Completeness applies only to a component-based sheet. A service-based
+    // sheet describes the work actually selected, so demanding all five
+    // components would make it impossible to submit.
+    if (componentItems.length) {
+      const missingKeys = [...byKey.keys()].filter(
+        (k) => !componentItems.some((i) => i.component_key === k)
+      );
+      if (missingKeys.length) {
+        return res.status(400).json({
+          message: `Missing inspection item(s): ${missingKeys.join(', ')}`,
+        });
+      }
+    }
+
+    // Service ids must belong to THIS walk-in job — otherwise a vendor could
+    // attach another job's services (or another vendor's) to their sheet.
+    const byServiceId = new Map();
+    if (serviceItems.length) {
+      if (!walkInJobId) {
+        return res.status(400).json({
+          message: 'Service items are only valid on a walk-in job.',
+        });
+      }
+      const jobServices = await prisma.walkInJobService.findMany({
+        where: {
+          id: { in: serviceItems.map((i) => i.walk_in_service_id) },
+          walkInJobId,
+        },
+        select: { id: true, name: true, price: true },
       });
+      for (const s of jobServices) byServiceId.set(s.id, s);
+
+      const unknownServices = serviceItems.filter((i) => !byServiceId.has(i.walk_in_service_id));
+      if (unknownServices.length) {
+        return res.status(400).json({
+          message: 'One or more services do not belong to this walk-in job.',
+        });
+      }
     }
 
     // Group uploaded files by their photo_<key> field name. uploadAny()
@@ -90,8 +144,13 @@ export const createHealthSheet = async (req, res) => {
       });
 
       for (const item of items) {
-        const component = byKey.get(item.component_key);
-        const files = filesByField[photoFieldFor(item.component_key)] || [];
+        const component = item.component_key ? byKey.get(item.component_key) : null;
+        const service = item.walk_in_service_id ? byServiceId.get(item.walk_in_service_id) : null;
+
+        // Photo field names follow the same photo_<key> convention for both
+        // kinds; services use the id the client also sends as the key.
+        const photoKey = item.component_key ?? `svc-${item.walk_in_service_id}`;
+        const files = filesByField[photoFieldFor(photoKey)] || [];
         // The DB CHECK constraint also enforces this, but truncating here
         // gives a predictable result instead of a 500 from a raw constraint
         // violation if a client sends 3 photos for one component.
@@ -100,8 +159,14 @@ export const createHealthSheet = async (req, res) => {
         await tx.healthSheetItem.create({
           data: {
             healthSheetId: sheet.id,
-            componentId: component.id,
-            status: item.status,
+            componentId: component ? component.id : null,
+            walkInJobServiceId: service ? service.id : null,
+            // Denormalised so every reader has one field to read rather than
+            // branching on which relation is set. Price falls back to the
+            // snapshot taken at check-in when the vendor doesn't override it.
+            label: component ? component.label : service?.name ?? null,
+            status: item.status ?? null,
+            price: item.price ?? service?.price ?? null,
             notes: item.notes,
             photos,
           },

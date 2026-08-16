@@ -5,7 +5,11 @@ import { updateVendorRatingStats } from "../../util/ratingHelper.js";
 // @route   GET /interactions/api/reviews/
 export const getReviews = async (req, res) => {
     try {
-        const { vendor_id, user_id, page = 1, limit = 20 } = req.query;
+        const { vendor_id, user_id } = req.query;
+        // Coerce before arithmetic: these arrive as strings, and `(page-1)*limit`
+        // on strings silently produced the wrong offset for anything but page 1.
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
         const skip = (page - 1) * limit;
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         let where = {};
@@ -14,6 +18,15 @@ export const getReviews = async (req, res) => {
             where.userId = parseInt(user_id);
         } else if (vendor_id) {
             where.vendorId = parseInt(vendor_id);
+        } else {
+            // Without a scope this matched every review on the platform and
+            // paged through the whole table. Callers must say whose reviews
+            // they want.
+            return res.status(400).json({
+                success: false,
+                message: 'Either user_id or vendor_id is required.',
+                code: 'SCOPE_REQUIRED',
+            });
         }
 
         const total = await prisma.review.count({ where });
@@ -53,12 +66,32 @@ export const getReviews = async (req, res) => {
             orderBy: { createdAt: 'desc' },
         });
 
+        const absolute = (p) => (!p ? null : p.startsWith('http') ? p : `${baseUrl}${p}`);
+
+        // Flat, client-facing aliases. The nested booking->service->vendor tree
+        // below is what the customer app (user_keplix ReviewList/Profile) reads,
+        // so it stays exactly as it was; these are added alongside it rather
+        // than replacing it, so both shapes are valid at once.
+        const flatten = (review) => ({
+            customer: {
+                id: review.user?.id ?? null,
+                name: review.user?.userProfile?.name || null,
+                image: absolute(review.user?.userProfile?.profile_picture),
+            },
+            service: {
+                id: review.booking?.service?.id ?? null,
+                name: review.booking?.service?.name || null,
+            },
+            date: review.booking?.booking_date ?? review.createdAt ?? null,
+        });
+
         // Prefix relative media paths with the server base URL
         const formatted = reviews.map((review) => {
             const vp = review.booking?.service?.vendor?.vendorProfile;
-            if (!vp) return review;
+            if (!vp) return { ...review, ...flatten(review) };
             return {
                 ...review,
+                ...flatten(review),
                 booking: {
                     ...review.booking,
                     service: {
@@ -112,7 +145,9 @@ export const createReview = async (req, res) => {
   try {
     const userId = req.user.id;
     const { bookingId, rating: rawRating, comment } = req.body;
-    const rating = parseFloat(rawRating);
+    // Review.rating is an Int column. parseFloat alone let a 4.5 through to
+    // Prisma, which rejects it outright — the review just failed to save.
+    const rating = Math.round(parseFloat(rawRating));
 
     // 1. Load the booking and verify it belongs to this user and is completed
     const booking = await prisma.booking.findFirst({
@@ -160,7 +195,7 @@ export const createReview = async (req, res) => {
       });
 
       if (vendorId) {
-        await updateVendorRatingStats(tx, vendorId, rating, false);
+        await updateVendorRatingStats(tx, vendorId);
       }
 
       return createdReview;
@@ -197,13 +232,12 @@ export const deleteReview = async (req, res) => {
     }
 
     const vendorId = review.vendorId;
-    const ratingValue = review.rating;
 
     await prisma.$transaction(async (tx) => {
       await tx.review.delete({ where: { id: reviewId } });
 
       if (vendorId) {
-        await updateVendorRatingStats(tx, vendorId, ratingValue, true);
+        await updateVendorRatingStats(tx, vendorId);
       }
     });
 
