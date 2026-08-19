@@ -19,13 +19,12 @@ import { processPayoutJob } from "./payoutProcessor.js";
 const payoutWorker = new Worker("payoutQueue", processPayoutJob, {
   connection: redisConnection,
   concurrency: 5,
-  // BullMQ's default drainDelay (5s) means this worker long-polls Redis
-  // every 5 seconds forever, even with an empty queue — see the matching
-  // comment in notificationWorker.js. Kept tighter than the other two
-  // workers since this handles money, but 10s adds no meaningful delay to a
-  // payout that is already retried with exponential backoff over minutes.
-  drainDelay: 10,
-  stalledInterval: 120_000,
+  // Was 10s "since this handles money" -- the single biggest Redis consumer in
+  // the app at 259k commands/month, all of it spent on an empty queue. A long
+  // drainDelay does NOT delay payouts: Queue.add wakes the blocked worker
+  // immediately. See notificationWorker.js for the mechanism and the numbers.
+  drainDelay: 120,
+  stalledInterval: 300_000,
 });
 
 payoutWorker.on("completed", (job) => {
