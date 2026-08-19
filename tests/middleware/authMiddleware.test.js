@@ -145,8 +145,34 @@ describe('protect - blacklisted token', () => {
   // Fails closed, and unlike the Redis version that is now harmless: this query
   // hits the same database the very next line must query anyway, so there is no
   // partial-failure mode where rejecting the request loses anything.
-  test('fails closed when the blacklist lookup errors', async () => {
+  // An unrecognised error means the query may well have run — a revoked token
+  // must not slip through on ambiguity.
+  test('fails closed when the blacklist lookup errors for an unknown reason', async () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
+    mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
+
+    await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // The regression this guards against: the BlacklistedToken table did not
+  // exist in the deployed databases, every lookup threw P2021, and the old
+  // blanket fail-closed turned that into "Token has been logged out" on every
+  // authenticated request in both apps. Rejecting everyone is a worse outcome
+  // than not enforcing logout during an outage.
+  test.each([
+    ['P2021', 'table does not exist'],
+    ['P1001', 'cannot reach database'],
+    ['P1002', 'connection timed out'],
+    ['P1017', 'server closed the connection'],
+  ])('fails OPEN when the blacklist query cannot run (%s)', async (code) => {
+    const err = new Error('infra');
+    err.code = code;
+    mockPrisma.blacklistedToken.findUnique.mockRejectedValue(err);
     mockVerify.mockReturnValue({ id: 1 });
 
     const req = mockReq('valid.token');
@@ -155,9 +181,9 @@ describe('protect - blacklisted token', () => {
 
     await protect(req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
-    expect(next).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    expect(req.user).toEqual(USER_ROW);
+    expect(next).toHaveBeenCalled();
   });
 });
 
@@ -326,6 +352,17 @@ describe('isRefreshTokenBlacklisted', () => {
 
   test('fails closed on a lookup error', async () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
+    await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
+  });
+});
+
+  // Deliberately NOT given the access-token path's fail-open treatment. Refresh
+  // tokens live for weeks; accepting one we cannot verify would mint a fresh
+  // access token on every refresh for the whole duration of the fault.
+  test('fails closed even when the query cannot run (P2021)', async () => {
+    const err = new Error('table missing');
+    err.code = 'P2021';
+    mockPrisma.blacklistedToken.findUnique.mockRejectedValue(err);
     await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
   });
 });
