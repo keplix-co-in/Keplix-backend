@@ -150,7 +150,6 @@ describe('protect - blacklisted token', () => {
   test('fails closed when the blacklist lookup errors for an unknown reason', async () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     mockVerify.mockReturnValue({ id: 1 });
-    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
 
@@ -176,10 +175,9 @@ describe('protect - blacklisted token', () => {
     mockVerify.mockReturnValue({ id: 1 });
 
     const req = mockReq('valid.token');
-    const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
+    await protect(req, mockRes(), next);
 
     expect(res.status).not.toHaveBeenCalledWith(401);
     expect(req.user).toEqual(USER_ROW);
