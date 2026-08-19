@@ -78,10 +78,29 @@ jobs:
       # No --accept-data-loss either, deliberately: without it a destructive
       # schema change FAILS this step and blocks the rollout, instead of
       # silently dropping a column in production.
+      #
+      # MIGRATION_DATABASE_URL, not DATABASE_URL, and the difference is network
+      # reachability rather than which database it is -- both point at the same
+      # Supabase project.
+      #
+      # Supabase's direct endpoint (db.<ref>.supabase.co) publishes ONLY an AAAA
+      # record; it has no IPv4 address. GitHub-hosted runners have no IPv6, so
+      # this step can never reach it and fails with P1001 -- while Cloud Run,
+      # whose egress does route IPv6, connects fine (/health reports the
+      # database healthy). That asymmetry is why the app works but CI could not.
+      #
+      # MIGRATION_DATABASE_URL must therefore use the POOLER host, which has
+      # A records: aws-1-ap-south-1.pooler.supabase.com. Use port 5432 (session
+      # mode), NOT 6543 (transaction mode) -- schema changes need advisory locks
+      # and prepared statements that transaction pooling does not support. Drop
+      # any `?pgbouncer=true` too; that flag is for transaction mode.
+      #
+      # DATABASE_URL is left untouched so the running service keeps the
+      # connection it already uses successfully.
       - name: Apply database schema
         run: |
           docker run --rm \
-            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            -e DATABASE_URL="${{ secrets.MIGRATION_DATABASE_URL }}" \
             gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             npx prisma db push --schema prisma/schema.prisma
 
