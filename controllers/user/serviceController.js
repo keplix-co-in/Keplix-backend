@@ -68,8 +68,10 @@ export const getAllServices = async (req, res) => {
           vp.business_name as vendor_name, 
           vp.image as vendor_image, 
           vp.cover_image, 
-          vp.address as vendor_address, 
+          vp.address as vendor_address,
           vp.city as vendor_city,
+          vp.rating as vendor_rating,
+          vp."numReviews" as vendor_reviews,
           ${distanceSql} as distance
         FROM "Service" s
         JOIN "VendorProfile" vp ON s."vendorId" = vp."userId"
@@ -113,6 +115,22 @@ export const getAllServices = async (req, res) => {
       total = await prisma.service.count({ where });
     }
 
+    // A second, batched query rather than touching the raw-SQL branch above:
+    // that branch is hand-written Haversine SQL, and threading a JOIN through
+    // it for a handful of segment-price rows per service is a lot of risk for
+    // very little — a single IN(...) lookup keyed by the ids already fetched
+    // does the same job for both branches identically.
+    const serviceIds = services.map((s) => s.id);
+    const segmentPriceRows = serviceIds.length
+      ? await prisma.serviceSegmentPrice.findMany({ where: { serviceId: { in: serviceIds } } })
+      : [];
+    const segmentPricesByService = new Map();
+    for (const row of segmentPriceRows) {
+      const list = segmentPricesByService.get(row.serviceId) ?? [];
+      list.push({ segment: row.segment, price: parseFloat(row.price.toString()) });
+      segmentPricesByService.set(row.serviceId, list);
+    }
+
     // Standardize the response format
     const enrichedServices = services.map((service) => {
       // If it came from raw query, service properties are already at top level
@@ -151,6 +169,18 @@ export const getAllServices = async (req, res) => {
         distanceText: distanceText,
         vendor_address: service.vendor_address || vendorProfile.address || null,
         vendor_city: service.vendor_city || vendorProfile.city || null,
+        // Dual-sourced like the fields above: the raw-SQL branch (used when the
+        // caller sends coordinates) aliases these columns, while the Prisma
+        // branch reaches them through the included vendorProfile. Both must be
+        // populated or a card would show a rating only for located users.
+        // ?? rather than || so a genuine 0 rating isn't swapped for the fallback.
+        vendor_rating: service.vendor_rating ?? vendorProfile.rating ?? null,
+        vendor_reviews: service.vendor_reviews ?? vendorProfile.numReviews ?? 0,
+        // Empty array (not omitted) for a service with no segment pricing, so
+        // the app can do `segment_prices.length > 0` without an extra null
+        // check — the same convention `is_active`/`is_featured` already use.
+        segment_prices: segmentPricesByService.get(service.id) ?? [],
+        vehicle_note: service.vehicle_note ?? null,
       };
     });
 
@@ -174,7 +204,7 @@ export const getServiceById = async (req, res) => {
   try {
     const service = await prisma.service.findUnique({
       where: { id: parseInt(req.params.id) },
-      include: { vendor: { include: { vendorProfile: true } } },
+      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
     });
 
     if (service) {
@@ -191,6 +221,13 @@ export const getServiceById = async (req, res) => {
         image: fullImageUrl,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
         vendor_image: service.vendor?.vendorProfile?.image || null,
+        // The booking screen resolves price-per-car from this — it needs the
+        // FULL list, not just the cheapest, because the price must change as
+        // the customer switches between saved vehicles.
+        segment_prices: (service.segmentPrices ?? []).map((sp) => ({
+          segment: sp.segment,
+          price: parseFloat(sp.price.toString()),
+        })),
       };
       res.json(enrichedService);
     } else {
@@ -234,7 +271,9 @@ export const getServiceCategories = async (req, res) => {
  */
 export const getFeaturedServices = async (req, res) => {
   try {
-    const { page = 1, limit = 10, latitude, longitude, online_only } = req.query;
+    const { latitude, longitude, online_only } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
     const skip = (page - 1) * limit;
 
     const where = {
@@ -256,8 +295,8 @@ export const getFeaturedServices = async (req, res) => {
     // Get all services with vendor profile info
     const services = await prisma.service.findMany({
       where,
-      skip: Number(skip),
-      take: Number(limit),
+      skip,
+      take: limit,
       include: { vendor: { include: { vendorProfile: true } } },
       orderBy: { id: "desc" },
     });
@@ -313,7 +352,15 @@ export const getFeaturedServices = async (req, res) => {
       };
     });
 
-    res.json(enrichedServices);
+    res.json({
+      data: enrichedServices,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
   } catch (error) {
     console.error("Error in getFeaturedServices:", error);
     res.status(500).json({ message: "Server Error" });
@@ -412,7 +459,7 @@ export const getServicesByVendor = async (req, res) => {
 
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
-      include: { vendor: { include: { vendorProfile: true } } },
+      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
       take: Number(limit),
@@ -434,6 +481,15 @@ export const getServicesByVendor = async (req, res) => {
         vendor_image: service.vendor?.vendorProfile?.image || null,
         vendor_cover_image: service.vendor?.vendorProfile?.cover_image || null,
         cover_image: service.vendor?.vendorProfile?.cover_image || null,
+        // segmentPrices (Prisma relation, camelCase) was included above but
+        // never mapped to segment_prices here, unlike getServiceById and the
+        // other list endpoint — so the vendor-profile screen's service cards
+        // could never show the segment/car-name info the vendor set, even
+        // though it was already being fetched from the DB.
+        segment_prices: (service.segmentPrices ?? []).map((sp) => ({
+          segment: sp.segment,
+          price: parseFloat(sp.price.toString()),
+        })),
       };
     });
 

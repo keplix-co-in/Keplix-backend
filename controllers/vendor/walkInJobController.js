@@ -8,7 +8,7 @@ import { assertHealthSheetPresent } from '../../services/healthSheetService.js';
 // @desc    Create a walk-in job (offline customer, no Booking/User/Service row)
 // @route   POST /service_api/vendor/walk-in-jobs
 export const createWalkInJob = async (req, res) => {
-  const { customer_name, customer_phone, vehicle, description, amount_collected, payment_mode } = req.body;
+  const { customer_name, customer_phone, vehicle, description, services, amount_collected, payment_mode } = req.body;
   const vendorId = req.user.id;
   // Normalised again here, not just trusted from the Zod schema — see
   // util/vehicle.js for why.
@@ -21,6 +21,37 @@ export const createWalkInJob = async (req, res) => {
       where: { phone_e164: customer_phone },
       select: { userId: true },
     });
+
+    // Resolve catalogue services against THIS vendor before writing anything.
+    // A client-supplied service_id is never trusted: an id belonging to another
+    // vendor is dropped to a custom entry rather than silently linking a rival's
+    // service, and name/price are re-read from the catalogue so a tampered or
+    // merely stale client can't misprice the snapshot.
+    const requested = Array.isArray(services) ? services : [];
+    const catalogueIds = requested.map((s) => s.service_id).filter(Boolean);
+    const catalogue = catalogueIds.length
+      ? await prisma.service.findMany({
+          where: { id: { in: catalogueIds }, vendorId },
+          select: { id: true, name: true, price: true },
+        })
+      : [];
+    const catalogueById = new Map(catalogue.map((s) => [s.id, s]));
+
+    const serviceRows = requested.map((s) => {
+      const owned = s.service_id ? catalogueById.get(s.service_id) : null;
+      return {
+        serviceId: owned ? owned.id : null,
+        name: owned ? owned.name : s.name,
+        price: owned ? owned.price : s.price ?? null,
+      };
+    });
+
+    // Existing readers (My Garage, the public tracking page, the admin card,
+    // WalkInProgress) all display `description`. Composing it from the selected
+    // names keeps every one of them working unchanged now that the vendor picks
+    // services instead of typing a description.
+    const composedDescription =
+      description || (serviceRows.length ? serviceRows.map((s) => s.name).join(', ') : undefined);
 
     const { job, vehicleRow } = await prisma.$transaction(async (tx) => {
       const vehicleRow = await tx.vehicle.upsert({
@@ -61,11 +92,13 @@ export const createWalkInJob = async (req, res) => {
           customer_name,
           customer_phone,
           claimedByUserId: phoneIdentity?.userId ?? null,
-          description,
+          description: composedDescription,
           amount_collected,
           payment_mode,
           public_token: generatePublicToken(),
+          ...(serviceRows.length ? { services: { create: serviceRows } } : {}),
         },
+        include: { services: true },
       });
 
       return { job, vehicleRow };
@@ -108,7 +141,13 @@ export const listWalkInJobs = async (req, res) => {
   try {
     const where = {
       vendorId,
-      ...(status ? { status } : {}),
+      // Comma-separated, matching the convention getVendorBookings already
+      // uses ("ongoing,confirmed,accepted"). The vendor's Ongoing tab needs
+      // open AND in_progress in a single call. A single value still works —
+      // { in: ['open'] } is equivalent to { status: 'open' }.
+      ...(status
+        ? { status: { in: String(status).split(',').map((s) => s.trim()).filter(Boolean) } }
+        : {}),
       ...(phone ? { customer_phone: { contains: phone } } : {}),
       ...(registration
         ? { vehicle: { registration: { contains: normalizeRegistration(String(registration)) } } }
@@ -118,7 +157,16 @@ export const listWalkInJobs = async (req, res) => {
     const [data, total] = await Promise.all([
       prisma.walkInJob.findMany({
         where,
-        include: { vehicle: true },
+        // healthSheet id only — the vendor list needs to know whether an
+        // inspection already exists (so it can send the mechanic straight to
+        // the amount instead of re-entering the whole checklist), but not the
+        // items themselves. getWalkInJob is where the full sheet is loaded.
+        include: {
+          vehicle: true,
+          healthSheet: { select: { id: true } },
+          // The inspection screen builds its cards from these.
+          services: true,
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: Number(limit),
@@ -141,7 +189,11 @@ export const getWalkInJob = async (req, res) => {
   try {
     const job = await prisma.walkInJob.findFirst({
       where: { id: parseInt(req.params.id), vendorId },
-      include: { vehicle: true, healthSheet: { include: { items: { include: { component: true } } } } },
+      include: {
+        vehicle: true,
+        services: true,
+        healthSheet: { include: { items: { include: { component: true } } } },
+      },
     });
 
     if (!job) return res.status(404).json({ message: 'Walk-in job not found' });
@@ -164,9 +216,19 @@ export const updateWalkInJob = async (req, res) => {
     });
     if (!existing) return res.status(404).json({ message: 'Walk-in job not found' });
 
+    // Explicit field pick rather than `data: req.body`. The Zod schema already
+    // strips unknown keys, so the old form was safe — but it left the write
+    // surface defined entirely by a validator two files away, where widening
+    // the schema would silently widen what Prisma can write.
+    const { customer_name, description, amount_collected, payment_mode } = req.body;
     const job = await prisma.walkInJob.update({
       where: { id: existing.id },
-      data: req.body,
+      data: {
+        ...(customer_name !== undefined ? { customer_name } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(amount_collected !== undefined ? { amount_collected } : {}),
+        ...(payment_mode !== undefined ? { payment_mode } : {}),
+      },
     });
     return res.json({ job });
   } catch (error) {
@@ -179,7 +241,7 @@ export const updateWalkInJob = async (req, res) => {
 // @route   PATCH /service_api/vendor/walk-in-jobs/:id/status
 export const updateWalkInJobStatus = async (req, res) => {
   const vendorId = req.user.id;
-  const { status } = req.body;
+  const { status, amount_collected, payment_mode } = req.body;
 
   try {
     const job = await prisma.walkInJob.findFirst({
@@ -190,6 +252,10 @@ export const updateWalkInJobStatus = async (req, res) => {
     if (status === 'completed') {
       // Same gate, same rollout rules as booking completion — see
       // services/healthSheetService.js and PlatformSettings in schema.prisma.
+      //
+      // Deliberately BEFORE the single update below: nothing at all is
+      // persisted when this rejects, so the client can send the identical
+      // payload again after the inspection and get a clean, complete write.
       const gate = await assertHealthSheetPresent({ createdAt: job.createdAt, walkInJobId: job.id });
       if (!gate.ok) return res.status(409).json({ code: gate.code, message: gate.message });
     }
@@ -198,6 +264,10 @@ export const updateWalkInJobStatus = async (req, res) => {
       where: { id: job.id },
       data: {
         status,
+        // Only written when supplied, so a plain open -> in_progress
+        // transition can't blank money already recorded on the job.
+        ...(amount_collected !== undefined ? { amount_collected } : {}),
+        ...(payment_mode !== undefined ? { payment_mode } : {}),
         started_at: status === 'in_progress' && !job.started_at ? new Date() : undefined,
         completed_at: status === 'completed' ? new Date() : undefined,
       },

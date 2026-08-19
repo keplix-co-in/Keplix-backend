@@ -10,6 +10,12 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
       count: jest.fn(),
       groupBy: jest.fn(),
     },
+    // getAllServices/getServiceById now enrich with segment pricing; default
+    // to "none found" so every existing test — none of which sets up segment
+    // prices — keeps its prior behaviour (segment_prices: []) unmodified.
+    serviceSegmentPrice: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   },
 }));
 

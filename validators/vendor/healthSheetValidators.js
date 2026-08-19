@@ -30,8 +30,16 @@ export const createHealthSheetSchema = z
       z
         .array(
           z.object({
-            component_key: z.string().min(1),
-            status: z.enum(['GOOD', 'ATTENTION', 'REPLACE']),
+            // Exactly one of these identifies the item — a fixed inspection
+            // component (booking path) or a service chosen on a walk-in. The
+            // controller enforces the XOR, since which one is valid depends on
+            // the parent job.
+            component_key: z.string().min(1).optional(),
+            walk_in_service_id: z.coerce.number().int().positive().optional(),
+            // Optional so "skip" can write a sheet with no detail filled in,
+            // which is what stops the mandatory-inspection gate stranding a job.
+            status: z.enum(['GOOD', 'ATTENTION', 'REPLACE']).optional(),
+            price: z.coerce.number().nonnegative().optional(),
             notes: z.string().trim().max(500).optional(),
           }),
         )
@@ -43,6 +51,11 @@ export const createHealthSheetSchema = z
     path: ['bookingId'],
   })
   .refine(
-    (d) => new Set(d.items.map((i) => i.component_key)).size === d.items.length,
-    { message: 'Duplicate component in items', path: ['items'] },
+    (d) => {
+      // Keyed off whichever identifier the item carries, so duplicates are
+      // still caught for both kinds.
+      const keys = d.items.map((i) => i.component_key ?? `svc-${i.walk_in_service_id}`);
+      return new Set(keys).size === keys.length;
+    },
+    { message: 'Duplicate item', path: ['items'] },
   );

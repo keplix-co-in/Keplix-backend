@@ -38,7 +38,18 @@ export const resetPasswordWithOtpSchema = z.object({
 });
 
 export const googleLoginSchema = z.object({
-  idToken: z.string().min(1, { message: "Google ID Token is required" }),
+  // Shape check only — the real verification (signature, expiry, issuer and
+  // crucially the audience) happens in googleLogin via
+  // google-auth-library's verifyIdToken. This just rejects obvious junk before
+  // it costs a network round trip, and caps length so an oversized body can't
+  // be used to tie up the verifier.
+  idToken: z
+    .string()
+    .min(1, { message: "Google ID Token is required" })
+    .max(4096, { message: "Malformed Google ID Token" })
+    .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, {
+      message: "Malformed Google ID Token",
+    }),
   role: z.enum(['user', 'vendor']).optional(),
 });
 

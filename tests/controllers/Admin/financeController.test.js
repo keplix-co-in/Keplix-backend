@@ -70,6 +70,13 @@ function wireTransaction(payment) {
         return { ...payment, ...data };
       }),
     },
+    // The payout guards query refunds inside the same transaction (and under
+    // the same row lock) to refuse a payout when money is already being
+    // refunded. Defaults to "no refund reserved" so existing cases behave as
+    // before; tests that want the guard to fire override this.
+    refund: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   };
   mockPrisma.$transaction.mockImplementation(async (cb) => cb(tx));
   return { tx, txUpdates };
@@ -216,6 +223,8 @@ describe('settlePayout', () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+        // Payout guards check for a reserved refund under the same row lock.
+        refund: { findFirst: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockResolvedValue(basePayment()),
           update: jest.fn().mockImplementation(async ({ where, data }) => {
@@ -239,6 +248,8 @@ describe('settlePayout', () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+        // Payout guards check for a reserved refund under the same row lock.
+        refund: { findFirst: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockImplementation(async ({ where }) => {
             queriedId = where.id;
@@ -288,6 +299,8 @@ describe('settlePayout', () => {
       const snapshot = basePayment({ vendorPayoutStatus: currentStatus });
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+        // Payout guards check for a reserved refund under the same row lock.
+        refund: { findFirst: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockResolvedValue(snapshot),
           update: jest.fn().mockImplementation(async ({ data }) => {

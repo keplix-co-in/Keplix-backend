@@ -21,8 +21,14 @@ function shapeHealthSheet(sheet) {
     overall_notes: sheet.overall_notes,
     submitted_at: sheet.submitted_at,
     items: sheet.items.map((item) => ({
-      component: item.component.label,
+      // `label` is the denormalised display name, set for both component and
+      // service items. The component fallback covers rows written before that
+      // column existed. This used to dereference item.component.label directly,
+      // which throws outright on a service item — the public page 500s rather
+      // than degrading.
+      component: item.label ?? item.component?.label ?? 'Item',
       status: item.status,
+      price: item.price,
       notes: item.notes,
       photos: item.photos,
     })),

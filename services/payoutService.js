@@ -1,5 +1,6 @@
 import prisma from "../util/prisma.js";
 import { addPayoutJob } from "../queues/payoutQueue.js";
+import { RESERVED_STATUSES } from "./refundService.js";
 
 /**
  * Thrown by service functions to carry an intended HTTP status code, so the
@@ -69,6 +70,49 @@ export const claimAndQueuePayout = async (paymentId) => {
       }
       if (p.vendorPayoutStatus === "processing") {
         return { error: "Payout already in progress", status: 400 };
+      }
+
+      // --- Refund guards ---
+      //
+      // These sit INSIDE the transaction on purpose. The row lock taken above
+      // is the same lock refundService takes before reserving a refund
+      // (`SELECT id FROM "Payment" ... FOR UPDATE`), so a payout and a refund
+      // for the same payment are mutually exclusive: whichever gets the lock
+      // second sees the other's work and backs off. Checking outside the
+      // transaction would leave exactly the race this is meant to close —
+      // a vendor being paid microseconds before a refund is reserved.
+
+      // 1. A booking that is cancelled, refunded or disputed has no settled
+      //    amount to pay out, whatever the payment row alone suggests.
+      if (["cancelled", "refunded", "disputed"].includes(p.booking?.status)) {
+        return {
+          error: `Payout blocked: booking is ${p.booking.status}`,
+          status: 400,
+        };
+      }
+
+      // 2. Any refund already laying claim to this payment's balance. Uses
+      //    refundService's own RESERVED_STATUSES so the two definitions of
+      //    "this money is spoken for" cannot drift apart.
+      const reservedRefund = await tx.refund.findFirst({
+        where: { paymentId: p.id, status: { in: RESERVED_STATUSES } },
+        select: { id: true, status: true },
+      });
+      if (reservedRefund) {
+        return {
+          error: "Payout blocked: a refund is in progress for this payment",
+          status: 400,
+        };
+      }
+
+      // 3. The escrow hold set when the booking was completed. NULL means no
+      //    hold was recorded (payments completed before this existed), which
+      //    is treated as releasable rather than frozen forever.
+      if (p.payoutHoldUntil && p.payoutHoldUntil > new Date()) {
+        return {
+          error: `Payout is still within the hold window (releasable at ${p.payoutHoldUntil.toISOString()})`,
+          status: 400,
+        };
       }
 
       // Handle Prisma Decimal correctly

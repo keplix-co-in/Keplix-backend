@@ -62,7 +62,8 @@ const uploadProfileFields = uploadFieldss([
  *       400:
  *         description: Bad request
  */
-router.post('/register', validateRequest(registerSchema), registerUser);
+// Same strict limit as /signup — this alias was an unlimited signup route.
+router.post('/register', strictAuthLimiter, validateRequest(registerSchema), registerUser);
 router.post('/signup', strictAuthLimiter, validateRequest(registerSchema), registerUser); // Alias for compatibility
 
 /**
@@ -231,7 +232,8 @@ router.post('/reset-password/:uid/:token', strictAuthLimiter, validateRequest(re
  *       200:
  *         description: Login successful
  */
-router.post('/google', validateRequest(googleLoginSchema), googleLogin);
+// Rate limited like every other credential-accepting route.
+router.post('/google', strictAuthLimiter, validateRequest(googleLoginSchema), googleLogin);
 
 // OTP Routes
 /**
@@ -276,6 +278,11 @@ router.post('/send-phone-otp', strictAuthLimiter, validateRequest(requestOtpSche
  *       200:
  *         description: OTP verified
  */
+// Deliberately on the mount-wide authLimiter (20/15min) rather than
+// strictAuthLimiter (3/2h): a legitimate user mistyping an OTP twice must not
+// be locked out for two hours. 20 tries per 15 min against a 6-digit code that
+// expires in minutes is ample — an attacker gets ~13 guesses out of 1,000,000
+// per OTP window.
 router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOTP);
 
 /**
@@ -320,6 +327,7 @@ router.post('/send-email-otp', strictAuthLimiter, validateRequest(requestOtpSche
  *       200:
  *         description: OTP verified
  */
+// See verify-phone-otp for why this is not strictAuthLimiter.
 router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOTP);
 
 // Protected Routes

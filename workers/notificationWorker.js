@@ -64,7 +64,17 @@ const worker = new Worker(
       throw error; // Let BullMQ handle the retry
     }
   },
-  { connection: redisConnection }
+  {
+    connection: redisConnection,
+    // BullMQ's defaults (drainDelay 5s, stalledInterval 30s) mean this worker
+    // polls Redis roughly every 5 seconds FOREVER, whether or not there is
+    // any job to do. Three workers doing that 24/7 is what actually burned
+    // through Upstash's 500k/month command cap, not real notification
+    // traffic. Notifications aren't latency-critical enough to justify it —
+    // a user waiting up to 20s for a push notification is unnoticeable.
+    drainDelay: 20,
+    stalledInterval: 120_000,
+  }
 );
 
 worker.on("completed", (job) => {
