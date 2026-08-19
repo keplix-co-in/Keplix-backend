@@ -53,6 +53,42 @@ model BlacklistedToken {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  // Pruning expired rows is what keeps this table small; see the hourly
+  // cleanup cron in queues/otpCleanupQueue.js.
+  @@index([expiresAt])
+}
+
+// Durable background job queue, replacing BullMQ/Redis.
+//
+// Why this exists: the three BullMQ queues each held an idle blocking poll
+// open against Redis 24/7, which cost ~484k commands/month before any real
+// work happened and repeatedly exhausted the hosting quota. Postgres is
+// already a hard dependency of every request path, so moving the queue here
+// removes an entire piece of paid infrastructure rather than tuning it.
+//
+// Claimed with FOR UPDATE SKIP LOCKED (see util/jobQueue.js), so several app
+// instances can run the dispatcher concurrently without processing a job
+// twice -- the property BullMQ's atomic Lua scripts were providing.
+model BackgroundJob {
+  id          Int      @id @default(autoincrement())
+  type        String
+  payload     Json
+  // pending -> processing -> completed | failed
+  status      String   @default("pending")
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  // When this job becomes eligible to run. Retry backoff is expressed by
+  // pushing this forward rather than by sleeping anywhere.
+  runAt       DateTime @default(now())
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // The dispatcher's hot query is (status, runAt); the rest are for operators
+  // digging through failures.
+  @@index([status, runAt])
+  @@index([type, status])
 }
 
 model UserProfile {

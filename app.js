@@ -14,7 +14,6 @@ import loggerMiddleware from "./middleware/loggerMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
-import redisConnection from "./util/redis.js";
 import swaggerSpec from "./config/swagger.js";
 
 // Auth
@@ -144,12 +143,15 @@ app.use(cors(corsOptions));
 app.use("/media", express.static(path.join(__dirname, "media")));
 
 // --- HEALTH CHECK ---
-// Actually pings the DB and Redis rather than just checking the client
-// objects were constructed, so a downed Supabase/Redis instance causes
-// Cloud Run to see this as unhealthy instead of reporting "healthy" while
-// every real request fails.
+// Actually pings the DB rather than just checking the client object was
+// constructed, so a downed Supabase causes Cloud Run to see this as unhealthy
+// instead of reporting "healthy" while every real request fails.
+//
+// There is no Redis check any more because there is no Redis; background jobs
+// live in Postgres (util/jobQueue.js), so this one query covers everything the
+// process depends on.
 app.get('/health', async (req, res) => {
-  const checks = { database: 'unknown', redis: 'unknown' };
+  const checks = { database: 'unknown' };
   let healthy = true;
 
   try {
@@ -160,17 +162,6 @@ app.get('/health', async (req, res) => {
     checks.database = 'ok';
   } catch (error) {
     checks.database = 'unreachable';
-    healthy = false;
-  }
-
-  try {
-    await Promise.race([
-      redisConnection.ping(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
-    ]);
-    checks.redis = 'ok';
-  } catch (error) {
-    checks.redis = 'unreachable';
     healthy = false;
   }
 

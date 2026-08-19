@@ -11,10 +11,16 @@ const envSchema = z.object({
 
   CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
 
-  REDIS_HOST: z.string().default("localhost"),
-  REDIS_PORT: z.string().default("6379"),
-  REDIS_PASSWORD: z.string().optional(),
-  REDIS_TLS: z.string().optional(),
+  // No REDIS_* vars: Redis was removed entirely. Background jobs live in
+  // Postgres (util/jobQueue.js) and the token blacklist is a table
+  // (middleware/authMiddleware.js), so DATABASE_URL is the only datastore
+  // config this app needs. Leftover REDIS_* values in the environment are
+  // ignored -- z.object() strips undeclared keys -- and can be deleted.
+
+  // "false" keeps background job dispatching out of this process. See server.js.
+  // Declared here because z.object() STRIPS undeclared keys -- reading
+  // env.RUN_WORKERS without this line would always be undefined.
+  RUN_WORKERS: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
