@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
+import { resolveBookingAmount } from "../util/servicePricing.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -78,7 +79,7 @@ export const verifyAndRecordPayment = async ({
 
   const booking = await prisma.booking.findUnique({
     where: { id: Number(bookingId) },
-    include: { service: true },
+    include: { service: true, bookingVehicle: true },
   });
 
   if (!booking || !booking.service) {
@@ -134,7 +135,11 @@ export const verifyAndRecordPayment = async ({
     throw new PaymentError("Invalid payment signature", 400);
   }
 
-  const totalAmount = parseFloat(booking.service.price.toString());
+  // Same resolver as createPaymentOrder and the webhook fallback below — see
+  // util/servicePricing.js. All three must agree, or a signature that is
+  // valid for the order amount will fail this file's OWN captured-amount
+  // check a few lines down.
+  const totalAmount = resolveBookingAmount(booking);
   const platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
   const vendorAmount = totalAmount - platformFee;
 
@@ -260,7 +265,7 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
   const bookingId = Number(bookingIdHint);
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { service: true },
+    include: { service: true, bookingVehicle: true },
   });
 
   if (!booking || !booking.service) {
@@ -272,7 +277,7 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
     return { created: false };
   }
 
-  const totalAmount = parseFloat(booking.service.price.toString());
+  const totalAmount = resolveBookingAmount(booking);
   const expectedPaise = Math.round(totalAmount * 100);
   if (amountPaise !== expectedPaise) {
     // Captured amount doesn't match what this booking is worth — do not

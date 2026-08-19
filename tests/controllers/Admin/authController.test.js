@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import crypto from 'crypto';
 
 // Set env vars before the controller module loads (it reads them at import time)
 process.env.JWT_SECRET = 'test_access_secret';
@@ -49,6 +50,12 @@ function mockRes() {
   return res;
 }
 
+// Refresh tokens are stored as SHA-256, not bcrypt — bcrypt truncates at 72
+// bytes and a JWT's distinguishing parts all sit past that, so every token for
+// an admin hashed identically. These tests use the real digest so they would
+// catch a regression back to a truncating hash.
+const sha256 = (v) => crypto.createHash('sha256').update(v).digest('hex');
+
 const ACTIVE_ADMIN = {
   id: 1,
   email: 'admin@keplix.com',
@@ -56,7 +63,7 @@ const ACTIVE_ADMIN = {
   role: 'admin',
   status: 'ACTIVE',
   password: '$hashed_password',
-  refreshToken: '$hashed_refresh_token',
+  refreshToken: sha256('valid_refresh_token'),
 };
 
 beforeEach(() => {
@@ -124,8 +131,6 @@ describe('login', () => {
 
   it('access token expiry is 15m (not 30d)', async () => {
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
-    bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$hash');
     jwt.sign.mockReturnValue('token');
     prisma.admin.update.mockResolvedValue({});
 
@@ -139,8 +144,6 @@ describe('login', () => {
 
   it('refresh token expiry is 7d (not 30d)', async () => {
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
-    bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$hash');
     jwt.sign.mockReturnValue('token');
     prisma.admin.update.mockResolvedValue({});
 
@@ -154,8 +157,6 @@ describe('login', () => {
 
   it('access token and refresh token use different secrets', async () => {
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
-    bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$hash');
     jwt.sign.mockReturnValue('token');
     prisma.admin.update.mockResolvedValue({});
 
@@ -167,10 +168,9 @@ describe('login', () => {
     expect(accessSecret).not.toBe(refreshSecret);
   });
 
-  it('stores bcrypt hash of refresh token in DB (not the raw token)', async () => {
+  it('stores a SHA-256 hash of the refresh token in DB (not the raw token)', async () => {
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
     bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$bcrypt_hash');
     jwt.sign
       .mockReturnValueOnce('access_tok')
       .mockReturnValueOnce('refresh_tok');
@@ -181,7 +181,7 @@ describe('login', () => {
 
     const updateCall = prisma.admin.update.mock.calls[0][0];
     // Must store the hash, never the raw token string
-    expect(updateCall.data.refreshToken).toBe('$bcrypt_hash');
+    expect(updateCall.data.refreshToken).toBe(sha256('refresh_tok'));
     expect(updateCall.data.refreshToken).not.toBe('refresh_tok');
   });
 
@@ -257,6 +257,48 @@ describe('refresh', () => {
     expect(res.json).toHaveBeenCalledWith({ message: 'Invalid refresh token' });
   });
 
+  // REGRESSION: refresh tokens were stored with bcrypt, which silently
+  // truncates its input at 72 bytes. Real JWTs here are ~157 bytes and share
+  // their first 72 (header + start of payload) — iat, exp and the entire
+  // signature sit past the cutoff. So every refresh token ever issued to an
+  // admin verified against the same stored hash: rotation did nothing, reuse
+  // detection could not fire, and a stolen token stayed usable for 7 days.
+  //
+  // This uses two tokens that differ ONLY past byte 72, which is precisely the
+  // case a truncating hash cannot tell apart.
+  it('rejects a token differing only beyond byte 72 (no hash truncation)', async () => {
+    const shared = 'H'.repeat(72);
+    const storedToken = `${shared}.signature-AAAA`;
+    const attackerToken = `${shared}.signature-BBBB`;
+    expect(storedToken.slice(0, 72)).toBe(attackerToken.slice(0, 72));
+
+    // The stored hash must be produced BY THE CONTROLLER. Computing it here
+    // with a known-good digest would make the test pass even against a
+    // truncating implementation, since the two would simply disagree.
+    prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
+    bcrypt.compare.mockResolvedValue(true);
+    jwt.sign.mockReturnValueOnce('access_tok').mockReturnValueOnce(storedToken);
+    prisma.admin.update.mockResolvedValue({});
+
+    await login(mockReq({ email: 'admin@keplix.com', password: 'correct' }), mockRes());
+    const storedHash = prisma.admin.update.mock.calls[0][0].data.refreshToken;
+
+    // Now present a different token that shares only the first 72 bytes.
+    jest.clearAllMocks();
+    jwt.verify.mockReturnValue({ id: 1, role: 'admin' });
+    prisma.admin.findUnique.mockResolvedValue({ ...ACTIVE_ADMIN, refreshToken: storedHash });
+    prisma.admin.update.mockResolvedValue({});
+
+    const res = mockRes();
+    await refresh(mockReq({ refreshToken: attackerToken }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(prisma.admin.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { refreshToken: null },
+    });
+  });
+
   it('detects token reuse: clears stored token and returns 401', async () => {
     jwt.verify.mockReturnValue({ id: 1, role: 'admin' });
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
@@ -283,8 +325,6 @@ describe('refresh', () => {
   it('rotates tokens: issues new pair and persists new hash on valid token', async () => {
     jwt.verify.mockReturnValue({ id: 1, role: 'admin' });
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
-    bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$new_hash');
     jwt.sign
       .mockReturnValueOnce('new_access_token')
       .mockReturnValueOnce('new_refresh_token');
@@ -297,7 +337,7 @@ describe('refresh', () => {
 
     expect(prisma.admin.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { refreshToken: '$new_hash' },
+      data: { refreshToken: sha256('new_refresh_token') },
     });
     expect(res.json).toHaveBeenCalledWith({
       accessToken: 'new_access_token',
@@ -333,12 +373,12 @@ describe('refresh', () => {
   it('new access token uses 15m expiry after rotation', async () => {
     jwt.verify.mockReturnValue({ id: 1, role: 'admin' });
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
-    bcrypt.compare.mockResolvedValue(true);
-    bcrypt.hash.mockResolvedValue('$hash');
     jwt.sign.mockReturnValue('token');
     prisma.admin.update.mockResolvedValue({});
 
-    await refresh(mockReq({ refreshToken: 'valid_token' }), mockRes());
+    // Must be the token ACTIVE_ADMIN's stored hash was derived from, or the
+    // rotation is rejected and jwt.sign is never reached.
+    await refresh(mockReq({ refreshToken: 'valid_refresh_token' }), mockRes());
 
     const [, , accessOptions] = jwt.sign.mock.calls[0];
     expect(accessOptions.expiresIn).toBe('15m');

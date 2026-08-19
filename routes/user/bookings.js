@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment } from '../../controllers/user/bookingController.js';
+import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment, getCancellationPreview } from '../../controllers/user/bookingController.js';
 import { confirmServiceCompletion, disputeServiceCompletion } from '../../controllers/user/serviceConfirmationController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -99,6 +99,24 @@ router.get('/:userId/bookings/:id', protect, getSingleBooking);
  */
 // Matches GET /service_api/user/:userId/bookings/:id/can-pay (Check if vendor accepted)
 router.get('/:userId/bookings/:id/can-pay', protect, canProceedToPayment);
+
+/**
+ * @swagger
+ * /service_api/user/{userId}/bookings/{id}/cancellation-preview:
+ *   get:
+ *     summary: What the customer would get refunded if they cancelled now
+ *     description: >
+ *       Read-only. Uses the same resolver as the real cancellation, so the
+ *       amount shown before confirming matches what is actually refunded.
+ *     responses:
+ *       200:
+ *         description: Refund preview
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Booking not found
+ */
+router.get('/:userId/bookings/:id/cancellation-preview', protect, getCancellationPreview);
 
 /**
  * @swagger

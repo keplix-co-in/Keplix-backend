@@ -17,9 +17,6 @@
   "prisma": {
     "seed": "node prisma/seed.js"
   },
-  "prisma": {
-    "seed": "node prisma/seed.js"
-  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -44,6 +41,7 @@
     "express-rate-limit": "^8.2.1",
     "file-type": "^21.3.4",
     "firebase-admin": "^13.6.0",
+    "google-auth-library": "^9.15.1",
     "helmet": "^8.1.0",
     "ioredis": "^5.11.0",
     "jsonwebtoken": "^9.0.2",

@@ -1,6 +1,35 @@
 import prisma from '../../util/prisma.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+
+/**
+ * Hash a refresh token for storage.
+ *
+ * SHA-256, NOT bcrypt. bcrypt silently truncates its input at 72 bytes, and a
+ * refresh token here is a ~157-byte JWT whose first 72 bytes are just the
+ * header plus the opening of the payload — `iat`, `exp` and the whole
+ * signature all sit beyond the cutoff. Every token ever issued to a given
+ * admin therefore shared a bcrypt hash, which meant:
+ *   - rotation was cosmetic: a superseded token still verified;
+ *   - reuse detection could never fire;
+ *   - a stolen refresh token stayed valid for its full 7 days, and revoking it
+ *     by rotating was impossible.
+ *
+ * bcrypt's cost is there to slow brute force against low-entropy PASSWORDS. A
+ * signed 157-byte JWT is already high-entropy and unguessable, so a fast hash
+ * is the right tool — and unlike bcrypt it reads the entire input.
+ */
+const hashRefreshToken = (token) =>
+  crypto.createHash('sha256').update(token).digest('hex');
+
+/** Constant-time compare, so verification can't be timed to recover the hash. */
+const refreshTokenMatches = (token, stored) => {
+  if (!stored) return false;
+  const a = Buffer.from(hashRefreshToken(token), 'hex');
+  const b = Buffer.from(stored, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
@@ -37,8 +66,9 @@ const generateRefreshToken = (user) => {
  * login
  * Authenticates an admin with email + password. On success it issues a
  * short-lived access token (15 min) and a long-lived refresh token (7 days).
- * The refresh token is stored as a bcrypt hash in the Admin row so it can
- * be verified and rotated on subsequent /refresh calls.
+ * The refresh token is stored as a SHA-256 hash in the Admin row so it can
+ * be verified and rotated on subsequent /refresh calls. See hashRefreshToken
+ * for why this is not bcrypt.
  *
  * @param {import('express').Request}  req  - Body: { email: string, password: string }
  * @param {import('express').Response} res  - 200 { user, accessToken, refreshToken }
@@ -67,7 +97,7 @@ export const login = async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    const hashedRefreshToken = hashRefreshToken(refreshToken);
 
     await prisma.admin.update({
       where: { id: user.id },
@@ -121,7 +151,11 @@ export const refresh = async (req, res) => {
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
 
-    const isValid = await bcrypt.compare(token, user.refreshToken);
+    // A hash stored before hashRefreshToken switched to SHA-256 is a bcrypt
+    // string and will not match, so those sessions are treated as invalid and
+    // the admin logs in once more. That is the intended migration path — the
+    // old hashes cannot be verified safely.
+    const isValid = refreshTokenMatches(token, user.refreshToken);
     if (!isValid) {
       // Possible token reuse — clear the stored token to force re-login
       await prisma.admin.update({
@@ -133,7 +167,7 @@ export const refresh = async (req, res) => {
 
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
-    const hashedNewRefreshToken = await bcrypt.hash(newRefreshToken, 10);
+    const hashedNewRefreshToken = hashRefreshToken(newRefreshToken);
 
     await prisma.admin.update({
       where: { id: user.id },

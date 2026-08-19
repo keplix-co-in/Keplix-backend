@@ -60,6 +60,8 @@ import adminHealthComponentRoutes from "./routes/Admin/healthComponents.js";
 import adminSettingsRoutes from "./routes/Admin/settings.js";
 import publicBlogRoutes from "./routes/public/blog.js";
 import publicJobSheetRoutes from "./routes/public/jobSheet.js";
+import adminOfferRoutes from "./routes/Admin/offers.js";
+import publicOfferRoutes from "./routes/public/offers.js";
 
 /**
  * The Express application: middleware, routes and error handling only.
@@ -240,11 +242,13 @@ app.use("/admin", adminFinanceRoutes);
 app.use("/admin", adminBlogRoutes);
 app.use("/admin", adminWalkInJobRoutes);
 app.use("/admin", adminHealthComponentRoutes);
+app.use("/admin", adminOfferRoutes);
 app.use("/admin", adminSettingsRoutes);
 
 // Public content (no auth) — consumed by the marketing site
 app.use("/content", publicBlogRoutes);
 app.use("/content", publicJobSheetRoutes);
+app.use("/content", publicOfferRoutes);
 
 // --- ERROR HANDLING ---
 app.use(notFound);

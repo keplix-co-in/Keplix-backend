@@ -14,6 +14,10 @@ import { jest } from '@jest/globals';
  *
  * These tests exercise the real exported function against a mock transaction
  * client, so a future schema/field drift fails here instead of in production.
+ *
+ * The helper now derives the aggregates from the Review rows themselves rather
+ * than adjusting the stored average in place, so these assert the recomputed
+ * result and that a concurrent write cannot be silently dropped.
  */
 
 const mockPrisma = { vendorProfile: { findUnique: jest.fn(), update: jest.fn() } };
@@ -21,7 +25,11 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({ default: mockPrisma })
 
 const { updateVendorRatingStats } = await import('../../util/ratingHelper.js');
 
-function mockTx(profile) {
+/**
+ * @param profile - VendorProfile row, or null to simulate a missing profile
+ * @param aggregate - what review.aggregate should report post-write
+ */
+function mockTx(profile, aggregate = { _avg: { rating: null }, _count: { _all: 0 } }) {
   const updates = [];
   return {
     tx: {
@@ -32,65 +40,82 @@ function mockTx(profile) {
           return { ...profile, ...data };
         }),
       },
+      review: {
+        aggregate: jest.fn().mockResolvedValue(aggregate),
+      },
     },
     updates,
   };
 }
 
 describe('updateVendorRatingStats', () => {
-  test('reads exactly the fields VendorProfile actually has', async () => {
+  test('reads only fields VendorProfile actually has', async () => {
     // Guards the original bug: a select for a non-existent column throws
     // "Unknown field" at runtime and takes the surrounding transaction with it.
-    const { tx } = mockTx({ rating: 0, numReviews: 0 });
+    const { tx } = mockTx({ userId: 42 }, { _avg: { rating: 5 }, _count: { _all: 1 } });
 
-    await updateVendorRatingStats(tx, 42, 5, false);
+    await updateVendorRatingStats(tx, 42);
 
     const select = tx.vendorProfile.findUnique.mock.calls[0][0].select;
-    expect(Object.keys(select).sort()).toEqual(['numReviews', 'rating']);
+    expect(Object.keys(select)).toEqual(['userId']);
+  });
+
+  test('scopes the aggregate to this vendor only', async () => {
+    const { tx } = mockTx({ userId: 42 }, { _avg: { rating: 4 }, _count: { _all: 3 } });
+
+    await updateVendorRatingStats(tx, 42);
+
+    expect(tx.review.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { vendorId: 42 } })
+    );
   });
 
   test('first review sets the average to that rating', async () => {
-    const { tx, updates } = mockTx({ rating: 0, numReviews: 0 });
+    const { tx, updates } = mockTx({ userId: 42 }, { _avg: { rating: 4 }, _count: { _all: 1 } });
 
-    await updateVendorRatingStats(tx, 42, 4, false);
+    await updateVendorRatingStats(tx, 42);
 
     expect(updates).toHaveLength(1);
     expect(updates[0].data).toEqual({ rating: 4, numReviews: 1 });
   });
 
-  test('a subsequent review produces a running average', async () => {
-    // Existing: 2 reviews averaging 4 (total 8). Adding a 5 → 13/3.
-    const { tx, updates } = mockTx({ rating: 4, numReviews: 2 });
+  test('the average reflects every committed review, not an incremental guess', async () => {
+    // 3 reviews averaging 13/3. The old incremental helper could miss one of
+    // two concurrent writes; deriving from the rows cannot.
+    const { tx, updates } = mockTx(
+      { userId: 42 },
+      { _avg: { rating: 13 / 3 }, _count: { _all: 3 } }
+    );
 
-    await updateVendorRatingStats(tx, 42, 5, false);
+    await updateVendorRatingStats(tx, 42);
 
     expect(updates[0].data.numReviews).toBe(3);
     expect(updates[0].data.rating).toBeCloseTo(13 / 3, 5);
   });
 
-  test('deleting a review removes its contribution', async () => {
-    // Existing: 3 reviews averaging 4 (total 12). Removing a 3 → 9/2 = 4.5.
-    const { tx, updates } = mockTx({ rating: 4, numReviews: 3 });
+  test('deleting a review is reflected by the recomputed average', async () => {
+    // Post-delete state: 2 reviews averaging 4.5.
+    const { tx, updates } = mockTx({ userId: 42 }, { _avg: { rating: 4.5 }, _count: { _all: 2 } });
 
-    await updateVendorRatingStats(tx, 42, 3, true);
+    await updateVendorRatingStats(tx, 42);
 
     expect(updates[0].data.numReviews).toBe(2);
     expect(updates[0].data.rating).toBeCloseTo(4.5, 5);
   });
 
-  test('deleting the last review resets to zero rather than dividing by zero', async () => {
-    const { tx, updates } = mockTx({ rating: 5, numReviews: 1 });
+  test('deleting the last review resets to zero rather than writing null', async () => {
+    // Prisma reports _avg as null when no rows match.
+    const { tx, updates } = mockTx({ userId: 42 }, { _avg: { rating: null }, _count: { _all: 0 } });
 
-    await updateVendorRatingStats(tx, 42, 5, true);
+    await updateVendorRatingStats(tx, 42);
 
     expect(updates[0].data).toEqual({ rating: 0, numReviews: 0 });
   });
 
   test('the average is never negative', async () => {
-    // Defensive: inconsistent stored data must not produce a negative rating.
-    const { tx, updates } = mockTx({ rating: 1, numReviews: 2 });
+    const { tx, updates } = mockTx({ userId: 42 }, { _avg: { rating: -1 }, _count: { _all: 1 } });
 
-    await updateVendorRatingStats(tx, 42, 5, true);
+    await updateVendorRatingStats(tx, 42);
 
     expect(updates[0].data.rating).toBeGreaterThanOrEqual(0);
   });
@@ -100,14 +125,14 @@ describe('updateVendorRatingStats', () => {
     // would roll back the payout claim along with it.
     const { tx, updates } = mockTx(null);
 
-    await expect(updateVendorRatingStats(tx, 42, 5, false)).resolves.toBeUndefined();
+    await expect(updateVendorRatingStats(tx, 42)).resolves.toBeUndefined();
     expect(updates).toHaveLength(0);
   });
 
   test('a missing vendorId is a no-op', async () => {
-    const { tx } = mockTx({ rating: 0, numReviews: 0 });
+    const { tx } = mockTx({ userId: 42 });
 
-    await updateVendorRatingStats(tx, undefined, 5, false);
+    await updateVendorRatingStats(tx, undefined);
 
     expect(tx.vendorProfile.findUnique).not.toHaveBeenCalled();
   });
