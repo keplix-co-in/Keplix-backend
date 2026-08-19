@@ -1145,10 +1145,24 @@ export const updateUserProfileAuth = async (req, res) => {
   } = req.body;
 
   try {
-    // Handle file uploads from multer (Cloudinary URLs)
-    const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
-    const uploadedIdFront = req.files?.id_proof_front?.[0]?.path;
-    const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
+    // The Cloudinary URL lives at file.cloudinary.secure_url, NOT file.path.
+    //
+    // uploadFieldss (middleware/uploadMiddleware.js) uses multer.memoryStorage()
+    // and streams the buffer to Cloudinary itself, attaching the API result at
+    // file.cloudinary. Memory storage never sets `path` -- that only exists with
+    // diskStorage or multer-storage-cloudinary.
+    //
+    // So these three were always undefined. The upload genuinely succeeded, the
+    // file reached Cloudinary, and req.files was populated -- the debug_upload
+    // block below happily reported files_received: ["profile_picture"] -- but
+    // the value written to the database fell through to the `profile_picture`
+    // body field, which a multipart upload does not send. Every profile image
+    // saved as null, and the apps showed their placeholder avatar forever.
+    //
+    // See controllers/vendor/serviceController.js:32 for the same fix.
+    const uploadedProfilePicture = req.files?.profile_picture?.[0]?.cloudinary?.secure_url;
+    const uploadedIdFront = req.files?.id_proof_front?.[0]?.cloudinary?.secure_url;
+    const uploadedIdBack = req.files?.id_proof_back?.[0]?.cloudinary?.secure_url;
 
     // 1. Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {

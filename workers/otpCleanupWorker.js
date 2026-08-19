@@ -29,10 +29,10 @@ const worker = new Worker(
   {
     connection: redisConnection,
     // This queue only ever gets ONE job an hour (the repeatable cron job in
-    // queues/otpCleanupQueue.js), so BullMQ's default 5s long-poll was
-    // wasted Redis traffic essentially 100% of the time — see the matching
-    // comment in notificationWorker.js for the actual cost this incurred.
-    drainDelay: 60,
+    // queues/otpCleanupQueue.js), so an idle long-poll is wasted Redis traffic
+    // essentially 100% of the time. See notificationWorker.js for why a long
+    // drainDelay costs nothing in job latency, and what the old settings cost.
+    drainDelay: 120,
     stalledInterval: 300_000,
   }
 );

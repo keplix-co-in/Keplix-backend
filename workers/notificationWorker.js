@@ -66,14 +66,30 @@ const worker = new Worker(
   },
   {
     connection: redisConnection,
-    // BullMQ's defaults (drainDelay 5s, stalledInterval 30s) mean this worker
-    // polls Redis roughly every 5 seconds FOREVER, whether or not there is
-    // any job to do. Three workers doing that 24/7 is what actually burned
-    // through Upstash's 500k/month command cap, not real notification
-    // traffic. Notifications aren't latency-critical enough to justify it —
-    // a user waiting up to 20s for a push notification is unnoticeable.
-    drainDelay: 20,
-    stalledInterval: 120_000,
+    // Idle long-poll timeout. NOT job latency.
+    //
+    // The worker blocks on bzpopmin(marker, blockTimeout) and, when the queue
+    // is empty, blockTimeout is just max(drainDelay, minimumBlockTimeout)
+    // (bullmq/dist/cjs/classes/worker.js:447 and :510). Queue.add writes that
+    // marker key, which wakes the blocked client IMMEDIATELY -- so raising
+    // drainDelay delays nothing. It only decides how often an idle worker
+    // re-issues the blocking call.
+    //
+    // That distinction matters because idle polling, not real traffic, is what
+    // exhausted Upstash's 500k/month command cap -- twice. At the previous
+    // settings the three workers spent ~484k commands/month doing nothing:
+    // payout 259k (10s), notification 130k (20s), otpCleanup 43k (60s), plus
+    // ~52k in stalled-job checks. That is 97% of the cap before a single user
+    // makes a request, and when the cap is hit every Redis command fails --
+    // which, because the auth blacklist check in middleware/authMiddleware.js
+    // fails closed, 401s every authenticated request. A billing limit becomes
+    // a total auth outage.
+    //
+    // 120s idle / 300s stalled puts all three workers at ~91k commands/month.
+    // Drop to 60s if long blocks turn out to cause reconnect churn against
+    // Upstash's idle-connection timeout (watch the Upstash command graph).
+    drainDelay: 120,
+    stalledInterval: 300_000,
   }
 );
 
