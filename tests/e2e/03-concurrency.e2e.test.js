@@ -21,8 +21,8 @@ process.env.RAZORPAY_KEY_SECRET = 'e2e_test_key_secret';
 process.env.RAZORPAY_KEY_ID = 'rzp_test_e2e';
 process.env.RAZORPAY_WEBHOOK_SECRET = 'e2e_test_webhook_secret';
 
-const { redisFake } = await import('./helpers/redisFake.js');
-jest.unstable_mockModule('../../util/redis.js', () => ({ default: redisFake }));
+// No Redis fake: Redis was removed from the app. The token blacklist is a
+// real table now, which this suite's real database provides.
 
 const { razorpayFake } = await import('./helpers/razorpay.js');
 jest.unstable_mockModule('razorpay', () => ({

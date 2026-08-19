@@ -4,25 +4,23 @@ process.env.JWT_SECRET = 'test_access_secret';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
+// No Redis mock anywhere in this file. Redis was removed from the app: the
+// token blacklist is now the BlacklistedToken table and the 60-second user
+// cache is gone entirely, so `protect` reads the user from Postgres on every
+// request. Everything this middleware touches is therefore on the prisma mock.
 const mockPrisma = {
   user: {
     findUnique: jest.fn(),
     update: jest.fn(),
   },
+  blacklistedToken: {
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+  },
 };
 
 jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: mockPrisma,
-}));
-
-const mockRedis = {
-  get: jest.fn(),
-  set: jest.fn(),
-  del: jest.fn(),
-};
-
-jest.unstable_mockModule('../../util/redis.js', () => ({
-  default: mockRedis,
 }));
 
 const mockVerify = jest.fn();
@@ -34,9 +32,8 @@ jest.unstable_mockModule('jsonwebtoken', () => ({
 
 // ─── Lazy imports (after mocks are registered) ────────────────────────────────
 
-const { protect, invalidateUserCache } = await import(
-  '../../middleware/authMiddleware.js'
-);
+const { protect, blacklistToken, isRefreshTokenBlacklisted, invalidateUserCache } =
+  await import('../../middleware/authMiddleware.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,27 +58,14 @@ const USER_ROW = {
   vendorProfile: null,
 };
 
+/** Default: token is not blacklisted. */
+function notBlacklisted() {
+  mockPrisma.blacklistedToken.findUnique.mockResolvedValue(null);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
-
-// mockRedis.get backs both the blacklist check and the user cache lookup,
-// keyed by prefix, since both now live in the same Redis instance.
-function setupRedisGet({
-  blacklisted = false,
-  blacklistError = false,
-  cachedUser = null,
-  cacheError = false,
-} = {}) {
-  mockRedis.get.mockImplementation((key) => {
-    if (key.startsWith('auth:blacklist:')) {
-      if (blacklistError) return Promise.reject(new Error('ECONNREFUSED'));
-      return Promise.resolve(blacklisted ? '1' : null);
-    }
-    if (cacheError) return Promise.reject(new Error('ECONNREFUSED'));
-    return Promise.resolve(cachedUser);
-  });
-}
 
 // ─── No / malformed token ─────────────────────────────────────────────────────
 
@@ -110,12 +94,12 @@ describe('protect - missing or malformed token', () => {
   });
 
   test('rejects when jwt.verify throws (invalid/expired token)', async () => {
-    setupRedisGet();
+    notBlacklisted();
     mockVerify.mockImplementation(() => {
-      throw new Error('jwt expired');
+      throw new Error('jwt malformed');
     });
 
-    const req = mockReq('bad.token.here');
+    const req = mockReq('bad.token');
     const res = mockRes();
     const next = jest.fn();
 
@@ -127,11 +111,11 @@ describe('protect - missing or malformed token', () => {
   });
 });
 
-// ─── Blacklisted token ────────────────────────────────────────────────────────
+// ─── Blacklist, now in Postgres ───────────────────────────────────────────────
 
 describe('protect - blacklisted token', () => {
-  test('rejects a blacklisted token before touching the user cache or user table', async () => {
-    setupRedisGet({ blacklisted: true });
+  test('rejects a blacklisted token before touching the user table', async () => {
+    mockPrisma.blacklistedToken.findUnique.mockResolvedValue({ id: 7 });
 
     const req = mockReq('blacklisted');
     const res = mockRes();
@@ -141,156 +125,101 @@ describe('protect - blacklisted token', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({ message: 'Token has been logged out' });
-    expect(mockRedis.get).toHaveBeenCalledTimes(1);
-    expect(mockRedis.get).toHaveBeenCalledWith('auth:blacklist:blacklisted');
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('looks the token up by its exact value', async () => {
+    notBlacklisted();
+    mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
+
+    await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
+
+    expect(mockPrisma.blacklistedToken.findUnique).toHaveBeenCalledWith({
+      where: { token: 'some.jwt.value' },
+      select: { id: true },
+    });
+  });
+
+  // Fails closed, and unlike the Redis version that is now harmless: this query
+  // hits the same database the very next line must query anyway, so there is no
+  // partial-failure mode where rejecting the request loses anything.
+  test('fails closed when the blacklist lookup errors', async () => {
+    mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
+    mockVerify.mockReturnValue({ id: 1 });
+
+    const req = mockReq('valid.token');
+    const res = mockRes();
+    const next = jest.fn();
+
+    await protect(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
 });
 
-// ─── Cache hit path ───────────────────────────────────────────────────────────
+// ─── User lookup (no cache any more) ──────────────────────────────────────────
 
-describe('protect - Redis cache hit', () => {
-  test('uses the cached user and skips the DB user lookup entirely', async () => {
-    setupRedisGet({ cachedUser: JSON.stringify(USER_ROW) });
-    mockVerify.mockReturnValue({ id: 1 });
-
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
-
-    expect(mockRedis.get).toHaveBeenCalledWith('auth:user:1');
-    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
-    expect(req.user).toEqual(USER_ROW);
-    expect(next).toHaveBeenCalled();
-  });
-
-  test('falls back to DB when cached value is corrupt/unparseable JSON', async () => {
-    setupRedisGet({ cachedUser: '{not valid json' });
+describe('protect - user lookup', () => {
+  test('reads the user from the database and attaches it to the request', async () => {
+    notBlacklisted();
     mockVerify.mockReturnValue({ id: 1 });
     mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     const req = mockReq('valid.token');
-    const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
-
-    expect(mockPrisma.user.findUnique).toHaveBeenCalled();
-    expect(next).toHaveBeenCalled();
-  });
-});
-
-// ─── Cache miss path ──────────────────────────────────────────────────────────
-
-describe('protect - Redis cache miss', () => {
-  test('fetches from DB and populates the cache on a miss', async () => {
-    setupRedisGet({ cachedUser: null });
-    mockVerify.mockReturnValue({ id: 1 });
-    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
-
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
+    await protect(req, mockRes(), next);
 
     expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       include: { userProfile: true, vendorProfile: true },
     });
-    expect(mockRedis.set).toHaveBeenCalledWith(
-      'auth:user:1',
-      JSON.stringify(USER_ROW),
-      'EX',
-      expect.any(Number)
-    );
-    expect(next).toHaveBeenCalled();
-  });
-
-  test('does not write to cache when the user is not found in DB', async () => {
-    setupRedisGet({ cachedUser: null });
-    mockVerify.mockReturnValue({ id: 999 });
-    mockPrisma.user.findUnique.mockResolvedValue(null);
-
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
-
-    expect(mockRedis.set).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ message: 'Not authorized, user not found' });
-    expect(next).not.toHaveBeenCalled();
-  });
-});
-
-// ─── Redis unavailable / errors (must not break auth) ────────────────────────
-
-describe('protect - Redis failures degrade gracefully', () => {
-  test('falls back to DB when the user-cache redis.get rejects (Redis down)', async () => {
-    setupRedisGet({ cacheError: true });
-    mockVerify.mockReturnValue({ id: 1 });
-    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
-
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
-
-    expect(mockPrisma.user.findUnique).toHaveBeenCalled();
-    expect(next).toHaveBeenCalled();
-  });
-
-  test('still authenticates when redis.set rejects after a DB fetch', async () => {
-    setupRedisGet({ cachedUser: null });
-    mockVerify.mockReturnValue({ id: 1 });
-    mockRedis.set.mockRejectedValue(new Error('ECONNREFUSED'));
-    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
-
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
-
     expect(req.user).toEqual(USER_ROW);
     expect(next).toHaveBeenCalled();
   });
 
-  test('fails closed (rejects the request) when the blacklist redis.get errors', async () => {
-    setupRedisGet({ blacklistError: true });
+  test('queries the database on every request, since there is no cache to hit', async () => {
+    notBlacklisted();
     mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
-    const req = mockReq('valid.token');
+    await protect(mockReq('valid.token'), mockRes(), jest.fn());
+    await protect(mockReq('valid.token'), mockRes(), jest.fn());
+
+    expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  test('rejects when the user id in the token has no row', async () => {
+    notBlacklisted();
+    mockVerify.mockReturnValue({ id: 999 });
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+
     const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
+    await protect(mockReq('valid.token'), res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ message: 'Token has been logged out' });
-    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
 });
 
-// ─── Account state checks (inactive / unverified) ────────────────────────────
+// ─── Account state checks (inactive / unverified) ─────────────────────────────
 
 describe('protect - account state checks', () => {
   test('rejects an inactive account', async () => {
-    setupRedisGet({ cachedUser: JSON.stringify({ ...USER_ROW, is_active: false }) });
+    notBlacklisted();
     mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, is_active: false });
 
-    const req = mockReq('valid.token');
     const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
+    await protect(mockReq('valid.token'), res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ message: 'Account is inactive' });
@@ -298,80 +227,116 @@ describe('protect - account state checks', () => {
   });
 
   test('rejects an unverified account with no profile', async () => {
-    setupRedisGet({
-      cachedUser: JSON.stringify({ ...USER_ROW, is_verified: false, userProfile: null, vendorProfile: null }),
-    });
+    notBlacklisted();
     mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue({
+      ...USER_ROW,
+      is_verified: false,
+      userProfile: null,
+      vendorProfile: null,
+    });
 
-    const req = mockReq('valid.token');
     const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
+    await protect(mockReq('valid.token'), res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ message: 'Account not verified' });
     expect(next).not.toHaveBeenCalled();
   });
 
-  test('auto-verifies a legacy unverified account that already has a profile, and invalidates its cache', async () => {
-    setupRedisGet({
-      cachedUser: JSON.stringify({ ...USER_ROW, is_verified: false, userProfile: { id: 10 } }),
-    });
+  test('auto-verifies a legacy unverified account that already has a profile', async () => {
+    notBlacklisted();
     mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, is_verified: false });
     mockPrisma.user.update.mockResolvedValue({});
 
     const req = mockReq('valid.token');
-    const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, res, next);
+    await protect(req, mockRes(), next);
 
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: 1 },
       data: { is_verified: true },
     });
-    expect(mockRedis.del).toHaveBeenCalledWith('auth:user:1');
     expect(req.user.is_verified).toBe(true);
     expect(next).toHaveBeenCalled();
   });
 });
 
-// ─── Cache key isolation across users ─────────────────────────────────────────
+// ─── blacklistToken ───────────────────────────────────────────────────────────
 
-describe('protect - cache key isolation', () => {
-  test('different user ids use different, non-colliding cache keys', async () => {
-    setupRedisGet({ cachedUser: null });
-    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
+describe('blacklistToken', () => {
+  test('upserts a row carrying the token and its expiry', async () => {
+    mockPrisma.blacklistedToken.upsert.mockResolvedValue({});
+    const exp = Math.floor(Date.now() / 1000) + 3600;
 
-    mockVerify.mockReturnValue({ id: 1 });
-    await protect(mockReq('token1'), mockRes(), jest.fn());
+    await blacklistToken('some.jwt', exp);
 
-    mockVerify.mockReturnValue({ id: 2 });
-    await protect(mockReq('token2'), mockRes(), jest.fn());
+    expect(mockPrisma.blacklistedToken.upsert).toHaveBeenCalledWith({
+      where: { token: 'some.jwt' },
+      update: { expiresAt: new Date(exp * 1000) },
+      create: { token: 'some.jwt', expiresAt: new Date(exp * 1000) },
+    });
+  });
 
-    const userCacheCalls = mockRedis.get.mock.calls
-      .map(([key]) => key)
-      .filter((key) => key.startsWith('auth:user:'));
+  // upsert rather than create, so logging out twice with the same token cannot
+  // throw on the unique constraint.
+  test('is safe to call twice with the same token', async () => {
+    mockPrisma.blacklistedToken.upsert.mockResolvedValue({});
+    const exp = Math.floor(Date.now() / 1000) + 3600;
 
-    expect(userCacheCalls).toEqual(['auth:user:1', 'auth:user:2']);
+    await blacklistToken('same.jwt', exp);
+    await expect(blacklistToken('same.jwt', exp)).resolves.toBeUndefined();
+    expect(mockPrisma.blacklistedToken.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  test('writes nothing for a token that has already expired', async () => {
+    const past = Math.floor(Date.now() / 1000) - 10;
+
+    await blacklistToken('expired.jwt', past);
+
+    // jwt.verify rejects it on signature expiry regardless, so a row would be
+    // dead weight the cleanup cron then has to remove.
+    expect(mockPrisma.blacklistedToken.upsert).not.toHaveBeenCalled();
+  });
+
+  test('swallows write errors rather than failing the logout request', async () => {
+    mockPrisma.blacklistedToken.upsert.mockRejectedValue(new Error('db down'));
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+
+    await expect(blacklistToken('some.jwt', exp)).resolves.toBeUndefined();
   });
 });
 
-// ─── invalidateUserCache helper ───────────────────────────────────────────────
+// ─── isRefreshTokenBlacklisted ────────────────────────────────────────────────
 
-describe('invalidateUserCache', () => {
-  test('deletes the correct Redis key for a given user id', async () => {
-    mockRedis.del.mockResolvedValue(1);
-
-    await invalidateUserCache(42);
-
-    expect(mockRedis.del).toHaveBeenCalledWith('auth:user:42');
+describe('isRefreshTokenBlacklisted', () => {
+  test('is true when a row exists', async () => {
+    mockPrisma.blacklistedToken.findUnique.mockResolvedValue({ id: 3 });
+    await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
   });
 
-  test('swallows Redis errors instead of throwing', async () => {
-    mockRedis.del.mockRejectedValue(new Error('ECONNREFUSED'));
+  test('is false when no row exists', async () => {
+    mockPrisma.blacklistedToken.findUnique.mockResolvedValue(null);
+    await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(false);
+  });
 
+  test('fails closed on a lookup error', async () => {
+    mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
+    await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
+  });
+});
+
+// ─── invalidateUserCache ──────────────────────────────────────────────────────
+
+describe('invalidateUserCache', () => {
+  // Retained as a no-op so removing the cache did not ripple into call sites,
+  // and so reintroducing one later has an obvious seam.
+  test('resolves without touching the database', async () => {
     await expect(invalidateUserCache(42)).resolves.toBeUndefined();
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
   });
 });

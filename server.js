@@ -8,10 +8,65 @@ import Logger from "./util/logger.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import refundReconciler from "./util/refundReconciler.js";
 import { startPaymentReconciliation } from "./util/paymentReconciliation.js";
-import { scheduleOtpCleanup } from "./queues/otpCleanupQueue.js";
-import notificationWorker from "./workers/notificationWorker.js";
-import payoutWorker from "./workers/payoutWorker.js";
-import otpCleanupWorker from "./workers/otpCleanupWorker.js";
+import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
+import cron from "node-cron";
+import {
+  registerJobHandler,
+  runDueJobs,
+  reclaimStuckJobs,
+  pruneCompletedJobs,
+  JOB_TYPES,
+} from "./util/jobQueue.js";
+import { processNotificationJob } from "./workers/notificationProcessor.js";
+import { processPayoutJob } from "./workers/payoutProcessor.js";
+
+/**
+ * Whether THIS process runs background jobs. Defaults to true, so a plain
+ * `node server.js` runs everything.
+ *
+ * Set RUN_WORKERS=false on extra web instances if you would rather one process
+ * own the dispatching. It is only a preference, not a correctness requirement:
+ * jobs are claimed with FOR UPDATE SKIP LOCKED (util/jobQueue.js), so running
+ * the dispatcher on every instance is safe -- no job is handed out twice. This
+ * is a real improvement on the Redis setup it replaces, where each additional
+ * instance multiplied a fixed idle polling cost.
+ */
+const RUN_WORKERS = env.RUN_WORKERS !== "false";
+
+// How often to look for due jobs. This is the one real behavioural difference
+// from BullMQ: dispatch is polled rather than pushed, so a job starts within a
+// tick instead of immediately. 10s is well inside what these jobs need -- the
+// BullMQ workers' own idle poll had already been widened to 120s -- and unlike
+// Redis, an empty poll here is a single indexed Postgres query against a
+// database this process is already connected to, costing nothing metered.
+const JOB_POLL_SECONDS = 10;
+
+let jobDispatchTask = null;
+let jobMaintenanceTask = null;
+
+/**
+ * Registers the job handlers and starts the dispatch loop.
+ * @returns {void}
+ */
+const startJobDispatcher = () => {
+  registerJobHandler(JOB_TYPES.NOTIFICATION, processNotificationJob);
+  registerJobHandler(JOB_TYPES.VENDOR_PAYOUT, processPayoutJob);
+
+  // runDueJobs never throws, so a bad tick cannot kill the schedule.
+  jobDispatchTask = cron.schedule(`*/${JOB_POLL_SECONDS} * * * * *`, async () => {
+    await runDueJobs();
+  });
+
+  // Housekeeping: recover jobs orphaned by a process that died mid-handler
+  // (the equivalent of BullMQ's stalled-job check) and drop old completed rows.
+  // Failed rows are kept deliberately -- they are the operator's audit trail.
+  jobMaintenanceTask = cron.schedule("*/5 * * * *", async () => {
+    await reclaimStuckJobs();
+    await pruneCompletedJobs();
+  });
+
+  Logger.info(`Background job dispatcher started (every ${JOB_POLL_SECONDS}s).`);
+};
 
 /**
  * Process entrypoint.
@@ -41,7 +96,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   bookingStatusManager.start();
   refundReconciler.start();
-  scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule OTP cleanup job:', err));
+  if (RUN_WORKERS) {
+    startJobDispatcher();
+    scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule cleanup job:', err));
+  } else {
+    Logger.info('RUN_WORKERS=false — background jobs not dispatched by this process.');
+  }
   startPaymentReconciliation();
 });
 
@@ -51,30 +111,14 @@ const gracefulShutdown = () => {
 
   bookingStatusManager.stop();
   refundReconciler.stop();
+  stopOtpCleanup();
 
-  if (notificationWorker) {
-    notificationWorker.close().then(() => {
-      Logger.info('Notification worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing notification worker:', err);
-    });
-  }
-
-  if (payoutWorker) {
-    payoutWorker.close().then(() => {
-      Logger.info('Payout worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing payout worker:', err);
-    });
-  }
-
-  if (otpCleanupWorker) {
-    otpCleanupWorker.close().then(() => {
-      Logger.info('OTP cleanup worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing OTP cleanup worker:', err);
-    });
-  }
+  // Stopping the schedules is all that is needed now. There are no queue
+  // connections to drain: a job in flight is a Postgres row in 'processing',
+  // and if this process dies before finishing it, reclaimStuckJobs picks it
+  // back up. Handlers are idempotent, which is what makes that safe.
+  jobDispatchTask?.stop();
+  jobMaintenanceTask?.stop();
 
   httpServer.close(() => {
     Logger.info('HTTP server closed.');
