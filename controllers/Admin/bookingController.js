@@ -1,4 +1,8 @@
 import prisma from "../../util/prisma.js";
+<<<<<<< HEAD
+=======
+import Logger from "../../util/logger.js";
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -160,4 +164,51 @@ export const getBookings = async (req, res) => {
     console.error(error);
     res.status(500).json({ message: "Bookings fetch failed" });
   }
+<<<<<<< HEAD
 };
+=======
+};
+// @desc    Force-complete a booking without a submitted health sheet — the
+//          escape hatch if the mandatory-inspection gate misfires or a
+//          garage genuinely cannot submit one (e.g. app issue on their end).
+//
+//          Safety boundary worth stating explicitly: this sets Booking.status
+//          only. It does NOT trigger escrow release — that only happens via
+//          services/bookingConfirmationService.confirmBookingAndQueuePayout,
+//          which runs off the CUSTOMER'S OWN confirmation
+//          (serviceConfirmationController.confirmServiceCompletion), a
+//          separate step this endpoint does not touch. So this action is
+//          reversible in effect (it unblocks the vendor-side status only)
+//          and cannot itself move money.
+// @route   POST /admin/bookings/:id/force-complete
+export const forceCompleteBooking = async (req, res) => {
+  const { reason } = req.body;
+  const bookingId = parseInt(req.params.id);
+
+  try {
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    const updated = await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: "service_completed",
+        notes: reason
+          ? `${booking.notes ? booking.notes + " | " : ""}[Admin force-complete by ${req.user.id}]: ${reason}`
+          : booking.notes,
+      },
+    });
+
+    // Deliberately loud — this is the one path that bypasses a safety gate,
+    // and it should be easy to find in logs later.
+    Logger.warn(
+      `[Admin] Booking ${bookingId} force-completed by admin ${req.user.id} bypassing the health-sheet gate. Reason: ${reason || "(none given)"}`,
+    );
+
+    return res.json({ booking: updated });
+  } catch (error) {
+    Logger.error(`[Admin] forceCompleteBooking failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

@@ -9,11 +9,9 @@ export const getDocuments = async (req, res) => {
         const docs = await prisma.document.findMany({
             where: { vendorId: req.user.id }
         });
-        const formattedDocs = docs.map(doc => ({
-            ...doc,
-            file_url: doc.file_url ? `${req.protocol}://${req.get('host')}${doc.file_url}` : null
-        }));
-        res.json(formattedDocs);
+        // file_url is already an absolute Cloudinary URL (see uploadDocument below) —
+        // do not prefix it with req.protocol/host, that would produce a broken URL.
+        res.json(docs);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -24,6 +22,7 @@ export const getDocuments = async (req, res) => {
 // @route   POST /accounts/documents/
 export const uploadDocument = async (req, res) => {
     const { document_type } = req.body;
+<<<<<<< HEAD
     
     // Cloudinary Storage provides `req.file.path` as the full URL
     // Local Disk Storage provides `req.file.path` as local path or `file.filename`
@@ -31,11 +30,20 @@ export const uploadDocument = async (req, res) => {
     
     const fileUrl = req.file?.path; 
 
+=======
+
+    // uploadMiddleware.js uses multer.memoryStorage() + uploads to Cloudinary,
+    // attaching the result at req.file.cloudinary (not req.file.path, which
+    // memoryStorage never sets).
+    const fileUrl = req.file?.cloudinary?.secure_url;
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     if (!fileUrl) return res.status(400).json({ message: "File required" });
 
     try {
         const doc = await prisma.document.create({
             data: {
+<<<<<<< HEAD
                 // IMPORTANT: The schema likely links to 'VendorProfile', not 'User'.
                 // If it links to User: vendorId: req.user.id
                 // If it links to VendorProfile: we must find profile first.
@@ -49,6 +57,11 @@ export const uploadDocument = async (req, res) => {
                 // SAFE FETCH:
                 vendorId: (await prisma.vendorProfile.findUnique({ where: { userId: req.user.id } }))?.id || undefined,
 
+=======
+                // Document.vendorId refers to User.id (see prisma/schema.prisma:
+                // Document.vendor relation is `User @relation(fields: [vendorId], ...)`).
+                vendorId: req.user.id,
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
                 document_type,
                 file_url: fileUrl,
                 status: 'pending'

@@ -191,6 +191,7 @@ export const getDashboardDetails = async (req, res) => {
             select: {
               id: true,
               service: {
+<<<<<<< HEAD
                 select: { name: true }
               },
               vendor_status: true,
@@ -201,6 +202,20 @@ export const getDashboardDetails = async (req, res) => {
                   }
                 }
               }
+=======
+                select: {
+                  name: true,
+                  vendor: {
+                    select: {
+                      vendorProfile: {
+                        select: { business_name: true, city: true }
+                      }
+                    }
+                  }
+                }
+              },
+              vendor_status: true
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             }
           }
         },

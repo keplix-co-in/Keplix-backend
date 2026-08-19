@@ -2,6 +2,11 @@
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
+<<<<<<< HEAD
+=======
+import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
+import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -9,7 +14,8 @@ import { createNotification } from "../../util/notificationHelper.js";
 // @route   GET /service_api/vendor/bookings/
 export const getVendorBookings = async (req, res) => {
   try {
-    const { status, date, date_from, date_to, serviceName, token } = req.query;
+    const { status, date, date_from, date_to, serviceName, token, page = 1, limit = 50 } = req.query;
+    const skip = (page - 1) * limit;
 
     // Find all services by this vendor first
     const vendorServices = await prisma.service.findMany({
@@ -33,6 +39,7 @@ export const getVendorBookings = async (req, res) => {
     if (serviceName) query.service = { name: { contains: serviceName } };
     if (token) query.id = parseInt(token);
 
+<<<<<<< HEAD
     // For order alerts, exclude past bookings (bookings that have already passed)
     // Only show future bookings or bookings from today onwards
     // EXCEPTION: For completed/cancelled bookings, show all historical records
@@ -41,6 +48,25 @@ export const getVendorBookings = async (req, res) => {
     const isCompletedStatus = status && (status.includes('completed') || status.includes('cancelled'));
     
     if (!hasDateFilter && !isCompletedStatus) { // Only apply time filter when no specific date filters are set AND not completed/cancelled
+=======
+    // The "today onwards" default only makes sense for bookings that are
+    // still ABOUT a future date — pending/confirmed/scheduled. Once a
+    // booking is in_progress, service_completed, completed, cancelled,
+    // disputed, or refunded, its original booking_date is no longer the
+    // point; the vendor needs to see and act on it regardless of how old
+    // that date is. This previously exempted only completed/cancelled, so a
+    // booking stuck in in_progress from months ago (its scheduled date long
+    // past) silently vanished from the vendor's default list — an ACTIVE job
+    // the vendor could no longer find or close out.
+    const now = new Date();
+    const hasDateFilter = date || date_from || date_to;
+    const FORWARD_LOOKING_STATUSES = ['pending', 'confirmed', 'scheduled'];
+    const requestedStatuses = status ? status.split(',') : null;
+    const isForwardLookingOnly =
+      !requestedStatuses || requestedStatuses.every((s) => FORWARD_LOOKING_STATUSES.includes(s));
+
+    if (!hasDateFilter && isForwardLookingOnly) {
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       query.booking_date = {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
       };
@@ -55,6 +81,8 @@ export const getVendorBookings = async (req, res) => {
         payment: true, // Include payment status
       },
       orderBy: { booking_date: "desc" },
+      skip: Number(skip),
+      take: Number(limit),
     });
 
     res.json(bookings);
@@ -170,6 +198,7 @@ export const respondToServiceRequest = async (req, res) => {
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
   const { status, notes } = req.body;
+<<<<<<< HEAD
   const files = req.files || [];
 
   try {
@@ -180,6 +209,28 @@ export const updateBookingStatus = async (req, res) => {
       select: { status: true }
     });
 
+=======
+
+  try {
+
+    // Scoped to the caller's own services. This previously used findUnique on
+    // the id alone, which meant any authenticated vendor could drive any
+    // booking — including to service_completed, the step that puts a booking
+    // on the escrow-release path. respondToServiceRequest above already
+    // filters this way; this function was simply missing it.
+    const currentBooking = await prisma.booking.findFirst({
+      where: {
+        id: parseInt(req.params.id),
+        service: {
+          vendorId: req.user.id
+        }
+      },
+      select: { id: true, status: true, createdAt: true }
+    });
+
+    // Deliberately 404, not 403: a vendor should not be able to probe which
+    // booking ids exist on other vendors.
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     if (!currentBooking) {
       return res.status(404).json({ message: "Booking not found" });
     }
@@ -187,8 +238,13 @@ export const updateBookingStatus = async (req, res) => {
     if (status) {
         // 1. Start Service: confirmed -> in_progress
         if (status === 'in_progress' && currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
+<<<<<<< HEAD
             return res.status(400).json({ 
                 message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}` 
+=======
+            return res.status(400).json({
+                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             });
         }
 
@@ -198,6 +254,7 @@ export const updateBookingStatus = async (req, res) => {
              // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
              // User prompt: "in_progress -> service_completed" logic implies flow.
              if (currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
+<<<<<<< HEAD
                 return res.status(400).json({ 
                     message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}` 
                 });
@@ -205,15 +262,69 @@ export const updateBookingStatus = async (req, res) => {
         }
     }
     
+=======
+                return res.status(400).json({
+                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`
+                });
+             }
+        }
+
+        // Mandatory-inspection gate. Same rule, same rollout anchoring as
+        // walk-in job completion — see services/healthSheetService.js and
+        // the PlatformSettings comment in schema.prisma. 409, not 400, so the
+        // app can branch on this specific code and deep-link into the
+        // inspection form rather than showing a generic validation error.
+        // Anchored to currentBooking.createdAt, not "now": flipping the
+        // rollout flag must never strand a booking that was already in
+        // flight before any garage had a way to see this form — completion
+        // is what releases escrow.
+        //
+        // Gated on 'completed' too, not just 'service_completed': despite
+        // this function's own comments describing service_completed as the
+        // completion step, the partner app's actual ServiceCompletion.jsx
+        // screen submits status: 'completed' directly. A gate that only
+        // checked 'service_completed' would never fire on a real completion
+        // — caught by testing the request the app actually sends, not the
+        // string this code talks about sending.
+        if (status === 'service_completed' || status === 'completed') {
+          const gate = await assertHealthSheetPresent({
+            createdAt: currentBooking.createdAt,
+            bookingId: currentBooking.id,
+          });
+          if (!gate.ok) {
+            return res.status(409).json({ code: gate.code, message: gate.message });
+          }
+        }
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Prepare update data
     const updateData = { status };
     if (notes) {
       updateData.notes = notes;
     }
 
+<<<<<<< HEAD
     if (files.length > 0) {
         const imageUrls = files.map(file => file.path); // Cloudinary uses 'path' or 'secure_url'
         updateData.completion_images = imageUrls;
+=======
+    // uploadFieldss sets req.files to an OBJECT keyed by field name, not an
+    // array. The previous code did `(req.files || []).length > 0`, which is
+    // `undefined > 0` — always false — so completion images were silently
+    // never saved. It also read file.path, which is empty under
+    // multer.memoryStorage(); the Cloudinary URL is on file.cloudinary.
+    const uploadedFiles = Object.values(req.files ?? {}).flat();
+    const imageUrls = uploadedFiles
+      .map((file) => file?.cloudinary?.secure_url)
+      .filter(Boolean);
+
+    if (imageUrls.length > 0) {
+        // The column is `String?`, so an array would be a type error. Nothing
+        // reads this back yet (it has never contained data), so comma-separated
+        // is a free choice — but whatever consumes it must split on ','.
+        updateData.completion_images = imageUrls.join(',');
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
 
     const booking = await prisma.booking.update({
@@ -224,6 +335,35 @@ export const updateBookingStatus = async (req, res) => {
         service: true
       }
     });
+<<<<<<< HEAD
+=======
+
+    // === ESCROW HOLD ===
+    // Completion is what puts this booking on the payout path, so it is also
+    // where the hold window starts. Stored on Payment (not Booking, which must
+    // not be modified) and computed once here rather than derived at payout
+    // time, so later changes to payoutHoldHours can't retroactively release
+    // money that was meant to be held.
+    //
+    // Best-effort: the booking is already committed above, and failing to set
+    // a hold must not fail the vendor's completion. The payout guard treats a
+    // missing hold as releasable, so the downside is a payout that isn't
+    // delayed — never a booking that can't be completed.
+    if (status === 'service_completed' || status === 'completed') {
+      try {
+        const holdUntil = await resolvePayoutHoldUntil(new Date());
+        if (holdUntil) {
+          await prisma.payment.updateMany({
+            where: { bookingId: booking.id },
+            data: { payoutHoldUntil: holdUntil },
+          });
+        }
+      } catch (holdError) {
+        console.error('Failed to set payout hold for booking', booking.id, holdError);
+      }
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // === NOTIFICATIONS ===
     let title = "Booking Update";
     let body = `Your booking for ${booking.service.name} is now ${status}`;

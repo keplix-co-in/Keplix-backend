@@ -7,10 +7,19 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+<<<<<<< HEAD
     "test": "jest",
+=======
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --testPathIgnorePatterns tests/e2e",
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio --port 5000"
+    "prisma:studio": "prisma studio --port 5000",
+    "test:e2e": "NODE_OPTIONS='--experimental-vm-modules' jest tests/e2e --runInBand --forceExit",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -27,9 +36,15 @@
   "dependencies": {
     "@fluidjs/multer-cloudinary": "^1.0.4",
     "@prisma/adapter-pg": "^7.4.0",
+<<<<<<< HEAD
     "@prisma/adapter-ppg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "bcryptjs": "^2.4.3",
+=======
+    "@prisma/client": "^7.4.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.77.6",
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     "cloudinary": "^2.9.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -37,18 +52,31 @@
     "expo-server-sdk": "^4.0.0",
     "express": "^4.18.3",
     "express-rate-limit": "^8.2.1",
+    "file-type": "^21.3.4",
     "firebase-admin": "^13.6.0",
+    "google-auth-library": "^9.15.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.11.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.1",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
     "pg": "^8.18.0",
+<<<<<<< HEAD
     "postgres": "^3.4.8",
     "razorpay": "^2.9.6",
     "resend": "^6.8.0",
     "socket.io": "^4.8.3",
     "stripe": "^20.1.2",
+=======
+    "razorpay": "^2.9.6",
+    "resend": "^6.8.0",
+    "socket.io": "^4.8.3",
+    "streamifier": "^0.1.1",
+    "stripe": "^20.1.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     "twilio": "^5.11.2",
     "winston": "^3.19.0",
     "xss": "^1.0.15",

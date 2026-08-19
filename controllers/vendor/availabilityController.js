@@ -5,9 +5,13 @@
 // @desc    Get Vendor Availability
 // @route   GET /service_api/vendor/:vendorId/availability
 export const getAvailability = async (req, res) => {
+    const vendorId = parseInt(req.params.vendorId);
+    if (req.user.id !== vendorId) {
+        return res.status(403).json({ message: 'Not authorized' });
+    }
     try {
         const availability = await prisma.availability.findMany({
-            where: { vendorId: parseInt(req.params.vendorId) }
+            where: { vendorId }
         });
         res.json(availability);
     } catch (error) {
@@ -19,11 +23,15 @@ export const getAvailability = async (req, res) => {
 // @desc    Create/Update Availability
 // @route   POST /service_api/vendor/:vendorId/availability/create
 export const createAvailability = async (req, res) => {
+    const vendorId = parseInt(req.params.vendorId);
+    if (req.user.id !== vendorId) {
+        return res.status(403).json({ message: 'Not authorized' });
+    }
     const { day_of_week, start_time, end_time, is_available } = req.body;
     try {
         const item = await prisma.availability.create({
             data: {
-                vendorId: parseInt(req.params.vendorId),
+                vendorId,
                 day_of_week,
                 start_time,
                 end_time,

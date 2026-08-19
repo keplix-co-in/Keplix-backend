@@ -17,6 +17,10 @@ model User {
   fcmToken            String?
   device_type         String?
   pushToken           String?
+<<<<<<< HEAD
+=======
+  is_verified         Boolean              @default(false)
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -26,11 +30,29 @@ model User {
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
+<<<<<<< HEAD
+=======
+  vendorReviews       Review[]             @relation("VendorReviews")
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   services            Service[]            @relation("VendorServices")
   userProfile         UserProfile?
   VendorPayoutAccount VendorPayoutAccount?
   vendorProfile       VendorProfile?
 
+<<<<<<< HEAD
+=======
+  // Walk-in jobs / vehicles / health sheets (see those models for rationale).
+  vehicles         Vehicle[]      @relation("UserVehicles")
+  createdVehicles  Vehicle[]      @relation("VendorCreatedVehicles")
+  walkInJobs       WalkInJob[]    @relation("UserWalkInJobs")
+  vendorWalkInJobs WalkInJob[]    @relation("VendorWalkInJobs")
+  healthSheets     HealthSheet[]  @relation("VendorHealthSheets")
+  phoneIdentity    PhoneIdentity?
+
+  // Offer slots this vendor has been specifically targeted by (see OfferSlot).
+  offerSlotTargets OfferSlotVendor[]
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   @@index([email])
   @@index([role])
 }
@@ -82,13 +104,34 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
+<<<<<<< HEAD
   is_online            Boolean @default(true)
+=======
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   image                String?
   cover_image          String?
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+<<<<<<< HEAD
   user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+=======
+  is_online            Boolean @default(true)
+  // Denormalised review aggregates maintained by util/ratingHelper.js.
+  // These were being read and written by that helper (from review creation,
+  // review deletion, and booking confirmation) but had never been added to
+  // the schema — so every one of those paths threw "Unknown field `rating`"
+  // at runtime. Most damagingly, confirming a booking WITH a rating is what
+  // releases escrow to the vendor, and the whole thing ran in one
+  // transaction, so a rating silently rolled back the payout claim too.
+  rating               Float   @default(0)
+  numReviews           Int     @default(0)
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([city])
+  @@index([status])
+  @@index([is_online])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Document {
@@ -99,6 +142,7 @@ model Document {
   status        String   @default("pending")
   createdAt     DateTime @default(now())
   vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+<<<<<<< HEAD
 }
 
 model Service {
@@ -118,10 +162,44 @@ model Service {
 
 model Booking {
   id                Int           @id @default(autoincrement())
+=======
+
+  @@index([vendorId])
+}
+
+model Service {
+  id                   Int                   @id @default(autoincrement())
+  vendorId             Int
+  name                 String
+  description          String
+  price                Decimal
+  duration             Int
+  category             String
+  image_url            String?
+
+  // Vendor's own free-text note on which cars this pricing was set up for
+  // ("Swift, i20, Baleno"). Purely descriptive — NOT used for matching or
+  // pricing, which is why it lives on Service rather than as rows in
+  // ServiceSegmentPrice. It exists because a vendor picking "Hatchback" wants
+  // to record which hatchbacks they actually meant, for their own reference
+  // when they revisit this form months later.
+  vehicle_note         String?
+  is_active            Boolean               @default(true)
+  is_featured          Boolean               @default(false)
+  bookings             Booking[]
+  walkInJobServices    WalkInJobService[]
+  vendor               User                  @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
+  segmentPrices        ServiceSegmentPrice[]
+}
+
+model Booking {
+  id                Int             @id @default(autoincrement())
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   userId            Int
   serviceId         Int
   booking_date      DateTime
   booking_time      String
+<<<<<<< HEAD
   status            String        @default("pending")
   notes             String?
   createdAt         DateTime      @default(now())
@@ -133,6 +211,25 @@ model Booking {
   conversation      Conversation?
   payment           Payment?      @relation("BookingPayment")
   review            Review?
+=======
+  status            String          @default("pending")
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  vendor_status     String          @default("pending")
+  completion_images String?
+  service           Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user              User            @relation("UserBookings", fields: [userId], references: [id])
+  conversation      Conversation?
+  payment           Payment?        @relation("BookingPayment")
+  review            Review?
+  // Virtual back-relations only — these generate no SQL on Booking. The other
+  // side holds the FK (HealthSheet.bookingId, BookingVehicle.bookingId), which
+  // is why they are compatible with the rule that Booking itself must not be
+  // modified.
+  healthSheet       HealthSheet?
+  bookingVehicle    BookingVehicle?
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   @@index([userId])
   @@index([serviceId])
@@ -142,6 +239,7 @@ model Booking {
 }
 
 model Payment {
+<<<<<<< HEAD
   id                 Int      @id @default(autoincrement())
   bookingId          Int?     @unique
   amount             Decimal
@@ -156,6 +254,97 @@ model Payment {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
+=======
+  id                 Int               @id @default(autoincrement())
+  bookingId          Int?              @unique
+  amount             Decimal
+  currency           String            @default("INR")
+  status             String            @default("pending")
+  method             String
+  // Unique so the webhook path's "has this gateway payment already been
+  // recorded?" lookup is enforced by the DB rather than being an unguarded
+  // check-then-act. Postgres permits multiple NULLs in a unique index, so
+  // payments that have no gateway transaction yet are unaffected.
+  transactionId      String?           @unique
+  vendorPayoutStatus String?           @default("pending")
+  vendorPayoutId     String?
+  // Escrow hold: the vendor's payout is refused until this passes. Set when a
+  // booking is marked complete, from PlatformSettings.payoutHoldHours. It
+  // lives here rather than on Booking because Booking must not be modified
+  // (see BookingVehicle) — and because it is a property of the money, not the
+  // appointment. NULL = no hold recorded, which the guard treats as
+  // releasable, so bookings completed before this existed aren't frozen.
+  payoutHoldUntil    DateTime?
+  // Gateway fee Razorpay actually charged on this payment, in rupees. Filled
+  // in lazily when a refund needs it. NULL means unknown — the refund policy
+  // refunds the full amount in that case rather than guessing a deduction.
+  gatewayFee         Decimal?
+  platformFee        Decimal?
+  vendorAmount       Decimal?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  booking            Booking?          @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
+  payoutSettlement   PayoutSettlement?
+  refunds            Refund[]
+
+  @@index([status])
+  @@index([vendorPayoutStatus])
+}
+
+model PayoutSettlement {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int      @unique
+  status          String   @default("initiated")
+  gatewayPayoutId String?
+  gatewayResponse String?
+  amount          Decimal
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  payment         Payment  @relation(fields: [paymentId], references: [id])
+}
+
+// Records every Razorpay webhook delivery we've accepted (by Razorpay's own
+// event id), so a retried/replayed delivery of the same event is a no-op
+// instead of being reprocessed. Razorpay retries webhook delivery on
+// timeout/non-2xx, and a captured valid webhook body+signature is otherwise
+// replayable indefinitely — this is the guard against both.
+model WebhookEvent {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([eventType])
+}
+
+// A durable, gateway-idempotent record of a refund attempt — written before
+// the gateway call and updated after, mirroring PayoutSettlement's pattern
+// for payouts. idempotencyKey is what's sent to Razorpay's refund API so a
+// retried request (network blip, duplicate admin click) cannot create two
+// refunds for the same intent.
+model Refund {
+  id              Int      @id @default(autoincrement())
+  paymentId       Int
+  amount          Decimal
+  reason          String?
+  status          String   @default("initiated") // initiated -> gateway_confirmed -> processed | gateway_failed | reconciliation_needed
+  gatewayRefundId String?
+  gatewayResponse String?
+  idempotencyKey  String   @unique
+  initiatedBy     Int? // User.id of the admin who issued it
+  attempts        Int      @default(0)
+  lastError       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  // Restrict: a Payment with refund history must never be deleted in a way
+  // that silently destroys the refund audit trail with it.
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([status])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Inventory {
@@ -165,6 +354,11 @@ model Inventory {
   stock_level Int
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+<<<<<<< HEAD
+=======
+
+  @@index([vendorId])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Availability {
@@ -176,6 +370,11 @@ model Availability {
   is_available Boolean  @default(true)
   createdAt    DateTime @default(now())
   vendor       User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+<<<<<<< HEAD
+=======
+
+  @@index([vendorId])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Conversation {
@@ -204,18 +403,102 @@ model Message {
 }
 
 model Review {
+<<<<<<< HEAD
   id        Int      @id @default(autoincrement())
   bookingId Int      @unique
+=======
+  id        Int       @id @default(autoincrement())
+  bookingId Int       @unique
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   userId    Int
   rating    Int
   comment   String?
   reply     String?
+<<<<<<< HEAD
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
 }
 
+=======
+  // Set when a vendor replies. `updatedAt` cannot stand in for this: it moves
+  // on any write, so it can't distinguish "replied" from "edited". The vendor
+  // reply controller wrote this field before it existed on the model, which
+  // made every reply throw "Unknown arg `repliedAt`" at runtime.
+  repliedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  vendorId  Int?
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user      User      @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
+  vendor    User?     @relation("VendorReviews", fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  // The vendor reviews list is always "this vendor, newest first, paginated".
+  // On [vendorId] alone Postgres still has to sort every one of a vendor's
+  // reviews to serve page 1; this lets it walk the index in order and stop.
+  @@index([vendorId, createdAt])
+}
+
+// Admin-managed promotional content, addressed by a stable placement `key` that
+// the client apps reference in code (e.g. 'home_banner_1'). Content lives here
+// so copy can change without an app release; every figure in the product used to
+// be a literal in a component.
+//
+// Deliberately NOT the Promotion model below: that one is vendor-owned, has no
+// placement dimension, and is dead code.
+//
+// `discount_type`/`discount_value` are present but unused — offers are display
+// only for now. They exist from the start so enabling real discounts later is an
+// additive change rather than a reshape. Nothing may read them until the pricing
+// path (which derives amounts in four separate places) is ready.
+model OfferSlot {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique // referenced from client code; immutable once set
+  label       String // admin-facing, e.g. "Homepage banner (first slide)"
+  description String? // where it appears, shown to the admin
+
+  headline   String? // "15%"
+  body       String? // "discount on the first order."
+  badge_text String? // "Flat ₹100 off"
+  image_url  String?
+
+  discount_type  String? // 'percent' | 'flat' — reserved, unused
+  discount_value Decimal? @db.Decimal(10, 2) // reserved, unused
+
+  is_active     Boolean   @default(false)
+  starts_at     DateTime?
+  ends_at       DateTime?
+  display_order Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  targets OfferSlotVendor[]
+
+  @@index([is_active])
+}
+
+// Vendor targeting for an OfferSlot.
+//
+// IMPORTANT: an EMPTY target set means the slot applies to every vendor; rows
+// present mean it applies to those vendors only. Absence is deliberately the
+// permissive case — the common setup is a platform-wide offer, and requiring a
+// row per vendor for that would mean backfilling on every new signup.
+model OfferSlotVendor {
+  id          Int @id @default(autoincrement())
+  offerSlotId Int
+  vendorId    Int
+
+  offerSlot OfferSlot @relation(fields: [offerSlotId], references: [id], onDelete: Cascade)
+  vendor    User      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([offerSlotId, vendorId])
+  @@index([vendorId])
+}
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 model Promotion {
   id          Int      @id @default(autoincrement())
   vendorId    Int
@@ -227,6 +510,11 @@ model Promotion {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+<<<<<<< HEAD
+=======
+
+  @@index([vendorId])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Notification {
@@ -249,6 +537,11 @@ model Feedback {
   category  String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+<<<<<<< HEAD
+=======
+
+  @@index([userId])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model EmailOTP {
@@ -258,6 +551,11 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+<<<<<<< HEAD
+=======
+
+  @@index([email])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model PhoneOTP {
@@ -281,6 +579,7 @@ model VendorPayoutAccount {
 }
 
 model Admin {
+<<<<<<< HEAD
   id          Int         @id @default(autoincrement())
   name        String
   email       String      @unique
@@ -291,13 +590,437 @@ model Admin {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   role        String      @default("admin")
+=======
+  id           Int         @id @default(autoincrement())
+  name         String
+  email        String      @unique
+  password     String
+  phone        String?
+  status       AdminStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  // bcrypt hash of the admin's current refresh token, so /auth/refresh can
+  // verify and rotate it and /auth/logout can revoke it server-side. Null means
+  // no active session.
+  //
+  // This column was missing entirely — the model never declared it and the
+  // table never had it — while controllers/Admin/authController.js has always
+  // written it on login. Every admin login therefore failed with
+  // "Unknown argument `refreshToken`". Storing the hash (never the token) is
+  // what makes a stolen refresh token revocable.
+  refreshToken String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  role         String      @default("admin")
+  blogPosts    BlogPost[]
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   @@index([email])
   @@index([status])
 }
 
+<<<<<<< HEAD
+=======
+model BlogPost {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  content     String
+  coverImage  String?
+  category    String    @default("General")
+  readTime    Int?
+  status      String    @default("draft")
+  publishedAt DateTime?
+  authorId    Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  author      Admin?    @relation(fields: [authorId], references: [id])
+
+  @@index([status])
+  @@index([category])
+  @@index([publishedAt])
+}
+
+model PlatformSettings {
+  id                      Int       @id @default(autoincrement())
+  isPlatformFeeEnabled    Boolean   @default(true)
+  platformFeePercentage   Float     @default(0.1)
+  updatedAt               DateTime
+  // Mandatory-inspection rollout gate (walk-in jobs / health sheets).
+  // Default false: the gate must never be live the moment this deploys, since
+  // completion sits on Booking's escrow-release path. When enabled, only
+  // bookings/walk-ins created at or after healthSheetRequiredFrom are gated —
+  // anchoring to createdAt is what stops flipping this flag from instantly
+  // stranding every job already in flight with no way to complete it.
+  isHealthSheetRequired   Boolean   @default(false)
+  healthSheetRequiredFrom DateTime?
+  // Refund / escrow policy.
+  //
+  // How long a vendor's payout is held after a booking is marked complete, so
+  // a refund raised in that window can still be honoured without clawing money
+  // back from a vendor who has already been paid.
+  payoutHoldHours          Int     @default(24)
+  // Master switch for refunding automatically when a customer cancels.
+  // Defaults FALSE so shipping the policy layer changes no behaviour until it
+  // is deliberately turned on.
+  autoRefundOnCancellation Boolean @default(false)
+  // 'customer' | 'platform' — who absorbs Razorpay's non-returnable fee on a
+  // refund. 'customer' means the refund is amount minus that fee.
+  refundGatewayFeeBorneBy  String  @default("customer")
+}
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 enum AdminStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+<<<<<<< HEAD
+=======
+}
+
+enum HealthStatus {
+  GOOD
+  ATTENTION
+  REPLACE
+}
+
+enum WalkInJobStatus {
+  open
+  in_progress
+  completed
+  cancelled
+}
+
+// Size class of a car, which is what actually drives price in this trade — a
+// hatchback foam wash and a Fortuner foam wash are the same service at very
+// different prices.
+//
+// An enum rather than a table because these five are a stable industry
+// classification, unlike service categories (free-text String on Service)
+// which vendors invent as they go. The specific car MODEL is deliberately not
+// modelled: it is free text on Vehicle.car_name, for human reference only.
+enum VehicleSegment {
+  HATCHBACK
+  SEDAN
+  COMPACT_SUV
+  MUV
+  LUXURY
+}
+
+// A car. Cars did not exist anywhere in this schema before — Booking carries
+// no vehicle fields, so this is genuinely new ground, not a rename.
+//
+// registration is scoped unique PER VENDOR, not globally. A global unique
+// means the second garage to type a plate the first garage already recorded
+// hits a constraint error it cannot see or resolve (it can't read the other
+// vendor's row). The cost is that one physical car serviced at three garages
+// is three Vehicle rows; "My Garage" dedupes by normalised registration at
+// read time instead of the write being forced to a single row up front.
+model Vehicle {
+  id Int @id @default(autoincrement())
+
+  // Uppercased, whitespace-stripped at write time (see util/vehicle.js).
+  registration String
+  make         String?
+  model        String?
+  year         Int?
+  fuel_type    String?
+  colour       String?
+  odometer_km  Int?
+
+  // Size class, used to pick the right price from ServiceSegmentPrice.
+  // Nullable: every row that already exists predates segments, and a vendor
+  // recording a walk-in may not know or care. A null segment falls back to
+  // Service.price, so pricing never breaks on missing data.
+  segment VehicleSegment?
+
+  // Free text, for the owner's own reference ("Wife's Swift"). Deliberately
+  // not a lookup: a model table would need constant upkeep and would still be
+  // wrong for the long tail, while segment — the part that affects price — is
+  // already captured above.
+  car_name String?
+
+  // Which car a booking defaults to. Not enforced unique per owner in the
+  // database: a partial unique index cannot express "one true per owner"
+  // across the nullable ownerUserId cleanly, so the write path clears the
+  // other rows' flag inside a transaction instead.
+  is_primary Boolean @default(false)
+
+  // Ownership is dual-track. A claimed vehicle has ownerUserId set. An
+  // unclaimed walk-in vehicle only has owner_phone (E.164, via
+  // util/phone.js) — there is deliberately no join to UserProfile.phone here,
+  // see PhoneIdentity below for why.
+  ownerUserId Int?
+  owner_phone String?
+  owner_name  String?
+
+  // The vendor that first recorded this car — scopes the uniqueness above,
+  // and lets a garage see "my customers' cars" before any claim happens.
+  createdByVendorId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner           User?            @relation("UserVehicles", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdByVendor User?            @relation("VendorCreatedVehicles", fields: [createdByVendorId], references: [id], onDelete: SetNull)
+  walkInJobs      WalkInJob[]
+  bookingVehicles BookingVehicle[]
+
+  @@unique([registration, createdByVendorId], name: "vehicle_reg_per_vendor")
+  @@index([ownerUserId])
+  @@index([owner_phone])
+  @@index([registration])
+}
+
+// Price of one service for one vehicle segment.
+//
+// ADDITIVE, not a replacement: Service.price stays and remains the base and
+// the fallback. A service with no rows here behaves exactly as it always has,
+// which is what keeps every service already in the database working without a
+// backfill. Resolution lives in one place — util/servicePricing.js.
+model ServiceSegmentPrice {
+  id        Int            @id @default(autoincrement())
+  serviceId Int
+  segment   VehicleSegment
+  price     Decimal        @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  // One price per segment per service; the vendor UI upserts on this pair.
+  @@unique([serviceId, segment])
+  @@index([serviceId])
+}
+
+// The car a booking is for, and the price agreed at the time.
+//
+// This holds the FK to Booking rather than Booking holding a FK to it. That is
+// deliberate and matches HealthSheet: Booking is the payment/escrow-critical
+// model and the rule in this schema is that it must not be modified. A side
+// table gets us a vehicle link and a price snapshot without touching it.
+//
+// price_snapshot is the point of the whole table. Without it, a vendor editing
+// their segment prices would retroactively change what an unpaid booking
+// charges — the amount is derived from the service at payment time
+// (paymentController), not stored at booking time.
+model BookingVehicle {
+  id        Int @id @default(autoincrement())
+  bookingId Int @unique
+
+  // Nullable: the user may have no saved car. The booking still records what
+  // it was priced at, which is the part payment depends on.
+  vehicleId Int?
+  segment   VehicleSegment?
+
+  price_snapshot Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  booking Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId])
+}
+
+// Offline (walk-in) customer job. Deliberately NOT a Booking: Booking.userId
+// and Booking.serviceId are both required FKs, and a walk-in has neither a
+// User (no signup happened) nor a Service (amounts are often custom). This
+// keeps Booking — the payment/escrow-critical model — completely untouched.
+//
+// v1 is record-only: no escrow, no payout, no platform fee. The
+// commission/settlement columns exist now, nullable, so turning commission on
+// later is a code change against existing columns, not a migration.
+model WalkInJob {
+  id        Int  @id @default(autoincrement())
+  vendorId  Int
+  vehicleId Int?
+
+  // Denormalised customer identity — walk-ins have no User row at creation.
+  customer_name   String
+  customer_phone  String // normalised E.164
+  claimedByUserId Int? // set once the phone owner signs up and claims (see PhoneIdentity)
+
+  description String?
+  status      WalkInJobStatus @default(open)
+
+  amount_collected  Decimal?  @db.Decimal(10, 2)
+  payment_mode      String? // cash | upi | card
+  commission_rate   Float? // null = no commission applied (v1 default for all rows)
+  commission_amount Decimal?  @db.Decimal(10, 2)
+  settlement_status String    @default("not_applicable") // not_applicable | pending | settled
+  settled_at        DateTime?
+
+  // Public, non-guessable token for the unauthenticated tracking page
+  // (keplix.co.in/job/<token>). Generated with crypto.randomBytes(24) —
+  // @unique alone gives the btree index this lookup needs.
+  public_token     String    @unique
+  token_expires_at DateTime?
+
+  // Set by workers/notificationWorker.js after attempting delivery. Lets the
+  // partner app show "SMS failed — resend" instead of a customer silently
+  // never getting their tracking link.
+  notification_status String    @default("pending") // pending | sent | failed
+  notified_at         DateTime?
+
+  started_at   DateTime?
+  completed_at DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vendor        User               @relation("VendorWalkInJobs", fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle?           @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  claimedByUser User?              @relation("UserWalkInJobs", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  healthSheet   HealthSheet?
+  services      WalkInJobService[]
+
+  @@index([vendorId, status])
+  @@index([customer_phone])
+  @@index([claimedByUserId])
+  @@index([createdAt])
+}
+
+// The 5 (extensible) inspection components a mechanic checks off. A template
+// table, not a hardcoded list or enum, so adding a 6th component (wipers,
+// coolant, ...) is an admin action against this table, not a migration.
+model HealthComponent {
+  id            Int     @id @default(autoincrement())
+  key           String  @unique // stable machine key, e.g. "brakes"
+  label         String // display label, e.g. "Brakes & Brake Pads"
+  display_order Int     @default(0)
+  is_active     Boolean @default(true)
+
+  // Which kind of workshop this component belongs to — MECHANICAL, WASH,
+  // DENTING_PAINTING, TYRES, INSURANCE. Groundwork only: NOTHING reads this
+  // yet. healthSheetController still requires every active component, so the
+  // checklist is unchanged until the rendering work is done deliberately.
+  // Null means "applies to all", which is what the original five rows get.
+  category  String?
+  createdAt DateTime @default(now())
+
+  items HealthSheetItem[]
+
+  @@index([is_active])
+}
+
+// Attaches to EITHER a Booking or a WalkInJob via nullable dual FKs, enforced
+// to exactly-one by a raw CHECK constraint (Prisma cannot express XOR, so the
+// constraint is applied separately via prisma db execute — see the migration
+// notes alongside this schema). Rejected a shared "Job" supertype: that would
+// need a new column (and a backfill) on Booking, which must not be touched.
+// Rejected a jobType+jobId polymorphic pair: Prisma can't turn that into a
+// real relation, so reads become manual two-step fetches and onDelete:Cascade
+// stops working, i.e. orphaned health sheets on a deleted booking.
+//
+// Booking cannot carry its own public_token (Booking is untouched), so a
+// booking's tracking link is this row's token instead.
+model HealthSheet {
+  id Int @id @default(autoincrement())
+
+  bookingId   Int? @unique
+  walkInJobId Int? @unique
+
+  vendorId  Int // denormalised for auth + vendor-scoped queries without a join through Booking->Service
+  vehicleId Int?
+
+  odometer_km   Int?
+  overall_notes String?
+
+  public_token String   @unique
+  submitted_at DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  booking   Booking?          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  walkInJob WalkInJob?        @relation(fields: [walkInJobId], references: [id], onDelete: Cascade)
+  vendor    User              @relation("VendorHealthSheets", fields: [vendorId], references: [id], onDelete: Cascade)
+  items     HealthSheetItem[]
+
+  @@index([vendorId])
+  @@index([vehicleId])
+}
+
+// One row per inspected component. Relational rather than a JSON blob so (a)
+// "how many cars needed brake work this month" is a GROUP BY instead of a
+// jsonb scan, and (b) the mandatory-completion gate can check completeness
+// with a _count instead of parsing an opaque blob that might be malformed.
+// photos is capped at 2 by a raw CHECK constraint (see migration notes) since
+// Prisma has no array-length validator.
+// An item is EITHER a fixed inspection component (the booking path, unchanged)
+// OR one of the services chosen on a walk-in. Hence both foreign keys are
+// nullable and exactly one is set per row.
+//
+// `status` is nullable because the vendor can skip filling the inspection in:
+// skipping still writes the sheet (so the mandatory-inspection gate can never
+// strand a job) but leaves the per-item detail blank.
+//
+// `label` denormalises the display name — component label or service name — so
+// every reader has ONE field to read instead of branching on which FK is set.
+// Without it, controllers/public/jobSheetController.js would have to know about
+// both shapes, and it already dereferences `item.component.label` unguarded.
+model HealthSheetItem {
+  id                 Int           @id @default(autoincrement())
+  healthSheetId      Int
+  componentId        Int?
+  walkInJobServiceId Int?
+  label              String?
+  status             HealthStatus?
+  price              Decimal?      @db.Decimal(10, 2)
+  notes              String?
+  photos             String[]      @default([])
+
+  healthSheet      HealthSheet       @relation(fields: [healthSheetId], references: [id], onDelete: Cascade)
+  component        HealthComponent?  @relation(fields: [componentId], references: [id])
+  walkInJobService WalkInJobService? @relation(fields: [walkInJobServiceId], references: [id], onDelete: Cascade)
+
+  // Postgres allows repeated NULLs in a unique index, so component rows and
+  // service rows coexist without colliding on either constraint.
+  @@unique([healthSheetId, componentId])
+  @@unique([healthSheetId, walkInJobServiceId])
+  @@index([status])
+}
+
+// A service selected when checking a walk-in customer in. WalkInJob previously
+// had no link to Service at all — work was free text — so there was nothing to
+// drive the inspection cards or a bill from.
+//
+// name/price are SNAPSHOTS, not lookups: renaming or repricing a catalogue
+// service, or deleting it outright, must never rewrite what a past job records
+// as having been done. serviceId is null for a one-off custom entry, and is set
+// null (rather than cascading the row away) if the catalogue service is deleted.
+model WalkInJobService {
+  id          Int      @id @default(autoincrement())
+  walkInJobId Int
+  serviceId   Int?
+  name        String
+  price       Decimal? @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  walkInJob  WalkInJob         @relation(fields: [walkInJobId], references: [id], onDelete: Cascade)
+  service    Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  sheetItems HealthSheetItem[]
+
+  @@index([walkInJobId])
+}
+
+// The single authoritative phone -> User mapping, populated ONLY through a
+// verified PhoneOTP round trip (never bulk-imported, never set from
+// UserProfile.phone directly). UserProfile.phone stays exactly as it is —
+// nullable, non-unique, unverified free text — because making it unique would
+// fail outright against a live table that almost certainly already has
+// duplicates and nulls. This table exists so that "does this walk-in
+// history belong to the person now signing up" is decidable without ever
+// trusting an unverified phone field to be unique.
+model PhoneIdentity {
+  id          Int       @id @default(autoincrement())
+  phone_e164  String    @unique
+  userId      Int?      @unique
+  verified_at DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }

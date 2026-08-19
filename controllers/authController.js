@@ -9,10 +9,24 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
+<<<<<<< HEAD
+=======
+import { normalizeIndianPhone } from "../util/phone.js";
+import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
+import { OAuth2Client } from "google-auth-library";
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const require = createRequire(import.meta.url);
 
 const JWT_SECRET = process.env.JWT_SECRET;
+<<<<<<< HEAD
+=======
+// Refresh tokens are signed with their own secret so a leaked access-token
+// secret alone can't be used to forge a long-lived refresh token, and vice
+// versa. Falls back to JWT_SECRET only outside production so local/dev
+// setups that haven't set it yet don't break.
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 if (!JWT_SECRET) {
   const errorMsg = 'JWT_SECRET environment variable is required';
@@ -24,6 +38,19 @@ if (!JWT_SECRET) {
   }
 }
 
+<<<<<<< HEAD
+=======
+if (!process.env.JWT_REFRESH_SECRET) {
+  const errorMsg = 'JWT_REFRESH_SECRET environment variable is required';
+  console.error(errorMsg);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMsg);
+  } else {
+    console.warn('Using JWT_SECRET as a fallback JWT_REFRESH_SECRET for development');
+  }
+}
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 const generateAccessToken = (id) => {
   return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
     expiresIn: "1d",
@@ -31,7 +58,11 @@ const generateAccessToken = (id) => {
 };
 
 const generateRefreshToken = (id) => {
+<<<<<<< HEAD
   return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
+=======
+  return jwt.sign({ id, type: 'refresh' }, JWT_REFRESH_SECRET, {
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     expiresIn: "30d",
   });
 };
@@ -57,7 +88,19 @@ const verifyDjangoPassword = (password, hash) => {
     );
     const derivedHash = derivedKey.toString("base64");
 
+<<<<<<< HEAD
     return derivedHash === storedHash;
+=======
+    // timingSafeEqual, not === : a plain string compare short-circuits on the
+    // first differing byte, so response time leaks how much of the hash was
+    // guessed correctly. timingSafeEqual requires equal lengths, so compare
+    // lengths first (that check is not itself secret — hash length is fixed by
+    // the algorithm).
+    const a = Buffer.from(derivedHash, "utf8");
+    const b = Buffer.from(storedHash, "utf8");
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   } catch (e) {
     console.error("Error verifying Django password:", e);
     return false;
@@ -68,7 +111,11 @@ const verifyDjangoPassword = (password, hash) => {
 // @route   POST /accounts/auth/signup/
 // @access  Public
 export const registerUser = async (req, res, next) => {
+<<<<<<< HEAD
   const { email, password, role, name, phone } = req.body;
+=======
+  const { email, password, role } = req.body;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   try {
     const userExists = await prisma.user.findUnique({
@@ -95,6 +142,7 @@ export const registerUser = async (req, res, next) => {
       },
     });
 
+<<<<<<< HEAD
     // Create Profile based on role
     if (role === "vendor") {
       await prisma.vendorProfile.create({
@@ -120,6 +168,15 @@ export const registerUser = async (req, res, next) => {
       email: user.email,
       role: user.role,
       token: generateToken(user.id),
+=======
+    res.status(201).json({
+      success: true,
+      message: "Account created. Please verify your email to continue.",
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      code: "PENDING_VERIFICATION",
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error(error);
@@ -142,9 +199,27 @@ export const authUser = async (req, res) => {
         vendorProfile: true,
       },
     });
+<<<<<<< HEAD
 
     if (user) {
       let isValid = false;
+=======
+
+    if (user) {
+      let isValid = false;
+
+      // Social-only accounts are created with an empty password (the column is
+      // non-nullable, so "" stands in for "no password set"). bcrypt.compare
+      // against "" already returns false, but relying on that is one refactor
+      // away from being a login bypass — reject explicitly instead, and don't
+      // let an empty submitted password reach the comparison either.
+      if (!user.password || !password) {
+        return res.status(401).json({
+          message: "Invalid email or password. If you signed up with Google, use Continue with Google.",
+        });
+      }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       // Check if it's a Django PBKDF2 hash
       if (user.password.startsWith("pbkdf2_sha256$")) {
         isValid = verifyDjangoPassword(password, user.password);
@@ -177,6 +252,7 @@ export const authUser = async (req, res) => {
           };
         }
 
+<<<<<<< HEAD
         const userData = {
           id: user.id,
           email: user.email,
@@ -186,6 +262,36 @@ export const authUser = async (req, res) => {
         };
 
         return res.json({
+=======
+          const hasProfile = user.userProfile || user.vendorProfile;
+          
+          if (hasProfile && !user.is_verified) {
+             // Treat legacy users with profiles as verified
+             user.is_verified = true;
+             await prisma.user.update({
+               where: { id: user.id },
+               data: { is_verified: true }
+             });
+          }
+
+          const userData = {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            is_active: user.is_active,
+            is_verified: user.is_verified,
+            ...profileData,
+          };
+
+          if (!user.is_verified && !hasProfile) {
+            return res.status(403).json({
+              success: false,
+              message: "Account not verified. Please verify your email or phone.",
+              user: userData,
+              code: "UNVERIFIED"
+            });
+          }        return res.json({
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
           user: userData,
           access: generateAccessToken(user.id),
           refresh: generateRefreshToken(user.id),
@@ -196,6 +302,17 @@ export const authUser = async (req, res) => {
     res.status(401).json({ message: "Invalid email or password" });
   } catch (error) {
     console.error(error);
+<<<<<<< HEAD
+=======
+
+    if (error.code === 'P2022') {
+      return res.status(500).json({
+        message: "Database schema is out of sync. Please update the backend database and try again.",
+        code: "DATABASE_SCHEMA_MISMATCH",
+      });
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -246,15 +363,40 @@ export const refreshToken = async (req, res) => {
     return res.status(400).json({ message: "Refresh token required" });
 
   try {
+<<<<<<< HEAD
     const decoded = jwt.verify(refresh, JWT_SECRET);
+=======
+    const blacklisted = await isRefreshTokenBlacklisted(refresh);
+    if (blacklisted) {
+      return res.status(401).json({ message: "Refresh token has been revoked" });
+    }
+
+    const decoded = jwt.verify(refresh, JWT_REFRESH_SECRET);
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
+<<<<<<< HEAD
     res.json({
       access: generateToken(user.id),
       // Optionally rotate refresh token
       refresh: refresh,
+=======
+    // Rotate: the presented refresh token is single-use — blacklist it and
+    // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
+    // limited window before it's replaced, and reuse of an old token after
+    // rotation is detectable/rejected.
+    await blacklistToken(refresh, decoded.exp);
+
+    res.json({
+      access: generateToken(user.id),
+      refresh: generateRefreshToken(user.id),
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error("Token refresh error:", error);
@@ -274,12 +416,16 @@ export const logoutUser = async (req, res) => {
 
     const decoded = jwt.decode(token);
 
+<<<<<<< HEAD
     await prisma.blacklistedToken.create({
       data: {
         token,
         expiresAt: new Date(decoded.exp * 1000),
       },
     });
+=======
+    await blacklistToken(token, decoded.exp);
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -379,16 +525,149 @@ export const resetPassword = async (req, res) => {
     console.error("Reset Password Error:", error);
     res.status(500).json({ message: "Server Error" });
   }
+<<<<<<< HEAD
+=======
+};
+
+// @desc    Send OTP for password reset (reuses EmailOTP infra, separate from
+//          the token-link forgotPassword/resetPassword flow above — this
+//          powers the OTP-based reset UX used by the vendor app)
+export const sendPasswordResetOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    // Security: don't reveal whether the email exists.
+    if (!user) {
+      return res.json({
+        success: true,
+        message: "If the email exists, a verification code has been sent.",
+      });
+    }
+
+    const otp = generateOTP();
+    const istNow = getISTDate();
+    const expiresAt = new Date(istNow.getTime() + 10 * 60 * 1000); // 10 minutes
+
+    // Delete any existing unverified reset OTPs for this email first.
+    await prisma.emailOTP.deleteMany({
+      where: { email: normalizedEmail, verified: false },
+    });
+
+    const record = await prisma.emailOTP.create({
+      data: { email: normalizedEmail, otp, expiresAt, verified: false },
+    });
+
+    try {
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Keplix <noreply@keplix.co.in>",
+        to: email,
+        subject: "Your Keplix Password Reset Code",
+        html: otpEmailTemplate({ otp }),
+      });
+    } catch (emailError) {
+      console.error("sendPasswordResetOTP: Resend error:", emailError);
+      // Still respond success — the OTP record exists and can be verified;
+      // avoid leaking provider-level failures to the client.
+    }
+
+    return res.json({
+      success: true,
+      message: "If the email exists, a verification code has been sent.",
+      otpId: record.id,
+    });
+  } catch (error) {
+    console.error("sendPasswordResetOTP error:", error);
+    res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+};
+
+// @desc    Verify OTP and set a new password in one step
+export const resetPasswordWithOTP = async (req, res) => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) {
+      return res.status(400).json({ message: "Email, OTP, and new password are required" });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedOtp = String(otp).trim();
+
+    const record = await prisma.emailOTP.findFirst({
+      where: { email: normalizedEmail },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!record) {
+      return res.status(400).json({ message: "No verification code found for this email" });
+    }
+    if (record.verified) {
+      return res.status(400).json({ message: "This verification code has already been used" });
+    }
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({ message: "Verification code has expired" });
+    }
+    if (record.otp !== normalizedOtp) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      }),
+      prisma.emailOTP.update({
+        where: { id: record.id },
+        data: { verified: true },
+      }),
+    ]);
+
+    return res.json({ success: true, message: "Password reset successfully" });
+  } catch (error) {
+    console.error("resetPasswordWithOTP error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 };
 
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
+<<<<<<< HEAD
   const { phone_number } = req.body;
 
   if (!phone_number) {
     return res.status(400).json({ error: "Phone number is required" });
   }
 
+=======
+  const { phone_number: rawPhoneNumber } = req.body;
+
+  if (!rawPhoneNumber) {
+    return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  // Normalised here so PhoneOTP is keyed identically to how the walk-in
+  // job / vehicle / claim flows store phones. Previously this column held
+  // whatever the client sent, so "9876543210" and "+919876543210" were two
+  // different OTP records — verifying with the other form always failed.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
+  }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   try {
     const otp = generateOTP();
 
@@ -425,20 +704,40 @@ export const sendPhoneOTP = async (req, res) => {
     }
   } catch (error) {
     console.error("sendPhoneOTP error:", error);
+<<<<<<< HEAD
     res
       .status(500)
       .json({ error: "Failed to send OTP", details: error.message });
+=======
+    res.status(500).json({ error: "Failed to send OTP" });
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   }
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
+<<<<<<< HEAD
   const { phone_number, otp } = req.body;
 
   if (!phone_number || !otp) {
     return res.status(400).json({ error: "Phone number and OTP are required" });
   }
 
+=======
+  const { phone_number: rawPhoneNumber, otp } = req.body;
+
+  if (!rawPhoneNumber || !otp) {
+    return res.status(400).json({ error: "Phone number and OTP are required" });
+  }
+
+  // Must match the normalisation applied in sendPhoneOTP, or a correctly
+  // entered number in a different format will never find its OTP row.
+  const phone_number = normalizeIndianPhone(rawPhoneNumber);
+  if (!phone_number) {
+    return res.status(400).json({ error: "Invalid Indian mobile number" });
+  }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   try {
     const otpRecord = await prisma.phoneOTP.findUnique({
       where: { phone_number },
@@ -468,6 +767,58 @@ export const verifyPhoneOTP = async (req, res) => {
       data: { verified: true },
     });
 
+<<<<<<< HEAD
+=======
+    // Also mark the user as verified.
+    // NOTE: phone_number is now normalised (+91XXXXXXXXXX), but
+    // UserProfile.phone / VendorProfile.phone are free text and may still
+    // hold whatever format a profile form originally sent (bare 10-digit,
+    // spaces, etc). This match was already an exact string comparison before
+    // this change — normalising phone_number does not make it more fragile,
+    // but it does mean a profile phone stored in a different format than the
+    // OTP will not match here. Fixing that needs a backfill of
+    // UserProfile/VendorProfile.phone through normalizeIndianPhone, which is
+    // a separate, data-touching change and out of scope here.
+    const matchedUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { userProfile: { phone: phone_number } },
+          { vendorProfile: { phone: phone_number } }
+        ]
+      },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    for (const matchedUser of matchedUsers) {
+      await prisma.user.update({
+        where: { id: matchedUser.id },
+        data: { is_verified: true },
+      });
+
+      if (matchedUser.role === "vendor" && !matchedUser.vendorProfile) {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: matchedUser.id,
+            business_name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+            onboarding_completed: false,
+          },
+        });
+      } else if (matchedUser.role !== "vendor" && !matchedUser.userProfile) {
+        await prisma.userProfile.create({
+          data: {
+            userId: matchedUser.id,
+            name: matchedUser.email.split("@")[0],
+            phone: phone_number,
+          },
+        });
+      }
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
     console.error("verifyPhoneOTP error:", error);
@@ -586,6 +937,42 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
+<<<<<<< HEAD
+=======
+    // Mark user as verified
+    await prisma.user.update({
+      where: { email: record.email },
+      data: { is_verified: true },
+    });
+
+    const verifiedUser = await prisma.user.findUnique({
+      where: { email: record.email },
+      include: {
+        userProfile: true,
+        vendorProfile: true,
+      },
+    });
+
+    if (verifiedUser && verifiedUser.role === "vendor" && !verifiedUser.vendorProfile) {
+      await prisma.vendorProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          business_name: verifiedUser.email.split("@")[0],
+          phone: "",
+          onboarding_completed: false,
+        },
+      });
+    } else if (verifiedUser && verifiedUser.role !== "vendor" && !verifiedUser.userProfile) {
+      await prisma.userProfile.create({
+        data: {
+          userId: verifiedUser.id,
+          name: verifiedUser.email.split("@")[0],
+          phone: "",
+        },
+      });
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
       where: { email: record.email },
@@ -626,11 +1013,52 @@ export const verifyEmailOTP = async (req, res) => {
     console.error("verifyEmailOTP error:", error);
     return res.status(500).json({ message: "OTP Verification Failed" });
   }
+<<<<<<< HEAD
+=======
+};
+
+// Strict server-side whitelist for self-selectable signup roles.
+// Defense-in-depth: enforced here independently of the Zod route validator,
+// so a client-supplied role can never reach prisma.user.create() unvalidated.
+const ALLOWED_SIGNUP_ROLES = ["user", "vendor"];
+
+const googleOAuthClient = new OAuth2Client();
+
+/**
+ * OAuth client IDs whose ID tokens we accept.
+ *
+ * This is the security boundary for Google sign-in: a token is only ours if
+ * its `aud` is one of these. It must list every client that legitimately signs
+ * users in — the customer app and the vendor app, across the dev and prod
+ * Firebase projects — hence a comma-separated env var rather than a constant.
+ *
+ * Read at call time, not at module load, so a deployment can rotate the list
+ * without a code change.
+ *
+ * Throws when unset: an empty audience list would make verifyIdToken accept
+ * ANY audience, silently restoring the very hole this replaced. Failing the
+ * request is the safe direction.
+ */
+const getAllowedGoogleAudiences = () => {
+  const raw = process.env.GOOGLE_ALLOWED_AUDIENCES || "";
+  const audiences = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (audiences.length === 0) {
+    throw new Error(
+      "GOOGLE_ALLOWED_AUDIENCES is not set — refusing to verify Google tokens without an audience allowlist"
+    );
+  }
+  return audiences;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 };
 
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
+<<<<<<< HEAD
 
   try {
     let email;
@@ -670,6 +1098,66 @@ export const googleLogin = async (req, res) => {
     name = name || email.split("@")[0];
 
     let user = await prisma.user.findUnique({ 
+=======
+  const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
+
+  try {
+    // Verify the Google ID token properly.
+    //
+    // This previously fell back to GET /tokeninfo and checked only `iss` — i.e.
+    // "was this issued by Google?" — but never `aud`, "was this issued to US?".
+    // Because the apps send a raw Google ID token (not a Firebase one), the
+    // Firebase branch above always threw and every request took that fallback.
+    // The result was an account-takeover hole: an ID token minted for ANY
+    // Google OAuth client on earth was accepted, and the lookup below links by
+    // email alone, so anyone could obtain Keplix tokens for any account just by
+    // knowing its email address.
+    //
+    // verifyIdToken checks the signature, expiry, issuer AND audience against
+    // the allowlist, so a token minted for someone else's client is rejected.
+    // Resolved BEFORE the try below so a misconfigured server surfaces as a
+    // 500, not a 401. Telling a user "invalid token" when the real fault is a
+    // missing env var sends them chasing their own credentials.
+    let allowedAudiences;
+    try {
+      allowedAudiences = getAllowedGoogleAudiences();
+    } catch (configError) {
+      console.error("Google sign-in misconfigured:", configError.message);
+      return res.status(500).json({ message: "Google sign-in is not configured on this server." });
+    }
+
+    let payload;
+    try {
+      const ticket = await googleOAuthClient.verifyIdToken({
+        idToken,
+        audience: allowedAudiences,
+      });
+      payload = ticket.getPayload();
+    } catch (verifyError) {
+      console.error("Google ID token verification failed:", verifyError.message);
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    if (!payload?.email) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Google says it has not verified ownership of this address. Trusting it
+    // would let someone register an unverified Google account on a victim's
+    // address and be handed the victim's existing Keplix account by the lookup
+    // below.
+    if (payload.email_verified !== true) {
+      return res.status(401).json({
+        message: "Your Google account's email is not verified. Please verify it with Google and try again.",
+      });
+    }
+
+    const email = payload.email;
+    // Default name if missing
+    const name = payload.name || email.split("@")[0];
+
+    let user = await prisma.user.findUnique({
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       where: { email },
       include: {
         userProfile: true,
@@ -677,19 +1165,34 @@ export const googleLogin = async (req, res) => {
       }
     });
 
+<<<<<<< HEAD
     if (!user) {
+=======
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       // Register new user
       user = await prisma.user.create({
         data: {
           email,
           password: "", // Social login has no password
+<<<<<<< HEAD
           role: role || "user",
+=======
+          role: safeRole,
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
           is_active: true,
         },
       });
 
       // Create Profile
+<<<<<<< HEAD
       if (role === "vendor") {
+=======
+      if (safeRole === "vendor") {
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         await prisma.vendorProfile.create({
           data: {
             userId: user.id,
@@ -709,7 +1212,11 @@ export const googleLogin = async (req, res) => {
       }
 
       // Re-fetch user with profile
+<<<<<<< HEAD
       user = await prisma.user.findUnique({ 
+=======
+      user = await prisma.user.findUnique({
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         where: { id: user.id },
         include: {
           userProfile: true,
@@ -718,6 +1225,52 @@ export const googleLogin = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
+=======
+    // A User row can exist WITHOUT its profile row. Profile creation above only
+    // runs for brand-new users, so any account that reached this point missing
+    // its profile — a partial signup, a failed profile insert, a user seeded by
+    // another path — stayed broken forever: the response builder below is
+    // guarded by `else if (user.userProfile)`, so it silently returned a
+    // userData with no name, phone or picture, and getUserProfile did the same.
+    // The app then showed a blank profile after signing in with Google.
+    //
+    // Two such accounts exist in the database today (ids 480 and 456), which is
+    // how this was found.
+    //
+    // Create only what is missing. Never touch an existing profile here: this
+    // path must not overwrite a name, phone or picture the user set during
+    // onboarding with whatever Google reports.
+    const needsUserProfile = user.role !== "vendor" && !user.userProfile;
+    const needsVendorProfile = user.role === "vendor" && !user.vendorProfile;
+
+    if (needsUserProfile || needsVendorProfile) {
+      console.warn(
+        `Google login: user ${user.id} (${user.email}) had no ${user.role === "vendor" ? "vendorProfile" : "userProfile"}; creating one.`
+      );
+
+      if (needsVendorProfile) {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: user.id,
+            business_name: name,
+            phone: "",
+            onboarding_completed: false,
+          },
+        });
+      } else {
+        await prisma.userProfile.create({
+          data: { userId: user.id, name, phone: "" },
+        });
+      }
+
+      user = await prisma.user.findUnique({
+        where: { id: user.id },
+        include: { userProfile: true, vendorProfile: true },
+      });
+    }
+
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Build response with profile data
     const userData = {
       id: user.id,
@@ -726,9 +1279,21 @@ export const googleLogin = async (req, res) => {
       is_active: user.is_active,
     };
 
+<<<<<<< HEAD
     if (user.role === "vendor" && user.vendorProfile) {
       userData.business_name = user.vendorProfile.business_name;
       userData.phone = user.vendorProfile.phone;
+=======
+    // phone_number mirrors phone throughout the API (see getUserProfile). The
+    // apps read `phone_number` in places — components/Profile/UserProfile.jsx
+    // populates its phone field from it — so omitting it here made the number
+    // vanish after a Google sign-in even when the profile held one.
+    if (user.role === "vendor" && user.vendorProfile) {
+      userData.business_name = user.vendorProfile.business_name;
+      userData.name = user.vendorProfile.business_name;
+      userData.phone = user.vendorProfile.phone;
+      userData.phone_number = user.vendorProfile.phone;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       userData.address = user.vendorProfile.address;
       userData.image = user.vendorProfile.image;
       userData.cover_image = user.vendorProfile.cover_image;
@@ -737,14 +1302,26 @@ export const googleLogin = async (req, res) => {
     } else if (user.userProfile) {
       userData.name = user.userProfile.name;
       userData.phone = user.userProfile.phone;
+<<<<<<< HEAD
       userData.address = user.userProfile.address;
       userData.profile_picture = user.userProfile.profile_picture;
+=======
+      userData.phone_number = user.userProfile.phone;
+      userData.address = user.userProfile.address;
+      userData.profile_picture = user.userProfile.profile_picture;
+      userData.id_proof_front = user.userProfile.id_proof_front;
+      userData.id_proof_back = user.userProfile.id_proof_back;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
 
     res.json({
       access: generateAccessToken(user.id),
       refresh: generateRefreshToken(user.id),
       user: userData,
+<<<<<<< HEAD
+=======
+      isNewUser: isNewUser
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error("Google Login Error:", error);
@@ -769,10 +1346,31 @@ export const updateUserProfileAuth = async (req, res) => {
   } = req.body;
 
   try {
+<<<<<<< HEAD
     // Handle file uploads from multer (Cloudinary URLs)
     const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
     const uploadedIdFront = req.files?.id_proof_front?.[0]?.path;
     const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
+=======
+    // The Cloudinary URL lives at file.cloudinary.secure_url, NOT file.path.
+    //
+    // uploadFieldss (middleware/uploadMiddleware.js) uses multer.memoryStorage()
+    // and streams the buffer to Cloudinary itself, attaching the API result at
+    // file.cloudinary. Memory storage never sets `path` -- that only exists with
+    // diskStorage or multer-storage-cloudinary.
+    //
+    // So these three were always undefined. The upload genuinely succeeded, the
+    // file reached Cloudinary, and req.files was populated -- the debug_upload
+    // block below happily reported files_received: ["profile_picture"] -- but
+    // the value written to the database fell through to the `profile_picture`
+    // body field, which a multipart upload does not send. Every profile image
+    // saved as null, and the apps showed their placeholder avatar forever.
+    //
+    // See controllers/vendor/serviceController.js:32 for the same fix.
+    const uploadedProfilePicture = req.files?.profile_picture?.[0]?.cloudinary?.secure_url;
+    const uploadedIdFront = req.files?.id_proof_front?.[0]?.cloudinary?.secure_url;
+    const uploadedIdBack = req.files?.id_proof_back?.[0]?.cloudinary?.secure_url;
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     // 1. Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {

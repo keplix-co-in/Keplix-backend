@@ -5,6 +5,10 @@ export const createBookingSchema = z.object({
   booking_date: z.string().datetime({ message: "Invalid date format (ISO 8601 required)" }),
   booking_time: z.string().min(1, { message: "Booking time is required" }),
   notes: z.string().optional(),
+  // Optional: which of the user's saved cars this booking is for. Absent
+  // entirely is a normal booking with no segment pricing, same as before this
+  // field existed — nothing here is required.
+  vehicleId: z.number().int().positive().optional(),
 });
 
 export const updateBookingSchema = z.object({

@@ -117,7 +117,8 @@ async function main() {
         }
     }
 
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const seedPassword = process.env.SEED_PASSWORD || 'password123';
+    const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
     // --- Create Super Admin ---
     await prisma.admin.create({
@@ -254,11 +255,20 @@ async function main() {
               });
           }        // Add Review if completed
         if (['completed', 'user_confirmed'].includes(status)) {
+<<<<<<< HEAD
+=======
+            const rating = getRandomInt(4, 5);
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             await prisma.review.create({
                 data: {
                     bookingId: booking.id,
                     userId: user1.id,
+<<<<<<< HEAD
                     rating: getRandomInt(4, 5),
+=======
+                    vendorId: vendor1.id,
+                    rating: rating,
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
                     comment: getRandomElement([
                         "Fantastic experience with Vendor 1!",
                         "Professional and quick.",
@@ -268,6 +278,24 @@ async function main() {
                     createdAt: new Date(bookingDate.getTime() + 24 * 60 * 60 * 1000)
                 }
             });
+<<<<<<< HEAD
+=======
+
+            // Update vendor stats manually in seed
+            const vendorProfile = await prisma.vendorProfile.findUnique({ where: { userId: vendor1.id } });
+            const oldCount = vendorProfile.numReviews || 0;
+            const oldRating = vendorProfile.rating || 0;
+            const newCount = oldCount + 1;
+            const newAvg = ((oldRating * oldCount) + rating) / newCount;
+
+            await prisma.vendorProfile.update({
+                where: { userId: vendor1.id },
+                data: {
+                    rating: newAvg,
+                    numReviews: newCount
+                }
+            });
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         }
     };
 
@@ -332,8 +360,13 @@ async function main() {
 
     console.log('✅ Seeding finished!');
     console.log('Credentials:');
+<<<<<<< HEAD
     console.log('User: user1@example.com / password123');
     console.log('Vendor: vendor1@example.com / password123');
+=======
+    console.log(`User: user1@example.com / ${seedPassword}`);
+    console.log(`Vendor: vendor1@example.com / ${seedPassword}`);
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 main()

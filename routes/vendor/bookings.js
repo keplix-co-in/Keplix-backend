@@ -3,13 +3,35 @@ import { getVendorBookings, updateBookingStatus, respondToServiceRequest } from 
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { updateBookingStatusSchema, respondToServiceRequestSchema } from '../../validators/vendor/bookingValidators.js';
+<<<<<<< HEAD
 import upload from '../../middleware/uploadMiddleware.js';
+=======
+import {uploadSingle, uploadFieldss} from '../../middleware/uploadMiddleware.js';
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const router = express.Router();
 
-// Matches GET /service_api/vendor/:vendorId/bookings
+/**
+ * @swagger
+ * /service_api/vendor/{vendorId}/bookings:
+ *   get:
+ *     summary: Get all bookings for a specific vendor
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of vendor bookings
+ */
 router.get('/:vendorId/bookings', protect, getVendorBookings);
 
+<<<<<<< HEAD
 // Matches PATCH /service_api/vendor/bookings/:id/respond (accept/reject request)
 router.patch('/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
 
@@ -22,6 +44,161 @@ router.post('/:vendorId/bookings/update/:id', protect, upload.array('images'), (
   next();
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 router.patch('/:vendorId/bookings/update/:id', protect, upload.array('images'), (req, res, next) => {
+=======
+/**
+ * @swagger
+ * /service_api/vendor/bookings/{id}/respond:
+ *   patch:
+ *     summary: Accept or reject a service request
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Booking ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - vendor_status
+ *             properties:
+ *               vendor_status:
+ *                 type: string
+ *                 enum: [accepted, rejected, declined]
+ *     responses:
+ *       200:
+ *         description: Response recorded successfully
+ */
+router.patch('/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
+
+/**
+ * @swagger
+ * /service_api/vendor/{vendorId}/bookings/{id}/respond:
+ *   patch:
+ *     summary: Accept or reject a service request (with vendorId prefix)
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - vendor_status
+ *             properties:
+ *               vendor_status:
+ *                 type: string
+ *                 enum: [accepted, rejected, declined]
+ *     responses:
+ *       200:
+ *         description: Response recorded successfully
+ */
+router.patch('/:vendorId/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
+
+/**
+ * @swagger
+ * /service_api/vendor/{vendorId}/bookings/update/{id}:
+ *   post:
+ *     summary: Update booking status with proof images
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [pending, confirmed, completed, cancelled, rejected]
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Booking status updated successfully
+ */
+router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
+  next();
+}, validateRequest(updateBookingStatusSchema), updateBookingStatus);
+
+/**
+ * @swagger
+ * /service_api/vendor/{vendorId}/bookings/update/{id}:
+ *   patch:
+ *     summary: Update booking status (backward compatibility)
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [pending, confirmed, completed, cancelled, rejected]
+ *               images:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Booking status updated successfully
+ */
+router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   next(); // Keep PATCH for backward compatibility if needed, but prefer POST for files
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 

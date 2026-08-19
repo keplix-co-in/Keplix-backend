@@ -1,8 +1,14 @@
+<<<<<<< HEAD
 ﻿import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { createNotification } from "../../util/notificationHelper.js";
 
 
+=======
+import prisma from "../../util/prisma.js";
+import { sendPushNotification } from "../../util/notificationHelper.js";
+import { confirmBookingAndQueuePayout, BookingConfirmationError } from "../../services/bookingConfirmationService.js";
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 /**
  * @desc    User confirms service completion
@@ -11,8 +17,13 @@ import { createNotification } from "../../util/notificationHelper.js";
  * 
  * CRITICAL ESCROW ENDPOINT:
  * - User confirms vendor completed service satisfactorily
+<<<<<<< HEAD
  * - This triggers the payout to vendor
  * - Money moves from escrow â†’ vendor account
+=======
+ * - This triggers the payout to vendor via BullMQ background job
+ * - Money moves from escrow → vendor account
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
  */
 export const confirmServiceCompletion = async (req, res) => {
   try {
@@ -20,6 +31,7 @@ export const confirmServiceCompletion = async (req, res) => {
     const bookingId = parseInt(req.params.id);
     const { confirmed, rating, comment } = req.body;
 
+<<<<<<< HEAD
     // Verify user owns this booking
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -169,6 +181,40 @@ export const confirmServiceCompletion = async (req, res) => {
     res.status(500).json({ 
       message: "Service confirmation failed",
       error: error.message 
+=======
+    if (isNaN(userId) || isNaN(bookingId)) {
+      return res.status(400).json({ message: "Invalid user or booking ID" });
+    }
+
+    if (confirmed !== true) {
+      return res.status(400).json({
+        message: "Service not confirmed. Please use the dispute endpoint if you have concerns."
+      });
+    }
+
+    await confirmBookingAndQueuePayout({ userId, bookingId, rating, comment });
+
+    return res.json({
+      success: true,
+      message: "Service confirmed. Vendor payout is being processed.",
+      booking: {
+        id: bookingId,
+        status: "user_confirmed",
+        payoutStatus: "processing"
+      }
+    });
+
+  } catch (error) {
+    console.error("Service confirmation error:", error);
+
+    if (error instanceof BookingConfirmationError) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+
+    res.status(500).json({
+      message: "Service confirmation failed",
+      error: error.message
+>>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   }
 };

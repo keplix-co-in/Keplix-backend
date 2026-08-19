@@ -1,0 +1,11 @@
+-- Admin.refreshToken — restores a column the code has always required.
+--
+-- controllers/Admin/authController.js writes a bcrypt hash of the refresh token
+-- on login, reads it on /auth/refresh to verify-and-rotate, and nulls it on
+-- /auth/logout to revoke. The column existed in neither the Prisma model nor
+-- the table, so EVERY admin login failed with:
+--   Invalid `prisma.admin.update()` ... Unknown argument `refreshToken`
+--
+-- Nullable and additive: existing admins get NULL, which the refresh endpoint
+-- already treats as "no active session" and rejects. No data is altered.
+ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "refreshToken" TEXT;
