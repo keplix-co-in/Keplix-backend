@@ -77,6 +77,24 @@ import publicOfferRoutes from "./routes/public/offers.js";
  */
 const app = express();
 
+// Trust exactly one proxy hop, so req.ip is the real client address.
+//
+// Without this, every rate limiter in the app is effectively a GLOBAL limiter.
+// express-rate-limit keys on req.ip, and behind Cloud Run the socket address
+// Express sees is Google's front end (169.254.169.126 in the request logs) --
+// identical for every user on the planet. The real client is in
+// X-Forwarded-For, which Express ignores until told to trust the proxy.
+//
+// That is not theoretical: with authLimiter at 20 requests/15min mounted on
+// /accounts/auth, twenty login attempts from ANY combination of users locked
+// every user of both apps out of logging in. It never reproduced locally,
+// where there is no proxy and req.ip is a real per-device address.
+//
+// `1` rather than `true`: trust one hop only. `true` would trust the entire
+// X-Forwarded-For chain, letting a client that can reach the service directly
+// spoof its address and evade the limiters entirely.
+app.set('trust proxy', 1);
+
 // If env invalid → this module will have already crashed at the config import
 // above, with detailed Zod error logs.
 Logger.info("Environment variables validated successfully");
