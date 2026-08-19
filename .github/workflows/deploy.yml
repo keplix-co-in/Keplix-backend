@@ -69,12 +69,21 @@ jobs:
       # the schema, and prisma.config.js, and it is present locally from the
       # build step -- so this needs no download and cannot drift from the
       # version the app itself uses.
+      #
+      # No --skip-generate: that flag does not exist in Prisma 7. `db push`
+      # there accepts only --help, --config, --schema, --url, --accept-data-loss
+      # and --force-reset. Verified against the pinned CLI with
+      # `prisma db push --help`.
+      #
+      # No --accept-data-loss either, deliberately: without it a destructive
+      # schema change FAILS this step and blocks the rollout, instead of
+      # silently dropping a column in production.
       - name: Apply database schema
         run: |
           docker run --rm \
             -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
             gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
-            npx prisma db push --schema prisma/schema.prisma --skip-generate
+            npx prisma db push --schema prisma/schema.prisma
 
       # WARNING: --set-env-vars below REPLACES the service's entire environment.
       # Any variable not on that line is DELETED from the running service, and
