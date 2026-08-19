@@ -137,6 +137,22 @@ export const invalidateUserCache = async (_id) => {
 };
 
 /**
+ * No-op retained for API compatibility.
+ *
+ * The 60-second Redis user cache this used to invalidate is gone along with
+ * Redis. `protect` now reads the user straight from Postgres on every request,
+ * which is a query it already made on every cache miss. Callers are left in
+ * place so that reintroducing a cache later has an obvious seam, and so this
+ * change does not ripple into unrelated call sites.
+ *
+ * @param {string|number} _id - Ignored.
+ * @returns {Promise<void>}
+ */
+export const invalidateUserCache = async (_id) => {
+  // Intentionally empty: there is no cache to invalidate.
+};
+
+/**
  * Express middleware that authenticates a request via Bearer JWT, checking a
  * Redis-backed token blacklist and a Redis-backed user cache before falling
  * back to the database, then attaches the resolved user to req.user.
