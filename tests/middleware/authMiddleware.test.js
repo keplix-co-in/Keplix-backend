@@ -142,16 +142,17 @@ describe('protect - blacklisted token', () => {
     });
   });
 
-  // Fails closed, and unlike the Redis version that is now harmless: this query
-  // hits the same database the very next line must query anyway, so there is no
-  // partial-failure mode where rejecting the request loses anything.
   // An unrecognised error means the query may well have run — a revoked token
   // must not slip through on ambiguity.
   test('fails closed when the blacklist lookup errors for an unknown reason', async () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     mockVerify.mockReturnValue({ id: 1 });
 
-    await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
+    const req = mockReq('valid.token');
+    const res = mockRes();
+    const next = jest.fn();
+
+    await protect(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
@@ -173,11 +174,13 @@ describe('protect - blacklisted token', () => {
     err.code = code;
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(err);
     mockVerify.mockReturnValue({ id: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     const req = mockReq('valid.token');
+    const res = mockRes();
     const next = jest.fn();
 
-    await protect(req, mockRes(), next);
+    await protect(req, res, next);
 
     expect(res.status).not.toHaveBeenCalledWith(401);
     expect(req.user).toEqual(USER_ROW);
@@ -352,7 +355,6 @@ describe('isRefreshTokenBlacklisted', () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
   });
-});
 
   // Deliberately NOT given the access-token path's fail-open treatment. Refresh
   // tokens live for weeks; accepting one we cannot verify would mint a fresh
