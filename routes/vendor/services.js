@@ -30,13 +30,6 @@ const router = express.Router();
  */
 router.get('/:vendorId/services', protect, getVendorServices);
 
-<<<<<<< HEAD
-// Matches POST /service_api/vendor/:vendorId/services/create
-router.post('/:vendorId/services/create', protect, upload.single('image'), validateRequest(createServiceSchema), createService);
-
-// Matches PUT /service_api/vendor/:vendorId/services/update/:id
-router.put('/:vendorId/services/update/:id', protect,upload.single('image'),  validateRequest(updateServiceSchema), updateService);
-=======
 /**
  * @swagger
  * /service_api/vendor/{vendorId}/services/create:
@@ -131,7 +124,6 @@ router.post('/:vendorId/services/create', protect, uploadSingle('image'), valida
  *         description: Service updated successfully
  */
 router.put('/:vendorId/services/update/:id', protect,uploadSingle('image'),  validateRequest(updateServiceSchema), updateService);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 /**
  * @swagger

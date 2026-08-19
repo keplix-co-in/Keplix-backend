@@ -1,6 +1,4 @@
 import { z } from "zod";
-<<<<<<< HEAD
-=======
 
 const vehicleSegmentField = z.enum(['HATCHBACK', 'SEDAN', 'COMPACT_SUV', 'MUV', 'LUXURY']);
 
@@ -47,7 +45,6 @@ const segmentPricesField = z
       )
   )
   .optional();
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export const createServiceSchema = z.object({
   name: z.string().min(1, { message: "Service name is required" }),
@@ -62,11 +59,8 @@ export const createServiceSchema = z.object({
   is_active: z
     .preprocess((val) => val === "true" || val === true, z.boolean())
     .optional(),
-<<<<<<< HEAD
-=======
   segment_prices: segmentPricesField,
   vehicle_note: z.string().trim().max(200).nullish(),
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 });
 
 export const updateServiceSchema = z.object({

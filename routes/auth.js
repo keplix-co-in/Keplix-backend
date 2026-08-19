@@ -1,19 +1,4 @@
 import express from 'express';
-<<<<<<< HEAD
-import { 
-  registerUser, 
-  authUser, 
-  getUserProfile, 
-  updateUserProfileAuth, 
-  refreshToken, 
-  logoutUser, 
-  forgotPassword, 
-  resetPassword, 
-  sendPhoneOTP, 
-  verifyPhoneOTP, 
-  sendEmailOTP, 
-  verifyEmailOTP, 
-=======
 import {
   registerUser,
   authUser,
@@ -29,44 +14,25 @@ import {
   verifyPhoneOTP,
   sendEmailOTP,
   verifyEmailOTP,
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   googleLogin,
   updatePushToken
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
-<<<<<<< HEAD
-import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
-import upload from '../middleware/uploadMiddleware.js';
-=======
 import { strictAuthLimiter } from '../middleware/rateLimitMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const router = express.Router();
 
 // Upload middleware for profile images and ID proofs
-<<<<<<< HEAD
-const uploadProfileFields = upload.fields([
-=======
 const uploadProfileFields = uploadFieldss([
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   { name: 'profile_picture', maxCount: 1 },
   { name: 'id_proof_front', maxCount: 1 },
   { name: 'id_proof_back', maxCount: 1 }
 ]);
 
 // Auth Routes (Standard)
-<<<<<<< HEAD
-router.post('/register', validateRequest(registerSchema), registerUser);
-router.post('/signup', validateRequest(registerSchema), registerUser); // Alias for compatibility
-router.post('/login', validateRequest(loginSchema), authUser);
-router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken);
-router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
-router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);
-router.post('/google', validateRequest(googleLoginSchema), googleLogin);
-=======
 /**
  * @swagger
  * /accounts/auth/register:
@@ -268,7 +234,6 @@ router.post('/reset-password/:uid/:token', strictAuthLimiter, validateRequest(re
  */
 // Rate limited like every other credential-accepting route.
 router.post('/google', strictAuthLimiter, validateRequest(googleLoginSchema), googleLogin);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 // OTP Routes
 /**
@@ -399,8 +364,6 @@ router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOT
  */
 router.get('/profile', protect, getUserProfile);
 router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
-<<<<<<< HEAD
-=======
 
 /**
  * @swagger
@@ -423,7 +386,6 @@ router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
  *       200:
  *         description: Push token updated
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.put('/push-token', protect, updatePushToken);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
@@ -435,8 +397,6 @@ export default router;
 
 // Logout routes - exported separately to be mounted without rate limiting
 export const logoutRouter = express.Router();
-<<<<<<< HEAD
-=======
 /**
  * @swagger
  * /accounts/auth/logout:
@@ -447,6 +407,5 @@ export const logoutRouter = express.Router();
  *       200:
  *         description: Logout successful
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 logoutRouter.post('/logout', logoutUser);
 logoutRouter.post('/logout/', logoutUser);

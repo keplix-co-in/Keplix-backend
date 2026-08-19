@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-﻿import prisma from "../../util/prisma.js";
-=======
 import prisma from "../../util/prisma.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -11,11 +7,6 @@ import prisma from "../../util/prisma.js";
 export const getVendorNotifications = async (req, res) => {
     try {
         const userId = req.params.user_id ? parseInt(req.params.user_id) : req.user.id;
-<<<<<<< HEAD
-        const notifications = await prisma.notification.findMany({
-            where: { userId: userId }, // Vendor is also a user
-            orderBy: { createdAt: 'desc' }
-=======
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const isRead = req.query.isRead;
@@ -43,7 +34,6 @@ export const getVendorNotifications = async (req, res) => {
                 limit,
                 totalPages: Math.ceil(total / limit)
             }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         });
     } catch (error) {
         console.error(error);

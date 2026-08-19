@@ -1,14 +1,4 @@
 import express from 'express';
-<<<<<<< HEAD
-import { getBookingMetrics, getBookings } from '../../controllers/Admin/bookingController.js';
-import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
-const router = express.Router();
-
-router.get("/bookings/counts", authAdmin, authorizeAdmin, getBookingMetrics);
-
-router.get("/bookings", authAdmin, authorizeAdmin, getBookings);
-
-=======
 import { getBookingMetrics, getBookings, forceCompleteBooking } from '../../controllers/Admin/bookingController.js';
 import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
@@ -52,5 +42,4 @@ router.get("/bookings", authAdmin, authorizeAdmin, getBookings);
  */
 router.post("/bookings/:id/force-complete", authAdmin, authorizeAdmin, forceCompleteBooking);
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 export default router;

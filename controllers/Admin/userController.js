@@ -147,20 +147,6 @@ export const getUsers = async (req, res) => {
 
 export const deleteUser = async (req, res) => {
   try {
-<<<<<<< HEAD
-
-    const { id } = req.params;
-
-    await prisma.user.delete({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    res.json({
-      message: "User deleted successfully"
-    });
-=======
     const { id } = req.params;
     const userId = Number(id);
 
@@ -181,7 +167,6 @@ export const deleteUser = async (req, res) => {
     });
 
     res.json({ message: "User deactivated (has existing booking history, so the account was deactivated rather than deleted)" });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   } catch (error) {
     console.error(error);

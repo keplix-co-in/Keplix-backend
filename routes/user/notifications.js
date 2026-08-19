@@ -161,10 +161,6 @@ router.put('/user/:userId/read-all', protect, markAllRead);
  */
 router.delete('/user/:userId/:id', protect, deleteNotification);
 
-// New escrow-compatible routes
-router.put('/user/:userId/notifications/read-all', protect, markAllRead);
-router.delete('/user/:userId/notifications/:id', protect, deleteNotification);
-
 // Aliases
 router.get('/users/:user_id/', protect, getNotifications); 
 router.put('/:id/mark-read/', protect, markRead);

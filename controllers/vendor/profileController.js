@@ -1,9 +1,6 @@
 ﻿
 import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
-<<<<<<< HEAD
-
-=======
 import Logger from "../../util/logger.js";
 
 /**
@@ -21,7 +18,6 @@ export const describePayoutAccount = async (vendorId) => {
     if (!account.isActive) return { ok: false, configured: false, reason: 'payout_account_inactive' };
     return { ok: true, configured: true };
 };
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -41,60 +37,8 @@ export const getVendorProfile = async (req, res) => {
             include: { user: true }
         });
 
-<<<<<<< HEAD
-        if (vendorProfile) {
-            // Calculate dynamic statistics
-            const vendorId = req.user.id;
-            
-            // 1. Get all services by this vendor
-            const services = await prisma.service.findMany({
-                where: { vendorId },
-                select: { id: true }
-            });
-            const serviceIds = services.map(s => s.id);
-            
-            // 2. Get all bookings for vendor's services
-            const bookings = await prisma.booking.findMany({
-                where: { 
-                    serviceId: { in: serviceIds },
-                    status: { in: ['completed', 'confirmed', 'ongoing'] }
-                },
-                include: { 
-                    payment: true,
-                    review: true 
-                }
-            });
-            
-            // 3. Calculate total orders
-            const total_orders = bookings.length;
-            
-            // 4. Calculate total earnings from completed payments
-            const total_earnings = bookings.reduce((sum, booking) => {
-                if (booking.payment && booking.payment.status === 'success') {
-                    return sum + parseFloat(booking.payment.vendorAmount || booking.payment.amount || 0);
-                }
-                return sum;
-            }, 0);
-            
-            // 5. Calculate average rating from reviews
-            const reviews = bookings.filter(b => b.review).map(b => b.review);
-            const average_rating = reviews.length > 0 
-                ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-                : "0.0";
-            
-            // Return profile with calculated stats
-            res.json({
-                ...vendorProfile,
-                rating: average_rating,
-                total_orders,
-                total_earnings: total_earnings.toFixed(2)
-            });
-        } else {
-            res.status(404).json({ message: 'Vendor profile not found' });
-=======
         if (!vendorProfile) {
             return res.status(404).json({ message: 'Vendor profile not found' });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         }
 
         const vendorId = req.user.id;
@@ -316,17 +260,6 @@ export const updateVendorProfile = async (req, res) => {
             }
         }
 
-        // Setup or update payout account if bank/UPI details were provided
-        if ((updates.bank_account_number !== undefined && updates.ifsc_code !== undefined) ||
-            updates.upi_id !== undefined) {
-            try {
-                await updateVendorPayoutAccount(req.user.id, vendorProfile);
-            } catch (payoutError) {
-                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
-                // Don't fail the profile update if payout setup fails
-            }
-        }
-
         // Return with 'user' field as ID for frontend compatibility (onboardingAPI expects .user to be ID)
         res.json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
@@ -361,11 +294,7 @@ export const createVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
-<<<<<<< HEAD
-        bank_account_number, ifsc_code
-=======
         bank_account_number, ifsc_code, upi_id
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     } = req.body;
 
 
@@ -435,19 +364,6 @@ export const createVendorProfile = async (req, res) => {
             data: { role: 'vendor' }
         });
 
-<<<<<<< HEAD
-        // Setup payout account if bank/UPI details were provided
-        if ((data.bank_account_number && data.ifsc_code) || data.upi_id) {
-            try {
-                await setupVendorPayoutAccount(req.user.id, vendorProfile);
-            } catch (payoutError) {
-                console.error('[VendorProfile] Failed to setup payout account:', payoutError);
-                // Don't fail the profile creation if payout setup fails
-            }
-        }
-
-        res.status(201).json({ ...vendorProfile, user: vendorProfile.userId });
-=======
         // Setup payout account if bank/UPI details were provided. Same
         // reasoning as the update path above: non-fatal, but never silent.
         let payoutSetup = { ok: true, configured: false, reason: 'no_bank_details_supplied' };
@@ -465,18 +381,12 @@ export const createVendorProfile = async (req, res) => {
         }
 
         res.status(201).json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     } catch (error) {
         console.error("Create Vendor Profile Error:", error); // Added detailed logging
         res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
     }
 };
 
-<<<<<<< HEAD
-// @desc    Update vendor online status
-// @route   PATCH /accounts/vendor/profile/online-status
-// @access  Private (Vendor)
-=======
 /**
  * Toggle vendor's online/offline status. Expects a boolean is_online in the request body.
  *
@@ -486,7 +396,6 @@ export const createVendorProfile = async (req, res) => {
  * @param {Object} res - Express response object
  * @returns {Object} { message, is_online }
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 export const updateOnlineStatus = async (req, res) => {
     try {
         const { is_online } = req.body;

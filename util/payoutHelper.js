@@ -4,10 +4,6 @@ import Logger from './logger.js';
 
 
 
-<<<<<<< HEAD
-// Initialize with Env Vars
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
-=======
 // Initialize with Env Vars. In production, fail fast instead of silently
 // falling back to placeholder credentials that would let payout calls fail
 // (or worse, hit Razorpay's real test placeholders) without anyone noticing.
@@ -22,7 +18,6 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
     key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
@@ -185,9 +180,6 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
     }
 };
 
-<<<<<<< HEAD
-// Payout Handler
-=======
 /**
  * initiateVendorPayout
  *
@@ -204,7 +196,6 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
  *   { success: true, payoutId, status } on success
  *   { success: false, error | message } on failure
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 export const initiateVendorPayout = async (payment, vendorId) => {
     Logger.info(`[Payout System] Initiating Payout for Payment ID: ${payment.id}`);
     Logger.info(`[Payout System] Amount to Vendor: ${payment.vendorAmount}`);
@@ -212,12 +203,6 @@ export const initiateVendorPayout = async (payment, vendorId) => {
 
     try {
         // Get vendor's payout account
-<<<<<<< HEAD
-        const payoutAccount = await prisma.vendorPayoutAccount.findUnique({
-            where: { vendorId }
-        });
-
-=======
         let payoutAccount = await prisma.vendorPayoutAccount.findUnique({
             where: { vendorId }
         });
@@ -228,33 +213,11 @@ export const initiateVendorPayout = async (payment, vendorId) => {
         // payout details — with no NODE_ENV gate, so it applied in production
         // too. A vendor with no verified payout account must block the payout
         // rather than have money routed to a shared placeholder account.
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         if (!payoutAccount || !payoutAccount.isActive) {
             throw new Error('Vendor payout account not found or inactive');
         }
 
         if (payment.method === 'stripe') {
-<<<<<<< HEAD
-            Logger.info(`[Payout System] Processing Stripe Transfer to ${payoutAccount.fundAccountId}`);
-
-            // ACTUAL IMPLEMENTATION (Commented out until Connected Accounts are set up)
-            /*
-            const transfer = await stripe.transfers.create({
-                amount: Math.round(payment.vendorAmount * 100),
-                currency: "inr",
-                destination: payoutAccount.fundAccountId, // This would need to be a Stripe connected account
-            });
-            return { success: true, payoutId: transfer.id, status: 'paid' };
-            */
-
-           // Mock Success
-           return { success: true, payoutId: "tr_" + Date.now(), status: "paid" };
-
-        } else if (payment.method === 'razorpay') {
-             Logger.info(`[Payout System] Processing RazorpayX Transfer to ${payoutAccount.fundAccountId}`);
-
-             // ACTUAL IMPLEMENTATION using RazorpayX
-=======
             // Stripe payouts were never actually implemented — this used to
             // return a fabricated { success: true, payoutId: "tr_"+Date.now() }
             // without calling Stripe at all, which marked the payment "paid"
@@ -271,7 +234,6 @@ export const initiateVendorPayout = async (payment, vendorId) => {
              // payout instead of creating a second transfer. reference_id alone
              // is stored for search/lookup on Razorpay's side, but it is not a
              // deduplication key — only the idempotency header is.
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
              const payout = await razorpayX.payouts.create({
                  account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER, // Keplix X account
                  fund_account_id: payoutAccount.fundAccountId,
@@ -280,11 +242,8 @@ export const initiateVendorPayout = async (payment, vendorId) => {
                  mode: "IMPS",
                  purpose: "payout",
                  reference_id: `payment_${payment.id}`,
-<<<<<<< HEAD
-=======
              }, {
                  "X-Payout-Idempotency": `payout_payment_${payment.id}`,
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
              });
 
              return { success: true, payoutId: payout.id, status: 'paid' };

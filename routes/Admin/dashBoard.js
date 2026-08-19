@@ -3,9 +3,6 @@ import { getDashboardMetrics , getDashboardDetails } from '../../controllers/Adm
 import {authAdmin, authorizeAdmin} from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
-<<<<<<< HEAD
-router.get("/dashboard/metrics", authAdmin, authorizeAdmin, getDashboardMetrics);
-=======
 /**
  * @swagger
  * /admin/dashboard/metrics:
@@ -32,7 +29,6 @@ router.get("/dashboard/metrics", authAdmin, authorizeAdmin, getDashboardMetrics)
  *       200:
  *         description: Dashboard revenue details retrieved successfully
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.get("/dashboard/revenue", authAdmin, authorizeAdmin, getDashboardDetails);
 
 export default router;

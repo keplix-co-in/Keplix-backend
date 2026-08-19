@@ -1,189 +1,10 @@
-<<<<<<< HEAD
-﻿// import Razorpay from 'razorpay';
-// import Stripe from 'stripe';
-// import prisma from "../../util/prisma.js";
-
-// 
-
-// const razorpay = new Razorpay({
-//     key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-//     key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
-// });
-
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
-
-// // @desc    Create Payment Order
-// // @route   POST /service_api/payments/order/create/
-// export const createPaymentOrder = async (req, res) => {
-//     try {
-//         const { amount, currency = "INR", gateway } = req.body;
-
-//         if (!amount) {
-//             return res.status(400).json({ message: "Amount is required" });
-//         }
-
-//         if (gateway === 'stripe') {
-//             // Stripe Payment Intent
-//             const paymentIntent = await stripe.paymentIntents.create({
-//                 amount: Math.round(amount * 100), // Stripe expects smallest currency unit
-//                 currency: currency.toLowerCase(),
-//                 automatic_payment_methods: {
-//                     enabled: true,
-//                 },
-//             });
-
-//             return res.json({
-//                 id: paymentIntent.id,
-//                 clientSecret: paymentIntent.client_secret,
-//                 gateway: 'stripe'
-//             });
-
-//         } else {
-//             // Default to Razorpay
-//             const options = {
-//                 amount: Math.round(amount * 100), // Razorpay also expects paise
-//                 currency: currency,
-//                 receipt: "order_" + Date.now(),
-//             };
-
-//             const order = await razorpay.orders.create(options);
-
-//             console.log('âœ… [Razorpay] Order created successfully:', {
-//                 orderId: order.id,
-//                 amount: order.amount,
-//                 currency: order.currency,
-//                 receipt: order.receipt,
-//                 status: order.status
-//             });
-
-//             return res.json({
-//                 id: order.id,
-//                 amount: order.amount,
-//                 currency: order.currency,
-//                 gateway: 'razorpay',
-//                 key_id: process.env.RAZORPAY_KEY_ID,
-//                 receipt: order.receipt,
-//                 status: order.status
-//             });
-//         }
-//     } catch (error) {
-//         console.error("Payment Order Error:", error);
-//         res.status(500).json({ message: "Payment creation failed", error: error.message });
-//     }
-// };
-
-// // @desc    Verify and Save Payment
-// // @route   POST /service_api/payments/verify/
-// export const verifyPayment = async (req, res) => {
-//     try {
-//         const { id, amount, currency, gateway, status, paymentId, signature, bookingId } = req.body;
-        
-//         // id = order ID (from create response)
-//         // paymentId = actual payment ID (if payment was completed)
-//         const orderId = id;
-//         const transactionId = paymentId || id; // Use paymentId if available, otherwise orderId
-
-//         console.log('[Payment Verify] Request received:', {
-//             orderId: id,
-//             paymentId,
-//             bookingId,
-//             gateway,
-//             amount,
-//             status
-//         });
-
-//         // For testing: bookingId is optional
-//         // In production, you should require it
-
-//         // 1. Verify Signature (Skipped for demo - assume secure if gateway confirms)
-//         // In prod, use razorpay.utils.verifyPaymentSignature or Stripe Webhooks
-
-//         // 2. Save to DB
-//         // Calculate Platform Fee (e.g., 10%)
-//         const totalAmount = parseFloat(amount || 0); 
-//         const platformFee = totalAmount * 0.10; 
-//         const vendorAmount = totalAmount - platformFee;
-
-//         const paymentData = {
-//             amount: totalAmount,
-//             currency: currency || 'INR',
-//             method: gateway || 'unknown',
-//             transactionId: transactionId,
-//             status: paymentId ? 'success' : 'pending', // Success if paymentId provided, otherwise pending
-//             vendorPayoutStatus: 'pending', // Waiting for service completion
-//             platformFee: platformFee,
-//             vendorAmount: vendorAmount
-//         };
-
-//         // Only link to booking if bookingId is provided
-//         if (bookingId) {
-//             paymentData.bookingId = parseInt(bookingId);
-//         }
-
-//         const payment = await prisma.payment.create({
-//             data: paymentData
-//         });
-
-//         console.log('âœ… [Payment Verify] Payment saved to database:', {
-//             paymentId: payment.id,
-//             amount: payment.amount,
-//             status: payment.status,
-//             transactionId: payment.transactionId
-//         });
-
-//         // 3. Update Booking Status to Confirmed (if bookingId provided)
-//         if (bookingId) {
-//             try {
-//                 await prisma.booking.update({
-//                     where: { id: parseInt(bookingId) },
-//                     data: { status: 'confirmed' }
-//                 });
-//                 console.log('âœ… [Payment Verify] Booking status updated to confirmed');
-//             } catch (bookingError) {
-//                 console.warn('âš ï¸  [Payment Verify] Could not update booking:', bookingError.message);
-//             }
-//         }
-
-//         res.json({ 
-//             status: "success", 
-//             message: bookingId 
-//                 ? "Payment verified and held in Escrow" 
-//                 : "Payment verified (test mode - no booking linked)", 
-//             paymentId: payment.id,
-//             amount: payment.amount,
-//             platformFee: payment.platformFee,
-//             vendorAmount: payment.vendorAmount
-//         });
-
-//     } catch (error) {
-//         console.error("Payment Verification Error:", error);
-//         res.status(500).json({ 
-//             message: "Payment verification failed",
-//             error: error.message 
-//         });
-//     }
-// };
-
-// // @desc    Get User Payments
-// // @route   GET /service_api/user/:user_id/payments/
-// export const getUserPayments = async (req, res) => {
-//     res.json([]); // Return empty list for now
-// };
-
 import Razorpay from "razorpay";
-import crypto from "crypto";
-=======
-import Razorpay from "razorpay";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
-<<<<<<< HEAD
-=======
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
 import { resolveBookingAmount } from "../../util/servicePricing.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -198,24 +19,6 @@ const razorpay = new Razorpay({
  */
 export const createPaymentOrder = async (req, res) => {
   try {
-<<<<<<< HEAD
-    const { amount, currency = "INR", gateway } = req.body;
-
-    if (!amount) {
-      return res.status(400).json({ message: "Amount is required" });
-    }
-    
-
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
-      currency,
-      receipt: `order_${Date.now()}`,
-    });
-
-    const responseData = {
-      id: order.id || order.orderId, // This must be present and a string!
-      orderId: order.id, 
-=======
     // `amount` is intentionally ignored — the client used to be able to
     // request an order for any amount it liked (e.g. ₹1 against a ₹5,000
     // booking), and verification never cross-checked it against the booking
@@ -290,7 +93,6 @@ export const createPaymentOrder = async (req, res) => {
     const responseData = {
       id: finalOrderId, // This must be present and a string!
       orderId: finalOrderId, 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       amount: order.amount,
       currency: order.currency,
       key_id: process.env.RAZORPAY_KEY_ID, 
@@ -311,95 +113,6 @@ export const createPaymentOrder = async (req, res) => {
  */
 export const verifyPayment = async (req, res) => {
   try {
-<<<<<<< HEAD
-    const {
-      orderId,
-      paymentId,
-      signature,
-      bookingId,
-      amount,
-      gateway
-    } = req.body;
-
-    // Verify Razorpay or Skip for Cash/Demo
-    // Also skip if signature is explicitly a mock one (for dev mode)
-    if (gateway !== 'cash' && gateway !== 'card' && gateway !== 'upi' && gateway !== 'netbanking' && !signature.startsWith('mock_')) {
-      const body = orderId + "|" + paymentId;
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(body)
-        .digest("hex");
-        //console.log(expectedSignature, signature)
-
-      if (expectedSignature !== signature) {
-          return res.status(400).json({ message: "Invalid payment signature" });
-      }
-    }
-    // Verified
-
-    // Commission calculation
-    const totalAmount = Number(amount);
-    const platformFee = totalAmount * 0.1; // 10%
-    const vendorAmount = totalAmount - platformFee;
-
-    // Save payment
-    const paymentData = {
-      amount: totalAmount,
-      currency: "INR",
-      status: "success",
-      method: gateway || "razorpay", // Use provided gateway method
-      transactionId: paymentId || `TXN${Date.now()}`,
-      platformFee,
-      vendorAmount,
-      vendorPayoutStatus: "pending",
-    };
-
-    let payment;
-    if (bookingId) {
-      payment = await prisma.payment.upsert({
-        where: { bookingId: Number(bookingId) },
-        update: paymentData,
-        create: {
-          bookingId: Number(bookingId),
-          ...paymentData,
-        },
-      });
-    } else {
-      payment = await prisma.payment.create({
-        data: paymentData,
-      });
-    }
-
-    // Update booking
-    if (bookingId) {
-      const updatedBooking = await prisma.booking.update({
-        where: { id: Number(bookingId) },
-        data: { status: "confirmed" },
-        include: { service: true }
-      });
-
-      // Notify Vendor about successful payment
-      if (updatedBooking.service && updatedBooking.service.vendorId) {
-        await createNotification(
-          updatedBooking.service.vendorId,
-          "ðŸ’° New Payment Received!",
-          `A user has paid for ${updatedBooking.service.name}. You can now start the service.`,
-          { type: 'PAYMENT_RECEIVED', bookingId: updatedBooking.id }
-        );
-
-        // Notify vendor via socket
-        const io = req.app.get("io");
-        if (io) {
-          io.to(`user_${updatedBooking.service.vendorId}`).emit("payment_received", {
-            bookingId: updatedBooking.id,
-            service: updatedBooking.service.name,
-            amount: payment.amount,
-            message: "Payment received! You can now start the service."
-          });
-        }
-      }
-    }
-=======
     const { orderId, paymentId, signature, bookingId, gateway } = req.body;
 
     const { payment, updatedBooking, platformFee, vendorAmount } = await verifyAndRecordPayment({
@@ -433,7 +146,6 @@ export const verifyPayment = async (req, res) => {
         }
       }
     }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     res.json({
       success: true,
@@ -444,12 +156,9 @@ export const verifyPayment = async (req, res) => {
     });
   } catch (error) {
     console.error("Verify payment error:", error);
-<<<<<<< HEAD
-=======
     if (error instanceof PaymentError) {
       return res.status(error.statusCode).json({ message: error.message });
     }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.status(500).json({ message: "Payment verification failed" });
   }
 };
@@ -461,11 +170,6 @@ export const verifyPayment = async (req, res) => {
 export const handleRazorpayWebhook = async (req, res) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-<<<<<<< HEAD
-    
-    if (!webhookSecret) {
-      Logger.error('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured');
-=======
 
     // The .env.example placeholder value is truthy, so a deployment that never
     // set a real secret would otherwise sail past the `!webhookSecret` check
@@ -473,7 +177,6 @@ export const handleRazorpayWebhook = async (req, res) => {
     // a valid HMAC for — meaning every real webhook silently fails forever.
     if (!webhookSecret || webhookSecret === 'your_razorpay_webhook_secret_here') {
       Logger.error('[Webhook] RAZORPAY_WEBHOOK_SECRET not configured (missing or placeholder)');
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       return res.status(500).json({ error: 'Webhook not configured' });
     }
 
@@ -488,8 +191,6 @@ export const handleRazorpayWebhook = async (req, res) => {
     const { event, payload } = req.body;
     Logger.info(`[Webhook] Received event: ${event}`);
 
-<<<<<<< HEAD
-=======
     // Dedupe/replay protection. Razorpay retries webhook delivery on
     // timeout/non-2xx, and a captured valid webhook body+signature is
     // otherwise replayable indefinitely (nothing about the signature check
@@ -520,7 +221,6 @@ export const handleRazorpayWebhook = async (req, res) => {
       throw dedupeErr;
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Handle different payment events
     switch (event) {
       case 'payment.captured':
@@ -534,9 +234,6 @@ export const handleRazorpayWebhook = async (req, res) => {
       case 'order.paid':
         Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
         break;
-<<<<<<< HEAD
-        
-=======
 
       // Refund outcomes. issueRefund writes 'gateway_confirmed' the moment the
       // API call returns, but the refund is only actually settled later —
@@ -550,7 +247,6 @@ export const handleRazorpayWebhook = async (req, res) => {
         break;
 
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       default:
         Logger.info(`[Webhook] Unhandled event type: ${event}`);
     }
@@ -565,22 +261,6 @@ export const handleRazorpayWebhook = async (req, res) => {
 // Helper: Handle payment captured event
 async function handlePaymentCaptured(payment) {
   try {
-<<<<<<< HEAD
-    const { id, order_id, amount, status } = payment;
-    
-    Logger.info(`[Webhook] Payment captured: ${id}, Amount: ${amount / 100}`);
-    
-    // Update payment record if exists
-    const existingPayment = await prisma.payment.findFirst({
-      where: { transactionId: id }
-    });
-
-    if (existingPayment) {
-      await prisma.payment.update({
-        where: { id: existingPayment.id },
-        data: { status: 'success' }
-      });
-=======
     const { id, order_id, amount, notes } = payment;
 
     Logger.info(`[Webhook] Payment captured: ${id}, Amount: ${amount / 100}`);
@@ -604,7 +284,6 @@ async function handlePaymentCaptured(payment) {
     } else if (result.created) {
       Logger.info(`[Webhook] Payment ${id} created and booking confirmed from webhook (client never called /verify)`);
     } else {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       Logger.info(`[Webhook] Payment ${id} updated to success`);
     }
   } catch (error) {
@@ -623,21 +302,6 @@ async function handlePaymentFailed(payment) {
       where: { transactionId: id }
     });
 
-<<<<<<< HEAD
-    if (existingPayment) {
-      await prisma.payment.update({
-        where: { id: existingPayment.id },
-        data: { status: 'failed' }
-      });
-      
-      // Update booking back to pending
-      if (existingPayment.bookingId) {
-        await prisma.booking.update({
-          where: { id: existingPayment.bookingId },
-          data: { status: 'pending' }
-        });
-      }
-=======
     // A late payment.failed delivery must not revert a payment that has
     // already succeeded and possibly been paid out to the vendor — webhook
     // events aren't guaranteed to arrive in order, and Razorpay can retry
@@ -661,15 +325,12 @@ async function handlePaymentFailed(payment) {
       Logger.info(`[Webhook] Payment ${id} updated to failed and booking reverted to pending`);
     } else if (existingPayment) {
       Logger.warn(`[Webhook] Ignored stale payment.failed for already-successful payment ${id}`);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
   }
 }
 
-<<<<<<< HEAD
-=======
 // Helper: Handle refund processed event
 //
 // issueRefund optimistically marks a row 'processed' once its own bookkeeping
@@ -747,6 +408,5 @@ async function handleRefundFailed(refundEntity) {
   }
 }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 

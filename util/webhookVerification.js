@@ -16,10 +16,6 @@ export const verifyRazorpayWebhook = (req, webhookSecret) => {
       return false;
     }
 
-<<<<<<< HEAD
-    // Razorpay sends signature as HMAC SHA256 of raw request body
-    const body = JSON.stringify(req.body);
-=======
     // Razorpay sends signature as HMAC SHA256 of the raw request body bytes.
     // Re-serializing req.body via JSON.stringify is unreliable (key order/whitespace
     // can differ from what was actually sent), so use the raw buffer captured by
@@ -29,20 +25,11 @@ export const verifyRazorpayWebhook = (req, webhookSecret) => {
       return false;
     }
     const body = req.rawBody;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
       .update(body)
       .digest('hex');
 
-<<<<<<< HEAD
-    const isValid = receivedSignature === expectedSignature;
-    
-    if (!isValid) {
-      Logger.error('[Webhook] Invalid signature detected');
-      Logger.error(`[Webhook] Expected: ${expectedSignature}`);
-      Logger.error(`[Webhook] Received: ${receivedSignature}`);
-=======
     // Constant-time compare, and buffers must be equal length before
     // timingSafeEqual (it throws otherwise) — a length mismatch is just an
     // invalid signature, not an error.
@@ -57,7 +44,6 @@ export const verifyRazorpayWebhook = (req, webhookSecret) => {
       // body, and logging it on every failed attempt effectively writes a
       // usable forged signature to disk for anyone who can read the logs.
       Logger.error('[Webhook] Invalid signature detected');
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
 
     return isValid;

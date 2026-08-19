@@ -14,9 +14,6 @@ const router = express.Router();
  *         description: List of all services
  */
 router.get('/services', getAllServices);
-<<<<<<< HEAD
-router.get('/services/featured', getFeaturedServices);
-=======
 
 /**
  * @swagger
@@ -46,7 +43,6 @@ router.get('/services/featured', getFeaturedServices);
  *       200:
  *         description: Service details
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.get('/services/:id', getServiceById);
 
 /**
@@ -81,7 +77,6 @@ router.get('/categories', getServiceCategories);
  *         description: Search results
  */
 router.get('/search', searchVendorsByLocation);
-router.get('/vendors/:vendorId/services', getServicesByVendor);
 
 /**
  * @swagger

@@ -1,17 +1,6 @@
 import express from 'express';
 import { getUserProfileData, updateUserProfile } from '../../controllers/user/profileController.js';
 import { protect } from '../../middleware/authMiddleware.js';
-<<<<<<< HEAD
-import upload from '../../middleware/uploadMiddleware.js';
-
-const router = express.Router();
-
-// GET /service_api/user/:userId/profile
-router.get('/:userId/profile', protect, getUserProfileData);
-
-// PUT /service_api/user/:userId/profile
-router.put('/:userId/profile', protect, upload.single('profile_picture'), updateUserProfile);
-=======
 import {uploadSingle} from '../../middleware/uploadMiddleware.js';
 
 const router = express.Router();
@@ -70,6 +59,5 @@ router.get('/:userId/profile', protect, getUserProfileData);
  *         description: User profile updated successfully
  */
 router.put('/:userId/profile', protect, uploadSingle('profile_picture'), updateUserProfile);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export default router;

@@ -1,14 +1,3 @@
-<<<<<<< HEAD
-import express from "express";;
-import { triggerVendorPayout } from "../../controllers/vendor/vendorPayoutController.js";
-import { protect } from "../../middleware/authMiddleware.js";
-import { validateRequest } from "../../middleware/validationMiddleware.js"; // don't have schema for this yet
-
-
-const router = express.Router();
-
-router.post("/vendor/payout", protect, triggerVendorPayout );
-=======
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { triggerVendorPayout } from "../../controllers/vendor/vendorPayoutController.js";
@@ -50,4 +39,3 @@ const vendorPayoutLimiter = rateLimit({
 router.post("/vendor/payout", vendorPayoutLimiter, protect, triggerVendorPayout );
 
 export default router;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

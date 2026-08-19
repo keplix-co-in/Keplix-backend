@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-﻿import prisma from "../../util/prisma.js";
-import { createNotification } from "../../util/notificationHelper.js";
-
-
-=======
 import prisma from "../../util/prisma.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { resolveServiceAmount } from "../../util/servicePricing.js";
@@ -12,7 +6,6 @@ import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 
 
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
 export const getPaymentByBooking = async (req, res) => {
@@ -72,14 +65,10 @@ export const getUserBookings = async (req, res) => {
         service: {
           include: { vendor: { include: { vendorProfile: true } } },
         },
-<<<<<<< HEAD
-        payment: true, // Include Payment info
-=======
         // Refunds ride along with the payment so the app can answer "where is
         // my money" without a second round trip — which is what most refund
         // support contacts actually are.
         payment: { include: { refunds: true } },
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       },
       orderBy: { booking_date: "desc" },
     });
@@ -131,11 +120,7 @@ export const getSingleBooking = async (req, res) => {
         service: {
           include: { vendor: { include: { vendorProfile: true } } },
         },
-<<<<<<< HEAD
-        payment: true,
-=======
         payment: { include: { refunds: true } },
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         review: true
       },
     });
@@ -144,19 +129,13 @@ export const getSingleBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-<<<<<<< HEAD
-    res.json(booking);
-=======
     res.json({ ...booking, refund: buildRefundView({ booking, payment: booking.payment }) });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
   }
 };
 
-<<<<<<< HEAD
-=======
 // @desc    What a customer would get back if they cancelled this booking now
 // @route   GET /service_api/user/:userId/bookings/:id/cancellation-preview
 //
@@ -205,64 +184,10 @@ export const getCancellationPreview = async (req, res) => {
   }
 };
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 // @desc    Create a new booking request (vendor must accept before payment)
 // @route   POST /service_api/bookings/
 export const createBooking = async (req, res) => {
 
-<<<<<<< HEAD
-    const { serviceId, booking_date, booking_time, notes } = req.body;
-
-    try {
-        // Create booking with vendor_status = 'pending' (waiting for vendor acceptance)
-        const booking = await prisma.booking.create({
-            data: {
-                userId: req.user.id,
-                serviceId: serviceId, // Already validated as number by Zod
-                booking_date: new Date(booking_date),
-                booking_time,
-                notes,
-                vendor_status: 'pending', // Vendor must accept/reject
-                status: 'pending', // Overall status
-                conversation: {
-                    create: {} // Automatically create a conversation for this booking
-                }
-            },
-            include: { 
-                service: true,
-                user: {
-                    include: {
-                        userProfile: true
-                    }
-                }
-            }
-        });
-
-        // Notify Vendor about new request
-        if (booking.service && booking.service.vendorId) {
-            try {
-                await createNotification(
-                    booking.service.vendorId, 
-                    "New Service Request", 
-                    `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
-                    { type: 'NEW_BOOKING_ALERT', bookingId: booking.id }
-                );
-            } catch (notifError) {
-                console.error(`[BOOKING] Failed to send notification:`, notifError);
-            }
-            
-            // Get socket instance and notify vendor in real-time
-            const io = req.app.get("io");
-            if (io) {
-                io.to(`user_${booking.service.vendorId}`).emit("new_service_request", {
-                    bookingId: booking.id,
-                    service: booking.service.name,
-                    userName: booking.user.userProfile?.name || 'User',
-                    date: booking_date,
-                    time: booking_time,
-                    message: "You have a new service request! Please accept or reject."
-                });
-=======
     const { serviceId, booking_date, booking_time, notes, vehicleId } = req.body;
 
     try {
@@ -357,7 +282,6 @@ export const createBooking = async (req, res) => {
                 });
             } catch (notifyError) {
                 console.error('Failed to queue NEW_BOOKING_ALERT for booking', booking.id, notifyError);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             }
         }
 
@@ -458,50 +382,6 @@ export const updateBooking = async (req, res) => {
       include: { service: true }
     });
 
-<<<<<<< HEAD
-    if (status === "cancelled") {
-         await createNotification(
-            updatedBooking.service.vendorId,
-            "Booking Cancelled",
-             `Booking for ${updatedBooking.service.name} was cancelled by the user.`
-        );
-
-        // Socket notify vendor
-        const io = req.app.get("io");
-        if (io) {
-            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_cancelled", {
-                bookingId: updatedBooking.id,
-                service: updatedBooking.service.name,
-                message: "This booking was cancelled by the user."
-            });
-        }
-    }
-
-    // Emit booking_updated event for both user and vendor when booking is modified
-    const io = req.app.get("io");
-    if (io) {
-
-        // Notify the user who made the change
-        io.to(`user_${req.user.id}`).emit("booking_updated", {
-            bookingId: updatedBooking.id,
-            action: status === "cancelled" ? "cancelled" : "updated",
-            message: status === "cancelled" ? "Your booking was cancelled" : "Your booking was updated"
-        });
-
-        // Notify the vendor if it's not a cancellation (vendors get specific cancellation events)
-        if (status !== "cancelled") {
-            io.to(`user_${updatedBooking.service.vendorId}`).emit("booking_updated", {
-                bookingId: updatedBooking.id,
-                action: "rescheduled",
-                message: `Booking for ${updatedBooking.service.name} was rescheduled by the user`
-            });
-        }
-    } else {
-      // socket.io not available
-    }
-
-    res.json(updatedBooking);
-=======
     // === CANCELLATION REFUND ===
     // Uses `booking` (pre-update) deliberately: resolveCancellationRefund
     // decides from the status the booking had BEFORE it became 'cancelled'.
@@ -664,7 +544,6 @@ export const updateBooking = async (req, res) => {
     }
 
     res.json(refundView ? { ...updatedBooking, refund: refundView } : updatedBooking);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });

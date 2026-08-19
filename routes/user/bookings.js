@@ -1,9 +1,5 @@
 import express from 'express';
-<<<<<<< HEAD
-import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment } from '../../controllers/user/bookingController.js';
-=======
 import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment, getCancellationPreview } from '../../controllers/user/bookingController.js';
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 import { confirmServiceCompletion, disputeServiceCompletion } from '../../controllers/user/serviceConfirmationController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -18,20 +14,6 @@ const router = express.Router();
 
 import { getPaymentByBooking } from '../../controllers/user/bookingController.js';
 
-<<<<<<< HEAD
-// Matches GET /service_api/user/:userId/bookings
-router.get('/:userId/bookings', protect, getUserBookings);
-
-// Matches GET /service_api/user/:userId/bookings/:id (Get single booking)
-router.get('/:userId/bookings/:id', protect, getSingleBooking);
-
-// Matches GET /service_api/user/:userId/bookings/:id/can-pay (Check if vendor accepted)
-router.get('/:userId/bookings/:id/can-pay', protect, canProceedToPayment);
-
-// Matches GET /service_api/bookings/:bookingId/payment (fetch payment by bookingId)
-router.get('/bookings/:bookingId/payment', protect, getPaymentByBooking);
-
-=======
 /**
  * @swagger
  * /service_api/user/{userId}/bookings:
@@ -203,7 +185,6 @@ router.get('/bookings/:bookingId/payment', protect, getPaymentByBooking);
  *       500:
  *         description: Server Error
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 // Matches POST /service_api/user/:userId/bookings/create
 router.post('/:userId/bookings/create', protect, validateRequest(createBookingSchema), createBooking);
 
@@ -257,14 +238,6 @@ router.post('/:userId/bookings/create', protect, validateRequest(createBookingSc
 router.put('/:userId/bookings/update/:id', protect, validateRequest(updateBookingSchema), updateBooking);
 
 // CRITICAL ESCROW ENDPOINTS
-<<<<<<< HEAD
-// User confirms service completion → Triggers vendor payout
-router.post('/:userId/bookings/:id/confirm', protect, validateRequest(confirmServiceSchema), confirmServiceCompletion);
-
-// User disputes service → Blocks payout, requires admin review
-router.post('/:userId/bookings/:id/dispute', protect, validateRequest(disputeServiceSchema), disputeServiceCompletion);
-
-=======
 /**
  * @swagger
  * /service_api/user/{userId}/bookings/{id}/confirm:
@@ -407,7 +380,6 @@ router.post('/:userId/bookings/:id/dispute', protect, validateRequest(disputeSer
  *       500:
  *         description: Server Error
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 // Alias: Allow standard REST path if needed by other components
 router.get('/bookings', protect, getUserBookings);
 router.post('/bookings', protect, validateRequest(createBookingSchema), createBooking);

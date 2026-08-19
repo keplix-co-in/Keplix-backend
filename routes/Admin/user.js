@@ -3,10 +3,6 @@ import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.
 import { getUserMetrics, getUsers, deleteUser } from '../../controllers/Admin/userController.js';
 const router = express.Router();
 
-<<<<<<< HEAD
-router.get("/users/metrics", authAdmin, authorizeAdmin, getUserMetrics);
-router.get("/users", authAdmin, authorizeAdmin, getUsers);
-=======
 /**
  * @swagger
  * /admin/users/metrics:
@@ -53,7 +49,6 @@ router.get("/users", authAdmin, authorizeAdmin, getUsers);
  *       200:
  *         description: User deleted successfully
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.delete("/users/:id", authAdmin, authorizeAdmin, deleteUser);
 
 

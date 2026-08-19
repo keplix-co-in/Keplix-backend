@@ -60,8 +60,6 @@ export const sendSMS = async (to, message) => {
         Logger.info(`[FALLBACK MOCK SMS] To: ${to} | Message: ${message}`);
         return false;
     }
-<<<<<<< HEAD
-=======
 };
 
 /**
@@ -110,7 +108,6 @@ export const sendWhatsApp = async (to, contentSid, variables = {}) => {
         Logger.info(`[FALLBACK MOCK WHATSAPP] To: ${to} | Template: ${contentSid}`);
         return false;
     }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 };
 
 export const sendPushNotification = async (token, title, body, data = {}) => {

@@ -3,10 +3,6 @@ import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.
 import { getVendorMetrics, getVendors } from '../../controllers/Admin/vendorController.js';
 const router = express.Router();
 
-<<<<<<< HEAD
-router.get("/vendors/metrics", authAdmin, authorizeAdmin, getVendorMetrics);
-
-=======
 /**
  * @swagger
  * /admin/vendors/metrics:
@@ -33,7 +29,6 @@ router.get("/vendors/metrics", authAdmin, authorizeAdmin, getVendorMetrics);
  *       200:
  *         description: Vendors retrieved successfully
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.get("/vendors", authAdmin, authorizeAdmin, getVendors);
 
 

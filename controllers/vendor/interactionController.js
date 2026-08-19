@@ -121,21 +121,12 @@ export const getVendorConversations = async (req, res) => {
 export const getVendorMessages = async (req, res) => {
     try {
         const conversationId = req.params.conversationId || req.query.conversation_id;
-<<<<<<< HEAD
-=======
         const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
         if (!conversationId) {
             return res.status(400).json({ message: 'Conversation ID required' });
         }
 
-<<<<<<< HEAD
-        const messages = await prisma.message.findMany({
-            where: { conversationId: Number(conversationId) },
-            orderBy: { sent_at: 'asc' }, // Ensure correct ordering
-            include: { 
-=======
         const where = { conversationId: Number(conversationId) };
         if (before) {
             where.id = { lt: Number(before) };
@@ -147,7 +138,6 @@ export const getVendorMessages = async (req, res) => {
             orderBy: { sent_at: 'desc' },
             take: Number(limit),
             include: {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
                 sender: {
                     select: {
                         id: true,
@@ -157,11 +147,7 @@ export const getVendorMessages = async (req, res) => {
             }
         });
 
-<<<<<<< HEAD
-        res.json(messages); 
-=======
         res.json(messages.reverse());
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

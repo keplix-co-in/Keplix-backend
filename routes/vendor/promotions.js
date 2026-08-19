@@ -71,12 +71,6 @@ router.get('/:vendorId/promotions', protect, getPromotions);
  */
 router.post('/:vendorId/promotions/create', protect, validateRequest(createPromotionSchema), createPromotion);
 
-<<<<<<< HEAD
-// UPDATE/DELETE likely needed too if frontend uses them
-// api.js: /interactions/vendors/${vendorId}/promotions/${promoId}/update/
-router.put('/:vendorId/promotions/:promoId/update', protect, updatePromotion); // Temporarily using create controller if update missing
-router.delete('/:vendorId/promotions/:promoId/delete', protect, deletePromotion); // Temporarily using create controller
-=======
 /**
  * @swagger
  * /interactions/vendors/{vendorId}/promotions/{promoId}/update:
@@ -146,6 +140,5 @@ router.put('/:vendorId/promotions/:promoId/update', protect, updatePromotion);
  *         description: Promotion deleted successfully
  */
 router.delete('/:vendorId/promotions/:promoId/delete', protect, deletePromotion);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export default router;

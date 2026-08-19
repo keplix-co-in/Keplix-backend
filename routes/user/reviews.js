@@ -46,7 +46,6 @@ router.get('/reviews', protect, getReviews);
  *         description: Review created
  */
 router.post('/reviews/create', protect, validateRequest(createReviewSchema), createReview);
-router.delete('/reviews/:id', protect, deleteReview);
 
 /**
  * @swagger

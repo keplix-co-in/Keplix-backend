@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-﻿import prisma from "../../util/prisma.js";
-=======
 import prisma from "../../util/prisma.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 

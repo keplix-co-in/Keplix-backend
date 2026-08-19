@@ -1,73 +1,23 @@
 import jwt from "jsonwebtoken";
 import prisma from "../util/prisma.js";
-<<<<<<< HEAD
 
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "django-insecure-secret-key-replacement";
-=======
-import redisConnection from "../util/redis.js";
-
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const USER_CACHE_TTL_SECONDS = 60;
-const userCacheKey = (id) => `auth:user:${id}`;
 
 /**
- * Reads a cached user record from Redis.
- * @param {string|number} id - User id used to build the cache key.
- * @returns {Promise<object|null>} Parsed user object, or null on cache miss/error.
- */
-const getCachedUser = async (id) => {
-  try {
-    const cached = await redisConnection.get(userCacheKey(id));
-    return cached ? JSON.parse(cached) : null;
-  } catch (error) {
-    console.error("Auth cache read error:", error);
-    return null;
-  }
-};
-
-/**
- * Writes a user record to Redis with a fixed TTL.
- * @param {string|number} id - User id used to build the cache key.
- * @param {object} user - User object (with profiles included) to cache.
- * @returns {Promise<void>}
- */
-const setCachedUser = async (id, user) => {
-  try {
-    await redisConnection.set(
-      userCacheKey(id),
-      JSON.stringify(user),
-      "EX",
-      USER_CACHE_TTL_SECONDS
-    );
-  } catch (error) {
-    console.error("Auth cache write error:", error);
-  }
-};
-
-/**
- * Deletes a user's cached record from Redis, forcing the next request to hit the DB.
- * @param {string|number} id - User id whose cache entry should be invalidated.
- * @returns {Promise<void>}
- */
-export const invalidateUserCache = async (id) => {
-  try {
-    await redisConnection.del(userCacheKey(id));
-  } catch (error) {
-    console.error("Auth cache invalidate error:", error);
-  }
-};
-
-const blacklistTokenKey = (token) => `auth:blacklist:${token}`;
-
-/**
- * Blacklists a JWT in Redis until it would naturally expire, so logged-out
- * tokens are rejected without needing a DB row or a cleanup job.
+ * Marks a JWT as logged out, until it would naturally expire.
+ *
+ * This was a Redis SET with an EX ttl. It is now a row in BlacklistedToken --
+ * a model that already existed in the schema, unused. Redis was removed
+ * outright (see util/jobQueue.js for the full reasoning); the one capability
+ * genuinely lost is Redis expiring these rows for us, so the hourly cron in
+ * queues/otpCleanupQueue.js prunes them instead.
+ *
+ * A token past its own `exp` needs no row at all: jwt.verify rejects it on
+ * signature expiry regardless of what this table says.
+ *
  * @param {string} token - Raw JWT string to blacklist.
- * @param {number} expUnixSeconds - Token's `exp` claim (Unix seconds); used to compute remaining TTL.
+ * @param {number} expUnixSeconds - Token's `exp` claim (Unix seconds).
  * @returns {Promise<void>}
  */
 export const blacklistToken = async (token, expUnixSeconds) => {
@@ -75,23 +25,39 @@ export const blacklistToken = async (token, expUnixSeconds) => {
   if (ttlSeconds === 0) return;
 
   try {
-    await redisConnection.set(blacklistTokenKey(token), "1", "EX", ttlSeconds);
+    // upsert, not create: logging out twice with the same token must not throw
+    // on the unique constraint.
+    await prisma.blacklistedToken.upsert({
+      where: { token },
+      update: { expiresAt: new Date(expUnixSeconds * 1000) },
+      create: { token, expiresAt: new Date(expUnixSeconds * 1000) },
+    });
   } catch (error) {
     console.error("Auth blacklist write error:", error);
   }
 };
 
 /**
- * Checks whether a JWT has been blacklisted (e.g. via logout). Fails closed:
- * a Redis error is treated as blacklisted, since this is a security check and
- * silently letting a logged-out token through on an outage is unacceptable.
+ * Checks whether a JWT has been blacklisted (e.g. via logout).
+ *
+ * Fails CLOSED, and that is no longer the liability it was. When this lived in
+ * Redis, failing closed meant an unrelated cache outage 401'd every
+ * authenticated request in both apps -- which is exactly what happened when the
+ * hosted Redis quota ran out. The check now runs against Postgres, the same
+ * database the very next line of this middleware must query to load the user.
+ * There is no partial-failure mode left to protect against: if this query
+ * cannot run, nothing downstream could have served the request anyway.
+ *
  * @param {string} token - Raw JWT string to check.
- * @returns {Promise<boolean>} True if blacklisted or if the Redis check errored; false otherwise.
+ * @returns {Promise<boolean>} True if blacklisted, or if the lookup errored.
  */
 const isTokenBlacklisted = async (token) => {
   try {
-    const result = await redisConnection.get(blacklistTokenKey(token));
-    return result !== null;
+    const row = await prisma.blacklistedToken.findUnique({
+      where: { token },
+      select: { id: true },
+    });
+    return row !== null;
   } catch (error) {
     console.error("Auth blacklist read error:", error);
     return true;
@@ -100,11 +66,27 @@ const isTokenBlacklisted = async (token) => {
 
 /**
  * Checks whether a refresh token has been blacklisted (e.g. by a prior
- * rotation or logout). Same fail-closed semantics as isTokenBlacklisted.
+ * rotation or logout).
  * @param {string} token - Raw refresh JWT string to check.
- * @returns {Promise<boolean>} True if blacklisted or if the Redis check errored; false otherwise.
+ * @returns {Promise<boolean>} True if blacklisted or if the lookup errored.
  */
 export const isRefreshTokenBlacklisted = isTokenBlacklisted;
+
+/**
+ * No-op retained for API compatibility.
+ *
+ * The 60-second Redis user cache this used to invalidate is gone along with
+ * Redis. `protect` now reads the user straight from Postgres on every request,
+ * which is a query it already made on every cache miss. Callers are left in
+ * place so that reintroducing a cache later has an obvious seam, and so this
+ * change does not ripple into unrelated call sites.
+ *
+ * @param {string|number} _id - Ignored.
+ * @returns {Promise<void>}
+ */
+export const invalidateUserCache = async (_id) => {
+  // Intentionally empty: there is no cache to invalidate.
+};
 
 /**
  * Express middleware that authenticates a request via Bearer JWT, checking a
@@ -127,13 +109,7 @@ export const protect = async (req, res, next) => {
 
       //check if token is blacklisted (added during logout)
 
-<<<<<<< HEAD
-      const blacklisted = await prisma.blacklistedToken.findUnique({
-        where: { token },
-      });
-=======
       const blacklisted = await isTokenBlacklisted(token);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
       if (blacklisted) {
         return res.status(401).json({ message: "Token has been logged out" });
@@ -141,25 +117,12 @@ export const protect = async (req, res, next) => {
 
       const decoded = jwt.verify(token, JWT_SECRET);
 
-<<<<<<< HEAD
+      // Straight to Postgres. The 60s Redis cache that used to sit in front of
+      // this is gone; this is the same query that ran on every cache miss.
       req.user = await prisma.user.findUnique({
         where: { id: decoded.id },
         include: { userProfile: true, vendorProfile: true },
       });
-=======
-      req.user = await getCachedUser(decoded.id);
-
-      if (!req.user) {
-        req.user = await prisma.user.findUnique({
-          where: { id: decoded.id },
-          include: { userProfile: true, vendorProfile: true },
-        });
-
-        if (req.user) {
-          await setCachedUser(decoded.id, req.user);
-        }
-      }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
             if (!req.user) {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
@@ -170,20 +133,6 @@ export const protect = async (req, res, next) => {
                  return res.status(403).json({ message: 'Account is inactive' });
             }
 
-<<<<<<< HEAD
-      next();
-    } catch (error) {
-      console.error('Auth Middleware Error:', error);
-      const message =
-        error.message === "Not authorized, user not found" ||
-        error.message === "Account is inactive"
-          ? error.message
-          : "Not authorized, token failed";
-      return res.status(401).json({ message });
-    }
-  }
-
-=======
             if (req.user.is_verified === false) {
                  const hasProfile = req.user.userProfile || req.user.vendorProfile;
                  if (hasProfile) {
@@ -211,7 +160,6 @@ export const protect = async (req, res, next) => {
     }
   }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   if (!token) {
     return res.status(401).json({ message: "Not authorized, no token" });
   }

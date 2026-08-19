@@ -1,8 +1,5 @@
 import prisma from "../../util/prisma.js";
-<<<<<<< HEAD
-=======
 import Logger from "../../util/logger.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -164,9 +161,6 @@ export const getBookings = async (req, res) => {
     console.error(error);
     res.status(500).json({ message: "Bookings fetch failed" });
   }
-<<<<<<< HEAD
-};
-=======
 };
 // @desc    Force-complete a booking without a submitted health sheet — the
 //          escape hatch if the mandatory-inspection gate misfires or a
@@ -211,4 +205,3 @@ export const forceCompleteBooking = async (req, res) => {
     return res.status(500).json({ message: "Server Error" });
   }
 };
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

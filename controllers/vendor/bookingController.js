@@ -2,11 +2,8 @@
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
-<<<<<<< HEAD
-=======
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -39,16 +36,6 @@ export const getVendorBookings = async (req, res) => {
     if (serviceName) query.service = { name: { contains: serviceName } };
     if (token) query.id = parseInt(token);
 
-<<<<<<< HEAD
-    // For order alerts, exclude past bookings (bookings that have already passed)
-    // Only show future bookings or bookings from today onwards
-    // EXCEPTION: For completed/cancelled bookings, show all historical records
-    const now = new Date();
-    const hasDateFilter = date || date_from || date_to;
-    const isCompletedStatus = status && (status.includes('completed') || status.includes('cancelled'));
-    
-    if (!hasDateFilter && !isCompletedStatus) { // Only apply time filter when no specific date filters are set AND not completed/cancelled
-=======
     // The "today onwards" default only makes sense for bookings that are
     // still ABOUT a future date — pending/confirmed/scheduled. Once a
     // booking is in_progress, service_completed, completed, cancelled,
@@ -66,7 +53,6 @@ export const getVendorBookings = async (req, res) => {
       !requestedStatuses || requestedStatuses.every((s) => FORWARD_LOOKING_STATUSES.includes(s));
 
     if (!hasDateFilter && isForwardLookingOnly) {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       query.booking_date = {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
       };
@@ -198,18 +184,6 @@ export const respondToServiceRequest = async (req, res) => {
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
   const { status, notes } = req.body;
-<<<<<<< HEAD
-  const files = req.files || [];
-
-  try {
-
-    // Validate Status Transitions for "Ongoing" Tab Features
-    const currentBooking = await prisma.booking.findUnique({
-      where: { id: parseInt(req.params.id) },
-      select: { status: true }
-    });
-
-=======
 
   try {
 
@@ -230,7 +204,6 @@ export const updateBookingStatus = async (req, res) => {
 
     // Deliberately 404, not 403: a vendor should not be able to probe which
     // booking ids exist on other vendors.
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     if (!currentBooking) {
       return res.status(404).json({ message: "Booking not found" });
     }
@@ -238,13 +211,8 @@ export const updateBookingStatus = async (req, res) => {
     if (status) {
         // 1. Start Service: confirmed -> in_progress
         if (status === 'in_progress' && currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
-<<<<<<< HEAD
-            return res.status(400).json({ 
-                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}` 
-=======
             return res.status(400).json({
                 message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             });
         }
 
@@ -254,15 +222,6 @@ export const updateBookingStatus = async (req, res) => {
              // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
              // User prompt: "in_progress -> service_completed" logic implies flow.
              if (currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
-<<<<<<< HEAD
-                return res.status(400).json({ 
-                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}` 
-                });
-             }
-        }
-    }
-    
-=======
                 return res.status(400).json({
                     message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`
                 });
@@ -297,18 +256,12 @@ export const updateBookingStatus = async (req, res) => {
         }
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Prepare update data
     const updateData = { status };
     if (notes) {
       updateData.notes = notes;
     }
 
-<<<<<<< HEAD
-    if (files.length > 0) {
-        const imageUrls = files.map(file => file.path); // Cloudinary uses 'path' or 'secure_url'
-        updateData.completion_images = imageUrls;
-=======
     // uploadFieldss sets req.files to an OBJECT keyed by field name, not an
     // array. The previous code did `(req.files || []).length > 0`, which is
     // `undefined > 0` — always false — so completion images were silently
@@ -324,7 +277,6 @@ export const updateBookingStatus = async (req, res) => {
         // reads this back yet (it has never contained data), so comma-separated
         // is a free choice — but whatever consumes it must split on ','.
         updateData.completion_images = imageUrls.join(',');
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
 
     const booking = await prisma.booking.update({
@@ -335,8 +287,6 @@ export const updateBookingStatus = async (req, res) => {
         service: true
       }
     });
-<<<<<<< HEAD
-=======
 
     // === ESCROW HOLD ===
     // Completion is what puts this booking on the payout path, so it is also
@@ -363,7 +313,6 @@ export const updateBookingStatus = async (req, res) => {
       }
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // === NOTIFICATIONS ===
     let title = "Booking Update";
     let body = `Your booking for ${booking.service.name} is now ${status}`;

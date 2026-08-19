@@ -17,10 +17,7 @@ model User {
   fcmToken            String?
   device_type         String?
   pushToken           String?
-<<<<<<< HEAD
-=======
   is_verified         Boolean              @default(false)
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -30,17 +27,12 @@ model User {
   notifications       Notification[]
   promotions          Promotion[]
   reviews             Review[]             @relation("UserReviews")
-<<<<<<< HEAD
-=======
   vendorReviews       Review[]             @relation("VendorReviews")
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   services            Service[]            @relation("VendorServices")
   userProfile         UserProfile?
   VendorPayoutAccount VendorPayoutAccount?
   vendorProfile       VendorProfile?
 
-<<<<<<< HEAD
-=======
   // Walk-in jobs / vehicles / health sheets (see those models for rationale).
   vehicles         Vehicle[]      @relation("UserVehicles")
   createdVehicles  Vehicle[]      @relation("VendorCreatedVehicles")
@@ -52,7 +44,6 @@ model User {
   // Offer slots this vendor has been specifically targeted by (see OfferSlot).
   offerSlotTargets OfferSlotVendor[]
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   @@index([email])
   @@index([role])
 }
@@ -62,6 +53,42 @@ model BlacklistedToken {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  // Pruning expired rows is what keeps this table small; see the hourly
+  // cleanup cron in queues/otpCleanupQueue.js.
+  @@index([expiresAt])
+}
+
+// Durable background job queue, replacing BullMQ/Redis.
+//
+// Why this exists: the three BullMQ queues each held an idle blocking poll
+// open against Redis 24/7, which cost ~484k commands/month before any real
+// work happened and repeatedly exhausted the hosting quota. Postgres is
+// already a hard dependency of every request path, so moving the queue here
+// removes an entire piece of paid infrastructure rather than tuning it.
+//
+// Claimed with FOR UPDATE SKIP LOCKED (see util/jobQueue.js), so several app
+// instances can run the dispatcher concurrently without processing a job
+// twice -- the property BullMQ's atomic Lua scripts were providing.
+model BackgroundJob {
+  id          Int      @id @default(autoincrement())
+  type        String
+  payload     Json
+  // pending -> processing -> completed | failed
+  status      String   @default("pending")
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  // When this job becomes eligible to run. Retry backoff is expressed by
+  // pushing this forward rather than by sleeping anywhere.
+  runAt       DateTime @default(now())
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // The dispatcher's hot query is (status, runAt); the rest are for operators
+  // digging through failures.
+  @@index([status, runAt])
+  @@index([type, status])
 }
 
 model UserProfile {
@@ -104,18 +131,11 @@ model VendorProfile {
   holidays             String?
   status               String  @default("pending")
   onboarding_completed Boolean @default(false)
-<<<<<<< HEAD
-  is_online            Boolean @default(true)
-=======
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   image                String?
   cover_image          String?
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
-<<<<<<< HEAD
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-=======
   is_online            Boolean @default(true)
   // Denormalised review aggregates maintained by util/ratingHelper.js.
   // These were being read and written by that helper (from review creation,
@@ -131,7 +151,6 @@ model VendorProfile {
   @@index([city])
   @@index([status])
   @@index([is_online])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Document {
@@ -142,27 +161,6 @@ model Document {
   status        String   @default("pending")
   createdAt     DateTime @default(now())
   vendor        User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-<<<<<<< HEAD
-}
-
-model Service {
-  id          Int       @id @default(autoincrement())
-  vendorId    Int
-  name        String
-  description String
-  price       Decimal
-  duration    Int
-  category    String
-  image_url   String?
-  is_active   Boolean   @default(true)
-  is_featured Boolean   @default(false)
-  bookings    Booking[]
-  vendor      User      @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
-}
-
-model Booking {
-  id                Int           @id @default(autoincrement())
-=======
 
   @@index([vendorId])
 }
@@ -194,24 +192,10 @@ model Service {
 
 model Booking {
   id                Int             @id @default(autoincrement())
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   userId            Int
   serviceId         Int
   booking_date      DateTime
   booking_time      String
-<<<<<<< HEAD
-  status            String        @default("pending")
-  notes             String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  completion_images String?
-  vendor_status     String        @default("pending")
-  service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  user              User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
-  conversation      Conversation?
-  payment           Payment?      @relation("BookingPayment")
-  review            Review?
-=======
   status            String          @default("pending")
   notes             String?
   createdAt         DateTime        @default(now())
@@ -229,7 +213,6 @@ model Booking {
   // modified.
   healthSheet       HealthSheet?
   bookingVehicle    BookingVehicle?
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   @@index([userId])
   @@index([serviceId])
@@ -239,22 +222,6 @@ model Booking {
 }
 
 model Payment {
-<<<<<<< HEAD
-  id                 Int      @id @default(autoincrement())
-  bookingId          Int?     @unique
-  amount             Decimal
-  currency           String   @default("INR")
-  status             String   @default("pending")
-  method             String
-  transactionId      String?
-  vendorPayoutStatus String?  @default("pending")
-  vendorPayoutId     String?
-  platformFee        Decimal?
-  vendorAmount       Decimal?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  booking            Booking? @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Cascade)
-=======
   id                 Int               @id @default(autoincrement())
   bookingId          Int?              @unique
   amount             Decimal
@@ -344,7 +311,6 @@ model Refund {
 
   @@index([paymentId])
   @@index([status])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Inventory {
@@ -354,11 +320,8 @@ model Inventory {
   stock_level Int
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-<<<<<<< HEAD
-=======
 
   @@index([vendorId])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Availability {
@@ -370,11 +333,8 @@ model Availability {
   is_available Boolean  @default(true)
   createdAt    DateTime @default(now())
   vendor       User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-<<<<<<< HEAD
-=======
 
   @@index([vendorId])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Conversation {
@@ -403,25 +363,12 @@ model Message {
 }
 
 model Review {
-<<<<<<< HEAD
-  id        Int      @id @default(autoincrement())
-  bookingId Int      @unique
-=======
   id        Int       @id @default(autoincrement())
   bookingId Int       @unique
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   userId    Int
   rating    Int
   comment   String?
   reply     String?
-<<<<<<< HEAD
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  user      User     @relation("UserReviews", fields: [userId], references: [id], onDelete: Cascade)
-}
-
-=======
   // Set when a vendor replies. `updatedAt` cannot stand in for this: it moves
   // on any write, so it can't distinguish "replied" from "edited". The vendor
   // reply controller wrote this field before it existed on the model, which
@@ -498,7 +445,6 @@ model OfferSlotVendor {
   @@index([vendorId])
 }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 model Promotion {
   id          Int      @id @default(autoincrement())
   vendorId    Int
@@ -510,11 +456,8 @@ model Promotion {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-<<<<<<< HEAD
-=======
 
   @@index([vendorId])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model Notification {
@@ -537,11 +480,8 @@ model Feedback {
   category  String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-<<<<<<< HEAD
-=======
 
   @@index([userId])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model EmailOTP {
@@ -551,11 +491,8 @@ model EmailOTP {
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
-<<<<<<< HEAD
-=======
 
   @@index([email])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }
 
 model PhoneOTP {
@@ -579,18 +516,6 @@ model VendorPayoutAccount {
 }
 
 model Admin {
-<<<<<<< HEAD
-  id          Int         @id @default(autoincrement())
-  name        String
-  email       String      @unique
-  password    String
-  phone       String?
-  status      AdminStatus @default(ACTIVE)
-  lastLoginAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  role        String      @default("admin")
-=======
   id           Int         @id @default(autoincrement())
   name         String
   email        String      @unique
@@ -612,14 +537,11 @@ model Admin {
   updatedAt    DateTime    @updatedAt
   role         String      @default("admin")
   blogPosts    BlogPost[]
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   @@index([email])
   @@index([status])
 }
 
-<<<<<<< HEAD
-=======
 model BlogPost {
   id          Int       @id @default(autoincrement())
   slug        String    @unique
@@ -669,13 +591,10 @@ model PlatformSettings {
   refundGatewayFeeBorneBy  String  @default("customer")
 }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 enum AdminStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
-<<<<<<< HEAD
-=======
 }
 
 enum HealthStatus {
@@ -1022,5 +941,4 @@ model PhoneIdentity {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 }

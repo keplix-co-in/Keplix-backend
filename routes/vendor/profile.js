@@ -24,20 +24,11 @@ const router = express.Router();
 router.get('/', protect, getVendorProfile);
 
 // Add upload middleware to handle FormData (image + text fields)
-<<<<<<< HEAD
-const uploadFields = upload.fields([
-=======
 const uploadFields = uploadFieldss([
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     { name: 'image', maxCount: 1 },
     { name: 'cover_image', maxCount: 1 }
 ]);
 
-<<<<<<< HEAD
-router.put('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.patch('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.patch('/online-status', protect, updateOnlineStatus);
-=======
 /**
  * @swagger
  * /accounts/vendor:
@@ -301,7 +292,6 @@ router.patch('/online-status', protect, updateOnlineStatus);
  *       400:
  *         description: Profile already exists
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.post('/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 // Trailing slash support

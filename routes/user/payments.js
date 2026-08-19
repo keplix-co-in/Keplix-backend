@@ -6,20 +6,6 @@ import { createPaymentSchema, verifyPaymentSchema } from '../../validators/user/
 
 const router = express.Router();
 
-<<<<<<< HEAD
-// Webhook endpoint (NO AUTH - Razorpay calls this directly)
-router.post('/payments/razorpay-webhook', handleRazorpayWebhook);
-
-// TEMPORARY: Auth removed for testing - ADD BACK BEFORE PRODUCTION!
-router.post('/payments/order/create', protect , validateRequest(createPaymentSchema), createPaymentOrder);
-router.post('/payments/verify', protect , validateRequest(verifyPaymentSchema), verifyPayment);
-// router.get('/user/:user_id/payments', protect, getUserPayments);
-
-// Aliases
-router.post('/payments/order/create/', validateRequest(createPaymentSchema), createPaymentOrder);
-router.post('/payments/verify/', validateRequest(verifyPaymentSchema), verifyPayment);
-// router.get('/user/:user_id/payments/', protect, getUserPayments);
-=======
 /**
  * @swagger
  * /service_api/payments/razorpay-webhook:
@@ -85,6 +71,5 @@ router.post('/payments/order/create', protect , validateRequest(createPaymentSch
  *         description: Payment verified successfully
  */
 router.post('/payments/verify', protect , validateRequest(verifyPaymentSchema), verifyPayment);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 export default router;

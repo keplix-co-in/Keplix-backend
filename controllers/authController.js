@@ -9,24 +9,18 @@ import { generateOTP } from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
-<<<<<<< HEAD
-=======
 import { normalizeIndianPhone } from "../util/phone.js";
 import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const require = createRequire(import.meta.url);
 
 const JWT_SECRET = process.env.JWT_SECRET;
-<<<<<<< HEAD
-=======
 // Refresh tokens are signed with their own secret so a leaked access-token
 // secret alone can't be used to forge a long-lived refresh token, and vice
 // versa. Falls back to JWT_SECRET only outside production so local/dev
 // setups that haven't set it yet don't break.
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 if (!JWT_SECRET) {
   const errorMsg = 'JWT_SECRET environment variable is required';
@@ -38,8 +32,6 @@ if (!JWT_SECRET) {
   }
 }
 
-<<<<<<< HEAD
-=======
 if (!process.env.JWT_REFRESH_SECRET) {
   const errorMsg = 'JWT_REFRESH_SECRET environment variable is required';
   console.error(errorMsg);
@@ -50,7 +42,6 @@ if (!process.env.JWT_REFRESH_SECRET) {
   }
 }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 const generateAccessToken = (id) => {
   return jwt.sign({ id, type: 'access' }, JWT_SECRET, {
     expiresIn: "1d",
@@ -58,11 +49,7 @@ const generateAccessToken = (id) => {
 };
 
 const generateRefreshToken = (id) => {
-<<<<<<< HEAD
-  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
-=======
   return jwt.sign({ id, type: 'refresh' }, JWT_REFRESH_SECRET, {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     expiresIn: "30d",
   });
 };
@@ -88,9 +75,6 @@ const verifyDjangoPassword = (password, hash) => {
     );
     const derivedHash = derivedKey.toString("base64");
 
-<<<<<<< HEAD
-    return derivedHash === storedHash;
-=======
     // timingSafeEqual, not === : a plain string compare short-circuits on the
     // first differing byte, so response time leaks how much of the hash was
     // guessed correctly. timingSafeEqual requires equal lengths, so compare
@@ -100,7 +84,6 @@ const verifyDjangoPassword = (password, hash) => {
     const b = Buffer.from(storedHash, "utf8");
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   } catch (e) {
     console.error("Error verifying Django password:", e);
     return false;
@@ -111,11 +94,7 @@ const verifyDjangoPassword = (password, hash) => {
 // @route   POST /accounts/auth/signup/
 // @access  Public
 export const registerUser = async (req, res, next) => {
-<<<<<<< HEAD
-  const { email, password, role, name, phone } = req.body;
-=======
   const { email, password, role } = req.body;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
   try {
     const userExists = await prisma.user.findUnique({
@@ -142,33 +121,6 @@ export const registerUser = async (req, res, next) => {
       },
     });
 
-<<<<<<< HEAD
-    // Create Profile based on role
-    if (role === "vendor") {
-      await prisma.vendorProfile.create({
-        data: {
-          userId: user.id,
-          business_name: name || (email ? email.split("@")[0] : "New Vendor"),
-          phone: phone || "",
-          onboarding_completed: false,
-        },
-      });
-    } else {
-      await prisma.userProfile.create({
-        data: {
-          userId: user.id,
-          name: name || (email ? email.split("@")[0] : "User"),
-          phone: phone || "",
-        },
-      });
-    }
-
-    res.status(201).json({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      token: generateToken(user.id),
-=======
     res.status(201).json({
       success: true,
       message: "Account created. Please verify your email to continue.",
@@ -176,7 +128,6 @@ export const registerUser = async (req, res, next) => {
       email: user.email,
       role: user.role,
       code: "PENDING_VERIFICATION",
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error(error);
@@ -199,11 +150,6 @@ export const authUser = async (req, res) => {
         vendorProfile: true,
       },
     });
-<<<<<<< HEAD
-
-    if (user) {
-      let isValid = false;
-=======
 
     if (user) {
       let isValid = false;
@@ -219,7 +165,6 @@ export const authUser = async (req, res) => {
         });
       }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       // Check if it's a Django PBKDF2 hash
       if (user.password.startsWith("pbkdf2_sha256$")) {
         isValid = verifyDjangoPassword(password, user.password);
@@ -252,17 +197,6 @@ export const authUser = async (req, res) => {
           };
         }
 
-<<<<<<< HEAD
-        const userData = {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          is_active: user.is_active,
-          ...profileData,
-        };
-
-        return res.json({
-=======
           const hasProfile = user.userProfile || user.vendorProfile;
           
           if (hasProfile && !user.is_verified) {
@@ -291,7 +225,6 @@ export const authUser = async (req, res) => {
               code: "UNVERIFIED"
             });
           }        return res.json({
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
           user: userData,
           access: generateAccessToken(user.id),
           refresh: generateRefreshToken(user.id),
@@ -302,8 +235,6 @@ export const authUser = async (req, res) => {
     res.status(401).json({ message: "Invalid email or password" });
   } catch (error) {
     console.error(error);
-<<<<<<< HEAD
-=======
 
     if (error.code === 'P2022') {
       return res.status(500).json({
@@ -312,7 +243,6 @@ export const authUser = async (req, res) => {
       });
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.status(500).json({ message: "Server Error" });
   }
 };
@@ -363,9 +293,6 @@ export const refreshToken = async (req, res) => {
     return res.status(400).json({ message: "Refresh token required" });
 
   try {
-<<<<<<< HEAD
-    const decoded = jwt.verify(refresh, JWT_SECRET);
-=======
     const blacklisted = await isRefreshTokenBlacklisted(refresh);
     if (blacklisted) {
       return res.status(401).json({ message: "Refresh token has been revoked" });
@@ -376,17 +303,10 @@ export const refreshToken = async (req, res) => {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
-<<<<<<< HEAD
-    res.json({
-      access: generateToken(user.id),
-      // Optionally rotate refresh token
-      refresh: refresh,
-=======
     // Rotate: the presented refresh token is single-use — blacklist it and
     // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
     // limited window before it's replaced, and reuse of an old token after
@@ -396,7 +316,6 @@ export const refreshToken = async (req, res) => {
     res.json({
       access: generateToken(user.id),
       refresh: generateRefreshToken(user.id),
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error("Token refresh error:", error);
@@ -416,16 +335,7 @@ export const logoutUser = async (req, res) => {
 
     const decoded = jwt.decode(token);
 
-<<<<<<< HEAD
-    await prisma.blacklistedToken.create({
-      data: {
-        token,
-        expiresAt: new Date(decoded.exp * 1000),
-      },
-    });
-=======
     await blacklistToken(token, decoded.exp);
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -525,8 +435,6 @@ export const resetPassword = async (req, res) => {
     console.error("Reset Password Error:", error);
     res.status(500).json({ message: "Server Error" });
   }
-<<<<<<< HEAD
-=======
 };
 
 // @desc    Send OTP for password reset (reuses EmailOTP infra, separate from
@@ -639,19 +547,10 @@ export const resetPasswordWithOTP = async (req, res) => {
     console.error("resetPasswordWithOTP error:", error);
     res.status(500).json({ success: false, message: "Server Error" });
   }
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 };
 
 // @desc    Send Phone OTP
 export const sendPhoneOTP = async (req, res) => {
-<<<<<<< HEAD
-  const { phone_number } = req.body;
-
-  if (!phone_number) {
-    return res.status(400).json({ error: "Phone number is required" });
-  }
-
-=======
   const { phone_number: rawPhoneNumber } = req.body;
 
   if (!rawPhoneNumber) {
@@ -667,7 +566,6 @@ export const sendPhoneOTP = async (req, res) => {
     return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   try {
     const otp = generateOTP();
 
@@ -704,26 +602,12 @@ export const sendPhoneOTP = async (req, res) => {
     }
   } catch (error) {
     console.error("sendPhoneOTP error:", error);
-<<<<<<< HEAD
-    res
-      .status(500)
-      .json({ error: "Failed to send OTP", details: error.message });
-=======
     res.status(500).json({ error: "Failed to send OTP" });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   }
 };
 
 // @desc    Verify Phone OTP
 export const verifyPhoneOTP = async (req, res) => {
-<<<<<<< HEAD
-  const { phone_number, otp } = req.body;
-
-  if (!phone_number || !otp) {
-    return res.status(400).json({ error: "Phone number and OTP are required" });
-  }
-
-=======
   const { phone_number: rawPhoneNumber, otp } = req.body;
 
   if (!rawPhoneNumber || !otp) {
@@ -737,7 +621,6 @@ export const verifyPhoneOTP = async (req, res) => {
     return res.status(400).json({ error: "Invalid Indian mobile number" });
   }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   try {
     const otpRecord = await prisma.phoneOTP.findUnique({
       where: { phone_number },
@@ -767,8 +650,6 @@ export const verifyPhoneOTP = async (req, res) => {
       data: { verified: true },
     });
 
-<<<<<<< HEAD
-=======
     // Also mark the user as verified.
     // NOTE: phone_number is now normalised (+91XXXXXXXXXX), but
     // UserProfile.phone / VendorProfile.phone are free text and may still
@@ -818,7 +699,6 @@ export const verifyPhoneOTP = async (req, res) => {
       }
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
     console.error("verifyPhoneOTP error:", error);
@@ -937,8 +817,6 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
-<<<<<<< HEAD
-=======
     // Mark user as verified
     await prisma.user.update({
       where: { email: record.email },
@@ -972,7 +850,6 @@ export const verifyEmailOTP = async (req, res) => {
       });
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Fetch user using email from DB (not from client)
     const user = await prisma.user.findUnique({
       where: { email: record.email },
@@ -1013,8 +890,6 @@ export const verifyEmailOTP = async (req, res) => {
     console.error("verifyEmailOTP error:", error);
     return res.status(500).json({ message: "OTP Verification Failed" });
   }
-<<<<<<< HEAD
-=======
 };
 
 // Strict server-side whitelist for self-selectable signup roles.
@@ -1052,53 +927,11 @@ const getAllowedGoogleAudiences = () => {
     );
   }
   return audiences;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 };
 
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
-<<<<<<< HEAD
-
-  try {
-    let email;
-    let name;
-
-    // 1. Try to verify as a Firebase ID Token (Standard flow)
-    try {
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      email = decodedToken.email;
-      name = decodedToken.name;
-    } catch (firebaseError) {
-      // 2. Fallback: Verify as a generic Google ID Token (OIDC)
-      // This handles cases where the frontend sends the token directly from GoogleSignin
-      try {
-        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-        
-        if (!response.ok) {
-          throw new Error('Token validation failed');
-        }
-
-        const payload = await response.json();
-        
-        // Ensure the token issuer is actually Google
-        if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
-           throw new Error('Invalid token issuer');
-        }
-
-        email = payload.email;
-        name = payload.name;
-      } catch (googleError) {
-        console.error("Token verification failed for both Firebase and Google methods");
-        return res.status(401).json({ message: "Invalid token" });
-      }
-    }
-
-    // Default name if missing
-    name = name || email.split("@")[0];
-
-    let user = await prisma.user.findUnique({ 
-=======
   const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
 
   try {
@@ -1157,7 +990,6 @@ export const googleLogin = async (req, res) => {
     const name = payload.name || email.split("@")[0];
 
     let user = await prisma.user.findUnique({
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       where: { email },
       include: {
         userProfile: true,
@@ -1165,34 +997,22 @@ export const googleLogin = async (req, res) => {
       }
     });
 
-<<<<<<< HEAD
-    if (!user) {
-=======
     let isNewUser = false;
 
     if (!user) {
       isNewUser = true;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       // Register new user
       user = await prisma.user.create({
         data: {
           email,
           password: "", // Social login has no password
-<<<<<<< HEAD
-          role: role || "user",
-=======
           role: safeRole,
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
           is_active: true,
         },
       });
 
       // Create Profile
-<<<<<<< HEAD
-      if (role === "vendor") {
-=======
       if (safeRole === "vendor") {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         await prisma.vendorProfile.create({
           data: {
             userId: user.id,
@@ -1212,11 +1032,7 @@ export const googleLogin = async (req, res) => {
       }
 
       // Re-fetch user with profile
-<<<<<<< HEAD
-      user = await prisma.user.findUnique({ 
-=======
       user = await prisma.user.findUnique({
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         where: { id: user.id },
         include: {
           userProfile: true,
@@ -1225,8 +1041,6 @@ export const googleLogin = async (req, res) => {
       });
     }
 
-<<<<<<< HEAD
-=======
     // A User row can exist WITHOUT its profile row. Profile creation above only
     // runs for brand-new users, so any account that reached this point missing
     // its profile — a partial signup, a failed profile insert, a user seeded by
@@ -1270,7 +1084,6 @@ export const googleLogin = async (req, res) => {
       });
     }
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     // Build response with profile data
     const userData = {
       id: user.id,
@@ -1279,11 +1092,6 @@ export const googleLogin = async (req, res) => {
       is_active: user.is_active,
     };
 
-<<<<<<< HEAD
-    if (user.role === "vendor" && user.vendorProfile) {
-      userData.business_name = user.vendorProfile.business_name;
-      userData.phone = user.vendorProfile.phone;
-=======
     // phone_number mirrors phone throughout the API (see getUserProfile). The
     // apps read `phone_number` in places — components/Profile/UserProfile.jsx
     // populates its phone field from it — so omitting it here made the number
@@ -1293,7 +1101,6 @@ export const googleLogin = async (req, res) => {
       userData.name = user.vendorProfile.business_name;
       userData.phone = user.vendorProfile.phone;
       userData.phone_number = user.vendorProfile.phone;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       userData.address = user.vendorProfile.address;
       userData.image = user.vendorProfile.image;
       userData.cover_image = user.vendorProfile.cover_image;
@@ -1302,26 +1109,18 @@ export const googleLogin = async (req, res) => {
     } else if (user.userProfile) {
       userData.name = user.userProfile.name;
       userData.phone = user.userProfile.phone;
-<<<<<<< HEAD
-      userData.address = user.userProfile.address;
-      userData.profile_picture = user.userProfile.profile_picture;
-=======
       userData.phone_number = user.userProfile.phone;
       userData.address = user.userProfile.address;
       userData.profile_picture = user.userProfile.profile_picture;
       userData.id_proof_front = user.userProfile.id_proof_front;
       userData.id_proof_back = user.userProfile.id_proof_back;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     }
 
     res.json({
       access: generateAccessToken(user.id),
       refresh: generateRefreshToken(user.id),
       user: userData,
-<<<<<<< HEAD
-=======
       isNewUser: isNewUser
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     });
   } catch (error) {
     console.error("Google Login Error:", error);
@@ -1346,12 +1145,6 @@ export const updateUserProfileAuth = async (req, res) => {
   } = req.body;
 
   try {
-<<<<<<< HEAD
-    // Handle file uploads from multer (Cloudinary URLs)
-    const uploadedProfilePicture = req.files?.profile_picture?.[0]?.path;
-    const uploadedIdFront = req.files?.id_proof_front?.[0]?.path;
-    const uploadedIdBack = req.files?.id_proof_back?.[0]?.path;
-=======
     // The Cloudinary URL lives at file.cloudinary.secure_url, NOT file.path.
     //
     // uploadFieldss (middleware/uploadMiddleware.js) uses multer.memoryStorage()
@@ -1370,7 +1163,6 @@ export const updateUserProfileAuth = async (req, res) => {
     const uploadedProfilePicture = req.files?.profile_picture?.[0]?.cloudinary?.secure_url;
     const uploadedIdFront = req.files?.id_proof_front?.[0]?.cloudinary?.secure_url;
     const uploadedIdBack = req.files?.id_proof_back?.[0]?.cloudinary?.secure_url;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     // 1. Check if email is being changed and if it's already taken
     if (email && email !== req.user.email) {

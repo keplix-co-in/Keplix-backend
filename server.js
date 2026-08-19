@@ -1,246 +1,4 @@
 import 'dotenv/config';
-<<<<<<< HEAD
-import express from "express";
-import cors from "cors";
-import { createServer } from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-import helmet from "helmet";
-import compression from "compression";
-import rateLimit from "express-rate-limit";
-import morgan from "morgan";
-
-// Local Imports
-import { initSocket } from "./socket.js";
-import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
-import loggerMiddleware from "./middleware/loggerMiddleware.js";
-import sanitizeInput from "./middleware/sanitizeMiddleware.js";
-import corsOptions, { allowedOrigins } from "./util/cors.js";
-import Logger from "./util/logger.js";
-import prisma from "./util/prisma.js";
-import bookingStatusManager from "./util/bookingStatusManager.js";
-
-// --- ROUTES IMPORTS ---
-
-// Auth
-import authRoutes, { logoutRouter } from "./routes/auth.js";
-
-// Vendor Routes
-import vendorProfileRoutes from "./routes/vendor/profile.js";
-import vendorServiceRoutes from "./routes/vendor/services.js";
-import vendorBookingRoutes from "./routes/vendor/bookings.js";
-import inventoryRoutes from "./routes/vendor/inventory.js";
-import availabilityRoutes from "./routes/vendor/availability.js";
-import documentRoutes from "./routes/vendor/documents.js";
-import promotionRoutes from "./routes/vendor/promotions.js";
-import vendorPaymentRoutes from "./routes/vendor/payments.js";
-import vendorReviewRoutes from "./routes/vendor/reviews.js";
-import vendorFeedbackRoutes from "./routes/vendor/feedback.js";
-import vendorInteractionRoutes from "./routes/vendor/interactions.js";
-import vendorNotificationRoutes from "./routes/vendor/notifications.js";
-
-// User Routes
-import userProfileRoutes from "./routes/user/profile.js";
-import userServiceRoutes from "./routes/user/services.js";
-import userBookingRoutes from "./routes/user/bookings.js";
-import userPaymentRoutes from "./routes/user/payments.js";
-import userInteractionRoutes from "./routes/user/interactions.js";
-import userNotificationRoutes from "./routes/user/notifications.js";
-import reviewRoutes from "./routes/user/reviews.js";
-import feedbackRoutes from "./routes/user/feedback.js";
-import { protect } from "./middleware/authMiddleware.js";
-
-
-// Admin Routes
-import authAdminRoutes from './routes/Admin/authAdmin.js';
-import dashBoardRoutes from './routes/Admin/dashBoard.js';
-import adminBookingRoutes from './routes/Admin/bookings.js';
-import adminUserRoutes from './routes/Admin/user.js';
-import adminVendorRoutes from './routes/Admin/vendor.js';
-import adminFinanceRoutes from './routes/Admin/finance.js';
-
-
-
-// --- CONFIGURATION ---
-
-const app = express();
-const httpServer = createServer(app);
-
-// Check required environment variables on startup
-const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'CLOUDINARY_URL'];
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingVars.length > 0) {
-  Logger.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-  if (process.env.NODE_ENV === 'production') {
-    Logger.warn('Starting with missing environment variables - some features may not work');
-  }
-} else {
-  Logger.info('All required environment variables are set');
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Initialize Socket.IO
-const io = initSocket(httpServer);
-app.set("io", io);
-
-// --- RATE LIMITERS ---
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 1000, 
-  standardHeaders: true, 
-  legacyHeaders: false,
-  message: { message: "Too many requests, please try again later." }
-});
-
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 20 : 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many authentication attempts, please try again in a few minutes." },
-  skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
-});
-
-// Parsing & Sanitization
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// --- MIDDLEWARE ---
-app.use(loggerMiddleware);
-app.use(helmet());
-app.use(helmet.frameguard({ action: "deny" }));
-app.use(compression());
-
-// CSP Configuration
-app.use(
-  helmet.contentSecurityPolicy({
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"], // Added https for external images
-      fontSrc: ["'self'", "data:"],
-      connectSrc: [
-        "'self'",
-        ...allowedOrigins
-      ],
-      frameSrc: ["'none'"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      upgradeInsecureRequests: [],
-    },
-  })
-);
-
-// CORS Configuration — uses corsOptions from util/cors.js
-app.use(cors(corsOptions));
-
-
-app.use(sanitizeInput);
-app.use("/media", express.static(path.join(__dirname, "media")));
-
-// Health Check Endpoint (before rate limiter)
-app.get('/health', async (req, res) => {
-  try {
-    // Basic health check - just check if server is running
-    res.status(200).json({ 
-      status: 'healthy', 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      database: !!prisma ? 'configured' : 'not configured'
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'unhealthy',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Apply Global Rate Limiter
-app.use(limiter);
-
-// --- ROUTES ---
-
-// 1. Authentication
-app.use("/accounts/auth", authLimiter, authRoutes);
-app.use("/accounts/auth", logoutRouter);
-
-
-// 2. Vendor
-app.use("/accounts/vendor", vendorProfileRoutes);
-app.use("/accounts/documents", documentRoutes)
-app.use("/service_api/vendor", vendorServiceRoutes);
-app.use("/service_api/vendor", vendorBookingRoutes);
-app.use("/service_api", inventoryRoutes); // Keeps original path
-app.use("/service_api", availabilityRoutes); // Keeps original path
-app.use("/interactions/vendors", promotionRoutes);
-app.use("/interactions/api/vendor/reviews", vendorReviewRoutes);
-app.use("/interactions/api/vendor/feedback", vendorFeedbackRoutes);
-app.use("/interactions/api/vendor", vendorInteractionRoutes);
-app.use("/interactions/api/vendor", vendorNotificationRoutes);
-
-// 3. User
-app.use("/service_api/user", userServiceRoutes);
-app.use("/service_api/user", userBookingRoutes);
-app.use("/service_api/user", userProfileRoutes);
-
-// 4. Shared / Other
-app.use("/service_api", userServiceRoutes); // Original comment: matches /service_api/services/:id
-app.use("/service_api", userPaymentRoutes);
-app.use("/service_api", vendorPaymentRoutes);
-
-// 5. Interactions
-app.use("/interactions/api/user", userInteractionRoutes);
-app.use("/interactions/api/user/notifications", userNotificationRoutes);
-app.use("/interactions/api/feedback", feedbackRoutes);
-app.use("/interactions/api", reviewRoutes);
-
-// 6. Admin
-app.use("/admin/auth", authAdminRoutes);
-app.use("/admin", dashBoardRoutes);
-app.use("/admin", adminBookingRoutes);
-app.use("/admin", adminUserRoutes);
-app.use("/admin", adminVendorRoutes);
-app.use("/admin", adminFinanceRoutes);
-
-
-// --- ERROR HANDLING ---
-app.use(notFound);
-app.use(errorHandler);
-
-// --- SERVER START ---
-const PORT = process.env.PORT || 8080;
-httpServer.listen(PORT, '0.0.0.0', () => {
-  Logger.info(`=================================`);
-  Logger.info(`🚀  Keplix Backend Running`);
-  Logger.info(`🌍  URL: http://0.0.0.0:${PORT}`);
-  Logger.info(`⚙️   Mode: ${process.env.NODE_ENV}`);
-  Logger.info(`=================================`);
-
-  // Start booking status manager for automatic time-based transitions
-  bookingStatusManager.start();
-});
-
-// --- GRACEFUL SHUTDOWN ---
-const gracefulShutdown = () => {
-  Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
-
-  // Stop booking status manager
-  bookingStatusManager.stop();
-
-  httpServer.close(() => {
-    Logger.info('HTTP server closed.');
-    process.exit(0);
-  });
-};
-=======
 import { env } from "./config/env.js";
 import { createServer } from "http";
 
@@ -250,10 +8,65 @@ import Logger from "./util/logger.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import refundReconciler from "./util/refundReconciler.js";
 import { startPaymentReconciliation } from "./util/paymentReconciliation.js";
-import { scheduleOtpCleanup } from "./queues/otpCleanupQueue.js";
-import notificationWorker from "./workers/notificationWorker.js";
-import payoutWorker from "./workers/payoutWorker.js";
-import otpCleanupWorker from "./workers/otpCleanupWorker.js";
+import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
+import cron from "node-cron";
+import {
+  registerJobHandler,
+  runDueJobs,
+  reclaimStuckJobs,
+  pruneCompletedJobs,
+  JOB_TYPES,
+} from "./util/jobQueue.js";
+import { processNotificationJob } from "./workers/notificationProcessor.js";
+import { processPayoutJob } from "./workers/payoutProcessor.js";
+
+/**
+ * Whether THIS process runs background jobs. Defaults to true, so a plain
+ * `node server.js` runs everything.
+ *
+ * Set RUN_WORKERS=false on extra web instances if you would rather one process
+ * own the dispatching. It is only a preference, not a correctness requirement:
+ * jobs are claimed with FOR UPDATE SKIP LOCKED (util/jobQueue.js), so running
+ * the dispatcher on every instance is safe -- no job is handed out twice. This
+ * is a real improvement on the Redis setup it replaces, where each additional
+ * instance multiplied a fixed idle polling cost.
+ */
+const RUN_WORKERS = env.RUN_WORKERS !== "false";
+
+// How often to look for due jobs. This is the one real behavioural difference
+// from BullMQ: dispatch is polled rather than pushed, so a job starts within a
+// tick instead of immediately. 10s is well inside what these jobs need -- the
+// BullMQ workers' own idle poll had already been widened to 120s -- and unlike
+// Redis, an empty poll here is a single indexed Postgres query against a
+// database this process is already connected to, costing nothing metered.
+const JOB_POLL_SECONDS = 10;
+
+let jobDispatchTask = null;
+let jobMaintenanceTask = null;
+
+/**
+ * Registers the job handlers and starts the dispatch loop.
+ * @returns {void}
+ */
+const startJobDispatcher = () => {
+  registerJobHandler(JOB_TYPES.NOTIFICATION, processNotificationJob);
+  registerJobHandler(JOB_TYPES.VENDOR_PAYOUT, processPayoutJob);
+
+  // runDueJobs never throws, so a bad tick cannot kill the schedule.
+  jobDispatchTask = cron.schedule(`*/${JOB_POLL_SECONDS} * * * * *`, async () => {
+    await runDueJobs();
+  });
+
+  // Housekeeping: recover jobs orphaned by a process that died mid-handler
+  // (the equivalent of BullMQ's stalled-job check) and drop old completed rows.
+  // Failed rows are kept deliberately -- they are the operator's audit trail.
+  jobMaintenanceTask = cron.schedule("*/5 * * * *", async () => {
+    await reclaimStuckJobs();
+    await pruneCompletedJobs();
+  });
+
+  Logger.info(`Background job dispatcher started (every ${JOB_POLL_SECONDS}s).`);
+};
 
 /**
  * Process entrypoint.
@@ -283,7 +96,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   bookingStatusManager.start();
   refundReconciler.start();
-  scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule OTP cleanup job:', err));
+  if (RUN_WORKERS) {
+    startJobDispatcher();
+    scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule cleanup job:', err));
+  } else {
+    Logger.info('RUN_WORKERS=false — background jobs not dispatched by this process.');
+  }
   startPaymentReconciliation();
 });
 
@@ -293,30 +111,14 @@ const gracefulShutdown = () => {
 
   bookingStatusManager.stop();
   refundReconciler.stop();
+  stopOtpCleanup();
 
-  if (notificationWorker) {
-    notificationWorker.close().then(() => {
-      Logger.info('Notification worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing notification worker:', err);
-    });
-  }
-
-  if (payoutWorker) {
-    payoutWorker.close().then(() => {
-      Logger.info('Payout worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing payout worker:', err);
-    });
-  }
-
-  if (otpCleanupWorker) {
-    otpCleanupWorker.close().then(() => {
-      Logger.info('OTP cleanup worker closed.');
-    }).catch(err => {
-      Logger.error('Error closing OTP cleanup worker:', err);
-    });
-  }
+  // Stopping the schedules is all that is needed now. There are no queue
+  // connections to drain: a job in flight is a Postgres row in 'processing',
+  // and if this process dies before finishing it, reclaimStuckJobs picks it
+  // back up. Handlers are idempotent, which is what makes that safe.
+  jobDispatchTask?.stop();
+  jobMaintenanceTask?.stop();
 
   httpServer.close(() => {
     Logger.info('HTTP server closed.');
@@ -324,7 +126,6 @@ const gracefulShutdown = () => {
   });
 };
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
@@ -334,8 +135,4 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
   Logger.error('Uncaught Exception:', error);
-<<<<<<< HEAD
 });
-=======
-});
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

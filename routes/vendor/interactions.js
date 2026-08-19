@@ -17,11 +17,6 @@ const router = express.Router();
  *         description: List of conversations
  */
 router.get('/conversations', protect, getVendorConversations);
-<<<<<<< HEAD
-router.post('/chat/create', protect, createVendorConversation);
-router.get('/messages', protect, getVendorMessages); // Keep for backward compatibility if needed
-router.get('/chat/:conversationId', protect, getVendorMessages);
-=======
 
 /**
  * @swagger
@@ -94,7 +89,6 @@ router.get('/chat/:conversationId', protect, getVendorMessages);
  *       201:
  *         description: Message sent successfully
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.post('/chat/send', protect, sendVendorMessage);
 
 // Aliases

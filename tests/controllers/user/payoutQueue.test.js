@@ -14,6 +14,11 @@ const mockPrisma = {
     findUnique: jest.fn(),
     create: jest.fn(),
   },
+  // Enqueuing a payout is now a BackgroundJob row rather than a BullMQ
+  // Queue.add — see util/jobQueue.js for why Redis was removed.
+  backgroundJob: {
+    create: jest.fn().mockResolvedValue({ id: 1 }),
+  },
   $transaction: jest.fn().mockImplementation(async (callback) => {
     // Default implementation for tests that don't override it
     const tx = {
@@ -44,21 +49,9 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: mockPrisma,
 }));
 
-// Mock BullMQ
-jest.unstable_mockModule('bullmq', () => ({
-  Queue: jest.fn().mockImplementation(() => ({
-    add: jest.fn().mockResolvedValue({ id: 'job_123' }),
-  })),
-  Worker: jest.fn().mockImplementation(() => ({
-    on: jest.fn(),
-    close: jest.fn().mockResolvedValue(true),
-  })),
-}));
+// No BullMQ mock: the package is uninstalled. Enqueuing is now a
+// prisma.backgroundJob.create (util/jobQueue.js), which the prisma mock covers.
 
-// Mock Redis connection
-jest.unstable_mockModule('../../../util/redis.js', () => ({
-  default: {},
-}));
 
 // Mock payoutHelper
 jest.unstable_mockModule('../../../util/payoutHelper.js', () => ({

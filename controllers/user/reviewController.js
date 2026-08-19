@@ -1,36 +1,22 @@
-<<<<<<< HEAD
-﻿import prisma from "../../util/prisma.js";
-
-
-=======
 import prisma from "../../util/prisma.js";
 import { updateVendorRatingStats } from "../../util/ratingHelper.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 // @desc    Get Reviews
 // @route   GET /interactions/api/reviews/
 export const getReviews = async (req, res) => {
     try {
         const { vendor_id, user_id } = req.query;
-<<<<<<< HEAD
-=======
         // Coerce before arithmetic: these arrive as strings, and `(page-1)*limit`
         // on strings silently produced the wrong offset for anything but page 1.
         const page = Math.max(1, parseInt(req.query.page) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
         const skip = (page - 1) * limit;
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         let where = {};
 
         if (user_id) {
             where.userId = parseInt(user_id);
         } else if (vendor_id) {
-<<<<<<< HEAD
-            where.booking = {
-                service: { vendorId: parseInt(vendor_id) },
-            };
-=======
             where.vendorId = parseInt(vendor_id);
         } else {
             // Without a scope this matched every review on the platform and
@@ -41,17 +27,13 @@ export const getReviews = async (req, res) => {
                 message: 'Either user_id or vendor_id is required.',
                 code: 'SCOPE_REQUIRED',
             });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
         }
 
         const total = await prisma.review.count({ where });
         const reviews = await prisma.review.findMany({
             where,
-<<<<<<< HEAD
-=======
             skip: Number(skip),
             take: Number(limit),
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
             include: {
                 user: {
                     select: {
@@ -82,47 +64,6 @@ export const getReviews = async (req, res) => {
                 },
             },
             orderBy: { createdAt: 'desc' },
-<<<<<<< HEAD
-        });
-
-        // Prefix relative media paths with the server base URL
-        const formatted = reviews.map((review) => {
-            const vp = review.booking?.service?.vendor?.vendorProfile;
-            if (!vp) return review;
-            return {
-                ...review,
-                booking: {
-                    ...review.booking,
-                    service: {
-                        ...review.booking.service,
-                        image_url: review.booking.service.image_url?.startsWith('http')
-                            ? review.booking.service.image_url
-                            : review.booking.service.image_url
-                                ? `${baseUrl}${review.booking.service.image_url}`
-                                : null,
-                        vendor: {
-                            ...review.booking.service.vendor,
-                            vendorProfile: {
-                                ...vp,
-                                cover_image: vp.cover_image?.startsWith('http')
-                                    ? vp.cover_image
-                                    : vp.cover_image
-                                        ? `${baseUrl}${vp.cover_image}`
-                                        : null,
-                                image: vp.image?.startsWith('http')
-                                    ? vp.image
-                                    : vp.image
-                                        ? `${baseUrl}${vp.image}`
-                                        : null,
-                            },
-                        },
-                    },
-                },
-            };
-        });
-
-        res.json({ success: true, data: formatted });
-=======
         });
 
         const absolute = (p) => (!p ? null : p.startsWith('http') ? p : `${baseUrl}${p}`);
@@ -191,7 +132,6 @@ export const getReviews = async (req, res) => {
                 totalPages: Math.ceil(total / limit)
             }
         });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -204,14 +144,10 @@ export const getReviews = async (req, res) => {
 export const createReview = async (req, res) => {
   try {
     const userId = req.user.id;
-<<<<<<< HEAD
-    const { bookingId, rating, comment } = req.body;
-=======
     const { bookingId, rating: rawRating, comment } = req.body;
     // Review.rating is an Int column. parseFloat alone let a 4.5 through to
     // Prisma, which rejects it outright — the review just failed to save.
     const rating = Math.round(parseFloat(rawRating));
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     // 1. Load the booking and verify it belongs to this user and is completed
     const booking = await prisma.booking.findFirst({
@@ -244,39 +180,6 @@ export const createReview = async (req, res) => {
       });
     }
 
-<<<<<<< HEAD
-    // 3. Create the review
-    const review = await prisma.review.create({
-      data: {
-        bookingId: parseInt(bookingId),
-        userId,
-        rating: parseFloat(rating),
-        comment: comment || null,
-      },
-    });
-
-    // 4. Recalculate vendor average rating via VendorProfile
-    const vendorId = booking.service?.vendorId;
-    if (vendorId) {
-      const vendorBookingIds = await prisma.booking.findMany({
-        where: { service: { vendorId } },
-        select: { id: true },
-      });
-      const ids = vendorBookingIds.map((b) => b.id);
-      const aggregates = await prisma.review.aggregate({
-        where: { bookingId: { in: ids } },
-        _avg: { rating: true },
-        _count: { rating: true },
-      });
-      await prisma.vendorProfile.updateMany({
-        where: { userId: vendorId },
-        data: {
-          rating: aggregates._avg.rating || 0.0,
-          numReviews: aggregates._count.rating || 0,
-        },
-      });
-    }
-=======
     const vendorId = booking.service?.vendorId;
 
     // 3. Create review and update vendor stats in a transaction
@@ -297,7 +200,6 @@ export const createReview = async (req, res) => {
 
       return createdReview;
     });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     res.status(201).json({
       success: true,
@@ -318,14 +220,10 @@ export const deleteReview = async (req, res) => {
     const userId = req.user.id;
     const reviewId = parseInt(req.params.id);
 
-<<<<<<< HEAD
-    const review = await prisma.review.findUnique({ where: { id: reviewId } });
-=======
     const review = await prisma.review.findUnique({
       where: { id: reviewId },
     });
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     if (!review) {
       return res.status(404).json({ success: false, message: 'Review not found.' });
     }
@@ -333,9 +231,6 @@ export const deleteReview = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorised to delete this review.' });
     }
 
-<<<<<<< HEAD
-    await prisma.review.delete({ where: { id: reviewId } });
-=======
     const vendorId = review.vendorId;
 
     await prisma.$transaction(async (tx) => {
@@ -346,7 +241,6 @@ export const deleteReview = async (req, res) => {
       }
     });
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     res.json({ success: true, message: 'Review deleted.' });
   } catch (error) {
     console.error('Delete Review Error:', error);
@@ -359,20 +253,6 @@ export const deleteReview = async (req, res) => {
 export const getVendorReviews = async (req, res) => {
   try {
     const { vendorId } = req.params;
-<<<<<<< HEAD
-
-    const reviews = await prisma.review.findMany({
-      where: { vendorId: parseInt(vendorId) },
-      include: {
-        user: {
-          select: { id: true, name: true, profileImage: true } // Fetch reviewer details
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    res.json({ success: true, count: reviews.length, data: reviews });
-=======
     const { page = 1, limit = 20 } = req.query;
     const skip = (page - 1) * limit;
     const where = { vendorId: parseInt(vendorId) };
@@ -406,13 +286,7 @@ export const getVendorReviews = async (req, res) => {
         totalPages: Math.ceil(total / limit)
       }
     });
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-<<<<<<< HEAD
-
-
-=======
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

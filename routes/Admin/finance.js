@@ -1,19 +1,9 @@
 import express from 'express';
-<<<<<<< HEAD
-import { getPendingPayouts, settlePayout, getFinanceKpis } from '../../controllers/Admin/financeController.js';
-=======
 import { getPendingPayouts, settlePayout, getFinanceKpis, refundPayment } from '../../controllers/Admin/financeController.js';
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
 
 const router = express.Router();
 
-<<<<<<< HEAD
-router.get("/finance/kpis", authAdmin, authorizeAdmin, getFinanceKpis);
-router.get("/finance/payouts", authAdmin, authorizeAdmin, getPendingPayouts);
-router.post("/finance/payouts/:id/settle", authAdmin, authorizeAdmin, settlePayout);
-
-=======
 /**
  * @swagger
  * /admin/finance/kpis:
@@ -99,5 +89,4 @@ router.post("/finance/payouts/:id/settle", authAdmin, authorizeAdmin, settlePayo
  */
 router.post("/finance/payments/:id/refund", authAdmin, authorizeAdmin, refundPayment);
 
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 export default router;

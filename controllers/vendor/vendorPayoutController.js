@@ -1,10 +1,7 @@
 ﻿import Razorpay from "razorpay";
 import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
-<<<<<<< HEAD
-=======
 import { RESERVED_STATUSES } from "../../services/refundService.js";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 
 
@@ -58,8 +55,6 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
-<<<<<<< HEAD
-=======
      * Refund guards.
      *
      * Previously this function checked only that the payment succeeded and
@@ -106,7 +101,6 @@ export const triggerVendorPayout = async (req, res) => {
     }
 
     /**
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
      * Vendor ID fetch
      * Booking â†’ Service â†’ vendorId (User.id)
      */

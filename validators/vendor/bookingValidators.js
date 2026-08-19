@@ -7,9 +7,6 @@ export const respondToServiceRequestSchema = z.object({
 });
 
 export const updateBookingStatusSchema = z.object({
-<<<<<<< HEAD
-  status: z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'rejected'], { message: "Invalid status" }),
-=======
   // Must match every status controllers/vendor/bookingController.js's
   // updateBookingStatus actually transitions to/from (in_progress,
   // service_completed) — this schema previously only allowed a narrower
@@ -18,5 +15,4 @@ export const updateBookingStatusSchema = z.object({
     ['pending', 'confirmed', 'scheduled', 'in_progress', 'service_completed', 'completed', 'cancelled', 'rejected'],
     { message: "Invalid status" }
   ),
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 });

@@ -1,40 +1,11 @@
-<<<<<<< HEAD
-import multer from 'multer';
-import path from 'path';
-import cloudinary from '../util/cloudinary.js';
-import { CloudinaryStorage } from '@fluidjs/multer-cloudinary';
-=======
 import multer from "multer";
 import { fileTypeFromBuffer } from "file-type";
 import cloudinary from "../util/cloudinary.js";
 import streamifier from "streamifier";
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 // memory storage
 const storage = multer.memoryStorage();
 
-<<<<<<< HEAD
-const checkFileType = (file, cb) => {
-    // Allowed extensions - expanded
-    const filetypes = /jpg|jpeg|png|heic|webp|pdf|doc|docx/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    
-    // Check mime type (looser check for docs & images)
-    // Cloudinary usually handles types well.
-    // If mime type is octet-stream (sometimes happens with form-data), rely on extension.
-    const mimetype = filetypes.test(file.mimetype) ||
-                     file.mimetype === 'application/pdf' ||
-                     file.mimetype === 'application/msword' ||
-                     file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-                     file.mimetype === 'application/octet-stream';
-
-    if (extname || mimetype) { 
-        return cb(null, true);
-    } else {
-        cb(new Error(`Images/Docs only. Got: ${file.mimetype} / ${path.extname(file.originalname)}`));
-    }
-};
-=======
 const multerUpload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
@@ -46,25 +17,11 @@ const ALLOWED_TYPES = [
   "image/webp",
   "application/pdf",
 ];
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 // COMMON FUNCTION (reuse for single & multiple)
 const processFile = async (file, fieldName) => {
   const fileType = await fileTypeFromBuffer(file.buffer);
 
-<<<<<<< HEAD
-// cloudinary storage setup
-const storage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        return {
-            folder: "media_uploads",
-            resource_type: "auto",
-            public_id: `${file.fieldname}-${Date.now()}`
-        };
-    },
-});
-=======
   if (!fileType) {
     throw new Error("Unable to determine file type");
   }
@@ -85,7 +42,6 @@ const storage = new CloudinaryStorage({
         resolve(result);
       }
     );
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
     streamifier.createReadStream(file.buffer).pipe(stream);
   });
@@ -98,17 +54,6 @@ export const uploadSingle = (fieldName) => [
     try {
       if (!req.file) return next();
 
-<<<<<<< HEAD
-// multer configuration
-const upload = multer({
-    storage,
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
-    fileFilter: function (req, file, cb) {
-        checkFileType(file, cb);
-    },
-})
-export default upload;
-=======
       const result = await processFile(req.file, fieldName);
       req.file.cloudinary = result;
 
@@ -174,4 +119,3 @@ export const uploadFieldss = (fields) => [
     }
   },
 ];
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d

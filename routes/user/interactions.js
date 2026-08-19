@@ -19,12 +19,6 @@ const router = express.Router();
  *         description: Server Error
  */
 router.get('/conversations', protect, getConversations);
-<<<<<<< HEAD
-router.get('/bookings/:bookingId/conversation', protect, getConversationByBooking);
-router.get('/chat/:conversationId', protect, getMessages);
-router.post('/conversations/create', protect, createConversationId);
-router.post('/chat/conversation/create', protect, createConversationId); // Alias for backward compatibility
-=======
 
 /**
  * @swagger
@@ -168,7 +162,6 @@ router.post('/chat/conversation/create', protect, createConversationId); // Alia
  *       500:
  *         description: Server Error
  */
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 router.post('/chat/send', protect, sendMessage);
 
 // Aliases

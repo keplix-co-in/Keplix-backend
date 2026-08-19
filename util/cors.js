@@ -38,15 +38,10 @@ const corsOptions = {
       return callback(null, true);
     }
     
-<<<<<<< HEAD
-    // Always allow admin subdomain and vercel branch domains
-    if (origin.includes("keplix.co.in") || origin.includes("vercel.app") || origin.includes("localhost")) {
-=======
     // Always allow keplix.co.in subdomains and vercel preview domains (anchored, not substring)
     const keplixSubdomain = /^https:\/\/([a-z0-9-]+\.)*keplix\.co\.in$/i;
     const vercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
     if (keplixSubdomain.test(origin) || vercelPreview.test(origin)) {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
       return callback(null, true);
     }
 

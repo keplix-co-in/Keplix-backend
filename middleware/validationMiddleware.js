@@ -14,10 +14,6 @@
  */
 export const validateRequest = (schema) => async (req, res, next) => {
   try {
-<<<<<<< HEAD
-    // Validate request body against the schema
-=======
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
     const parsedData = await schema.parseAsync(req.body);
     req.body = parsedData;
     next();

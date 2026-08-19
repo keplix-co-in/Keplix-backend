@@ -3,11 +3,7 @@ import { getVendorBookings, updateBookingStatus, respondToServiceRequest } from 
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { updateBookingStatusSchema, respondToServiceRequestSchema } from '../../validators/vendor/bookingValidators.js';
-<<<<<<< HEAD
-import upload from '../../middleware/uploadMiddleware.js';
-=======
 import {uploadSingle, uploadFieldss} from '../../middleware/uploadMiddleware.js';
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
 
 const router = express.Router();
 
@@ -31,20 +27,6 @@ const router = express.Router();
  */
 router.get('/:vendorId/bookings', protect, getVendorBookings);
 
-<<<<<<< HEAD
-// Matches PATCH /service_api/vendor/bookings/:id/respond (accept/reject request)
-router.patch('/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
-
-// Also support the vendorId prefixed version for consistency
-router.patch('/:vendorId/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
-
-// Matches PATCH /service_api/vendor/:vendorId/bookings/update/:id
-// Changed to POST to avoid potential network issues with PATCH+Multipart on some clients
-router.post('/:vendorId/bookings/update/:id', protect, upload.array('images'), (req, res, next) => {
-  next();
-}, validateRequest(updateBookingStatusSchema), updateBookingStatus);
-router.patch('/:vendorId/bookings/update/:id', protect, upload.array('images'), (req, res, next) => {
-=======
 /**
  * @swagger
  * /service_api/vendor/bookings/{id}/respond:
@@ -198,7 +180,6 @@ router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'i
  *         description: Booking status updated successfully
  */
 router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
->>>>>>> eaee52b12e147de79c7937b99b425177c5de381d
   next(); // Keep PATCH for backward compatibility if needed, but prefer POST for files
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
