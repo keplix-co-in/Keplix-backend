@@ -55,10 +55,26 @@ jobs:
       # a destructive schema change blocks the deploy instead of silently
       # destroying a column. --skip-generate because the Docker build already
       # ran `prisma generate`.
+      # Run INSIDE the image we just built, not via `npx` on the runner.
+      #
+      # The runner never installs dependencies -- there is no setup-node or
+      # `npm ci` step, because everything is built in Docker. So a bare
+      # `npx prisma` downloads whatever the latest major happens to be (7.9.1
+      # at time of writing) into an empty tree, and prisma.config.js then dies
+      # with "Cannot find module 'prisma/config'" because node_modules does not
+      # exist. Pinning the npx version would not help: prisma.config.js resolves
+      # `prisma/config` from node_modules either way.
+      #
+      # The image already contains node_modules with the pinned prisma ^7.4.0,
+      # the schema, and prisma.config.js, and it is present locally from the
+      # build step -- so this needs no download and cannot drift from the
+      # version the app itself uses.
       - name: Apply database schema
-        run: npx prisma db push --schema prisma/schema.prisma --skip-generate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
+            npx prisma db push --schema prisma/schema.prisma --skip-generate
 
       # WARNING: --set-env-vars below REPLACES the service's entire environment.
       # Any variable not on that line is DELETED from the running service, and
