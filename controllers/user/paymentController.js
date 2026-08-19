@@ -1,10 +1,10 @@
 import Razorpay from "razorpay";
-import crypto from "crypto";
 import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import Logger from "../../util/logger.js";
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
+import { resolveBookingAmount } from "../../util/servicePricing.js";
 
 
 
@@ -32,7 +32,7 @@ export const createPaymentOrder = async (req, res) => {
 
     const booking = await prisma.booking.findUnique({
       where: { id: Number(bookingId) },
-      include: { service: true },
+      include: { service: true, bookingVehicle: true },
     });
 
     if (!booking || !booking.service) {
@@ -43,24 +43,50 @@ export const createPaymentOrder = async (req, res) => {
       return res.status(403).json({ message: "Not authorized for this booking" });
     }
 
-    const amount = parseFloat(booking.service.price.toString());
+    // Prefers BookingVehicle.price_snapshot (segment price at the time this
+    // booking was created) over a fresh lookup of the service's current
+    // price. See util/servicePricing.js — this is one of three sites that
+    // must agree, or the webhook's cross-check below fails every payment.
+    const amount = resolveBookingAmount(booking);
 
-    // Generate idempotency key using bookingId hash (MD5 used for 32-char length to fit Razorpay's 36-char limit)
-    const idempotencyKey = crypto.createHash("md5").update(String(bookingId)).digest("hex");
+    const receipt = `rcpt_bk_${bookingId}`;
 
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
-      currency,
-      receipt: `rcpt_bk_${bookingId}`,
-      // The webhook handler needs a reliable way to resolve which booking a
-      // captured payment belongs to when it's creating the payment record
-      // itself (client died before calling /verify) — notes are echoed back
-      // on both the order and payment webhook entities, unlike `receipt`
-      // parsing which is a string convention rather than a real contract.
-      notes: { bookingId: String(bookingId) },
-    }, {
-      "X-Razorpay-Idempotency-Key": idempotencyKey
-    });
+    // Idempotency by receipt lookup rather than the X-Razorpay-Idempotency-Key
+    // header. razorpay@2.9.6's orders.create(params, cb) takes a CALLBACK as
+    // its second argument, not headers — passing a headers object there made
+    // the SDK invoke it as a function and every single order creation died
+    // with "cb is not a function", so no payment could ever start. The SDK's
+    // api.post has no per-request header support at all (headers are fixed at
+    // client construction), so the key cannot be sent this way.
+    //
+    // The receipt is already unique per booking, so an unpaid order for this
+    // booking is reused instead of piling up duplicates — which matters
+    // because the app can fire this endpoint twice for one tap.
+    let order = null;
+    try {
+      const existing = await razorpay.orders.all({ receipt, count: 10 });
+      order = (existing?.items ?? []).find(
+        (o) => o.status === 'created' && Number(o.amount) === Math.round(amount * 100)
+      ) ?? null;
+    } catch (lookupError) {
+      // A failed lookup must not block payment — worst case we create a new
+      // order, which is the pre-existing behaviour anyway.
+      console.warn('Order idempotency lookup failed, creating a new order:', lookupError.message);
+    }
+
+    if (!order) {
+      order = await razorpay.orders.create({
+        amount: Math.round(amount * 100),
+        currency,
+        receipt,
+        // The webhook handler needs a reliable way to resolve which booking a
+        // captured payment belongs to when it's creating the payment record
+        // itself (client died before calling /verify) — notes are echoed back
+        // on both the order and payment webhook entities, unlike `receipt`
+        // parsing which is a string convention rather than a real contract.
+        notes: { bookingId: String(bookingId) },
+      });
+    }
 
     const finalOrderId = order.id || order.orderId;
 
@@ -171,7 +197,15 @@ export const handleRazorpayWebhook = async (req, res) => {
     // is single-use). eventId prefers Razorpay's own delivery id header;
     // when absent, a deterministic key derived from the event contents is
     // used instead so the same underlying event still collapses to one row.
-    const entityId = payload?.payment?.entity?.id || payload?.order?.entity?.id || 'unknown';
+    // refund.entity is included deliberately: without it every refund event
+    // falls through to 'unknown', so two unrelated refunds delivered in the
+    // same second would generate the same fallback eventId and the second
+    // would be silently discarded as a duplicate.
+    const entityId =
+      payload?.payment?.entity?.id ||
+      payload?.refund?.entity?.id ||
+      payload?.order?.entity?.id ||
+      'unknown';
     const eventId = req.headers['x-razorpay-event-id']
       || `${event}:${entityId}:${req.body?.created_at || ''}`;
 
@@ -200,7 +234,19 @@ export const handleRazorpayWebhook = async (req, res) => {
       case 'order.paid':
         Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
         break;
-        
+
+      // Refund outcomes. issueRefund writes 'gateway_confirmed' the moment the
+      // API call returns, but the refund is only actually settled later —
+      // without these two the row would never reach the truth.
+      case 'refund.processed':
+        await handleRefundProcessed(payload.refund.entity);
+        break;
+
+      case 'refund.failed':
+        await handleRefundFailed(payload.refund.entity);
+        break;
+
+
       default:
         Logger.info(`[Webhook] Unhandled event type: ${event}`);
     }
@@ -282,6 +328,83 @@ async function handlePaymentFailed(payment) {
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
+  }
+}
+
+// Helper: Handle refund processed event
+//
+// issueRefund optimistically marks a row 'processed' once its own bookkeeping
+// succeeds, but the gateway is the authority on whether the money actually
+// reached the customer. This is the confirmation.
+async function handleRefundProcessed(refundEntity) {
+  try {
+    const { id, payment_id } = refundEntity;
+
+    const refund = await prisma.refund.findFirst({ where: { gatewayRefundId: id } });
+
+    if (!refund) {
+      // A refund we have no record of — issued directly from the Razorpay
+      // dashboard, most likely. Worth knowing about: our Payment row still
+      // says the money is ours.
+      Logger.warn(
+        `[Webhook] refund.processed for unknown refund ${id} (payment ${payment_id}) — ` +
+        `possibly issued outside the app.`
+      );
+      return;
+    }
+
+    if (refund.status === 'processed') {
+      Logger.info(`[Webhook] Refund ${id} already processed, ignoring duplicate`);
+      return;
+    }
+
+    await prisma.refund.update({
+      where: { id: refund.id },
+      data: { status: 'processed', gatewayResponse: JSON.stringify(refundEntity) },
+    });
+
+    Logger.info(`[Webhook] Refund ${id} confirmed processed`);
+  } catch (error) {
+    Logger.error(`[Webhook] handleRefundProcessed error: ${error.message}`);
+  }
+}
+
+// Helper: Handle refund failed event
+//
+// The money did NOT reach the customer. Marked gateway_failed, which is the
+// one status refundService will let a retry re-reserve — deliberately, because
+// there the funds provably did not move.
+async function handleRefundFailed(refundEntity) {
+  try {
+    const { id, payment_id } = refundEntity;
+
+    const refund = await prisma.refund.findFirst({ where: { gatewayRefundId: id } });
+
+    if (!refund) {
+      Logger.warn(`[Webhook] refund.failed for unknown refund ${id} (payment ${payment_id})`);
+      return;
+    }
+
+    // Never walk back a refund the gateway already confirmed as processed —
+    // deliveries can arrive out of order, and marking a completed refund as
+    // failed would invite a second one.
+    if (refund.status === 'processed') {
+      Logger.warn(`[Webhook] Ignored stale refund.failed for already-processed refund ${id}`);
+      return;
+    }
+
+    await prisma.refund.update({
+      where: { id: refund.id },
+      data: {
+        status: 'gateway_failed',
+        lastError: refundEntity?.error_description || 'Gateway reported refund failure',
+        gatewayResponse: JSON.stringify(refundEntity),
+      },
+    });
+
+    Logger.error(`[MANUAL ACTION] Refund ${id} failed at the gateway — customer has NOT been refunded.`);
+  } catch (error) {
+    Logger.error(`[Webhook] handleRefundFailed error: ${error.message}`);
   }
 }
 

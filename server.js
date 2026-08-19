@@ -6,6 +6,7 @@ import app from "./app.js";
 import { initSocket } from "./socket.js";
 import Logger from "./util/logger.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
+import refundReconciler from "./util/refundReconciler.js";
 import { startPaymentReconciliation } from "./util/paymentReconciliation.js";
 import { scheduleOtpCleanup } from "./queues/otpCleanupQueue.js";
 import notificationWorker from "./workers/notificationWorker.js";
@@ -39,6 +40,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`=================================`);
 
   bookingStatusManager.start();
+  refundReconciler.start();
   scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule OTP cleanup job:', err));
   startPaymentReconciliation();
 });
@@ -48,6 +50,7 @@ const gracefulShutdown = () => {
   Logger.info('SIGTERM/SIGINT received. Shutting down gracefully...');
 
   bookingStatusManager.stop();
+  refundReconciler.stop();
 
   if (notificationWorker) {
     notificationWorker.close().then(() => {

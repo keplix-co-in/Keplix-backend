@@ -1,6 +1,7 @@
 ﻿import Razorpay from "razorpay";
 import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
+import { RESERVED_STATUSES } from "../../services/refundService.js";
 
 
 
@@ -51,6 +52,52 @@ export const triggerVendorPayout = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Vendor payout already processed" });
+    }
+
+    /**
+     * Refund guards.
+     *
+     * Previously this function checked only that the payment succeeded and
+     * hadn't already been paid out, so a vendor could withdraw their share
+     * before a refund was issued against the same payment. refundService
+     * detects that only after the fact — it returns `payoutAlreadySettled`,
+     * whose own comment says the money "needs to be manually recovered from
+     * the vendor" with no mechanism to do it. These three checks are what
+     * stop that race reaching the gateway.
+     */
+
+    // 1. A booking that is cancelled, refunded or under dispute has no
+    //    settled amount to pay out yet, whatever the payment row says.
+    const bookingStatus = payment.booking?.status;
+    if (["cancelled", "refunded", "disputed"].includes(bookingStatus)) {
+      return res.status(400).json({
+        message: `Payout is blocked while this booking is ${bookingStatus}.`,
+        code: "PAYOUT_BLOCKED_BOOKING_STATUS",
+      });
+    }
+
+    // 2. Any refund already laying claim to this payment — using refundService's
+    //    own definition of "reserved" so the two can't drift apart.
+    const reservedRefund = await prisma.refund.findFirst({
+      where: { paymentId: payment.id, status: { in: RESERVED_STATUSES } },
+      select: { id: true, status: true },
+    });
+    if (reservedRefund) {
+      return res.status(400).json({
+        message: "Payout is blocked: a refund is in progress for this payment.",
+        code: "PAYOUT_BLOCKED_REFUND_PENDING",
+      });
+    }
+
+    // 3. The escrow hold window set at completion. NULL means no hold was
+    //    recorded (e.g. bookings completed before this existed), which is
+    //    treated as releasable rather than frozen forever.
+    if (payment.payoutHoldUntil && payment.payoutHoldUntil > new Date()) {
+      return res.status(400).json({
+        message: "Payout is still within the hold window after service completion.",
+        code: "PAYOUT_HOLD_ACTIVE",
+        releasableAt: payment.payoutHoldUntil,
+      });
     }
 
     /**

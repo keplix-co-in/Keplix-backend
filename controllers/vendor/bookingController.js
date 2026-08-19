@@ -3,6 +3,7 @@ import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
+import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
 
 
 
@@ -35,14 +36,23 @@ export const getVendorBookings = async (req, res) => {
     if (serviceName) query.service = { name: { contains: serviceName } };
     if (token) query.id = parseInt(token);
 
-    // For order alerts, exclude past bookings (bookings that have already passed)
-    // Only show future bookings or bookings from today onwards
-    // EXCEPTION: For completed/cancelled bookings, show all historical records
+    // The "today onwards" default only makes sense for bookings that are
+    // still ABOUT a future date — pending/confirmed/scheduled. Once a
+    // booking is in_progress, service_completed, completed, cancelled,
+    // disputed, or refunded, its original booking_date is no longer the
+    // point; the vendor needs to see and act on it regardless of how old
+    // that date is. This previously exempted only completed/cancelled, so a
+    // booking stuck in in_progress from months ago (its scheduled date long
+    // past) silently vanished from the vendor's default list — an ACTIVE job
+    // the vendor could no longer find or close out.
     const now = new Date();
     const hasDateFilter = date || date_from || date_to;
-    const isCompletedStatus = status && (status.includes('completed') || status.includes('cancelled'));
-    
-    if (!hasDateFilter && !isCompletedStatus) { // Only apply time filter when no specific date filters are set AND not completed/cancelled
+    const FORWARD_LOOKING_STATUSES = ['pending', 'confirmed', 'scheduled'];
+    const requestedStatuses = status ? status.split(',') : null;
+    const isForwardLookingOnly =
+      !requestedStatuses || requestedStatuses.every((s) => FORWARD_LOOKING_STATUSES.includes(s));
+
+    if (!hasDateFilter && isForwardLookingOnly) {
       query.booking_date = {
         gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Today and future
       };
@@ -277,6 +287,32 @@ export const updateBookingStatus = async (req, res) => {
         service: true
       }
     });
+
+    // === ESCROW HOLD ===
+    // Completion is what puts this booking on the payout path, so it is also
+    // where the hold window starts. Stored on Payment (not Booking, which must
+    // not be modified) and computed once here rather than derived at payout
+    // time, so later changes to payoutHoldHours can't retroactively release
+    // money that was meant to be held.
+    //
+    // Best-effort: the booking is already committed above, and failing to set
+    // a hold must not fail the vendor's completion. The payout guard treats a
+    // missing hold as releasable, so the downside is a payout that isn't
+    // delayed — never a booking that can't be completed.
+    if (status === 'service_completed' || status === 'completed') {
+      try {
+        const holdUntil = await resolvePayoutHoldUntil(new Date());
+        if (holdUntil) {
+          await prisma.payment.updateMany({
+            where: { bookingId: booking.id },
+            data: { payoutHoldUntil: holdUntil },
+          });
+        }
+      } catch (holdError) {
+        console.error('Failed to set payout hold for booking', booking.id, holdError);
+      }
+    }
+
     // === NOTIFICATIONS ===
     let title = "Booking Update";
     let body = `Your booking for ${booking.service.name} is now ${status}`;

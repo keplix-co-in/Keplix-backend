@@ -1,6 +1,7 @@
 import prisma from "../util/prisma.js";
 import { addPayoutJob } from "../queues/payoutQueue.js";
 import { updateVendorRatingStats } from "../util/ratingHelper.js";
+import { RESERVED_STATUSES } from "./refundService.js";
 
 /**
  * Thrown by service functions to carry an intended HTTP status code, so the
@@ -101,6 +102,30 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
       // duplicate job for a payout that was already under way.
       if (["paid", "settled", "processing"].includes(payment.vendorPayoutStatus)) {
         throw new Error("Vendor payout already processed");
+      }
+
+      // Refund guard.
+      //
+      // This is the SECOND path that can release a payout, and it is the one
+      // customers actually use — the admin settle in payoutService.js is the
+      // exception. Guarding only that one left the main route open: a refund
+      // could be reserved against this payment while a confirmation released
+      // the vendor's share, leaving the platform to claw it back manually.
+      //
+      // Runs under the row lock taken above, which is the same Payment row
+      // refundService locks before reserving, so the two are mutually
+      // exclusive.
+      //
+      // Deliberately NOT checking payoutHoldUntil here: the hold exists to
+      // leave room for the customer to object, and this endpoint IS the
+      // customer saying they are happy. Making them wait 24 hours after
+      // explicitly confirming would punish the good path for no benefit.
+      const reservedRefund = await tx.refund.findFirst({
+        where: { paymentId: payment.id, status: { in: RESERVED_STATUSES } },
+        select: { id: true },
+      });
+      if (reservedRefund) {
+        throw new Error("Cannot release payout: a refund is in progress for this payment");
       }
 
       await tx.booking.update({

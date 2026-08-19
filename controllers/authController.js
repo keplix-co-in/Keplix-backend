@@ -11,6 +11,7 @@ import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
 import { normalizeIndianPhone } from "../util/phone.js";
 import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
+import { OAuth2Client } from "google-auth-library";
 
 const require = createRequire(import.meta.url);
 
@@ -74,7 +75,15 @@ const verifyDjangoPassword = (password, hash) => {
     );
     const derivedHash = derivedKey.toString("base64");
 
-    return derivedHash === storedHash;
+    // timingSafeEqual, not === : a plain string compare short-circuits on the
+    // first differing byte, so response time leaks how much of the hash was
+    // guessed correctly. timingSafeEqual requires equal lengths, so compare
+    // lengths first (that check is not itself secret — hash length is fixed by
+    // the algorithm).
+    const a = Buffer.from(derivedHash, "utf8");
+    const b = Buffer.from(storedHash, "utf8");
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   } catch (e) {
     console.error("Error verifying Django password:", e);
     return false;
@@ -144,6 +153,18 @@ export const authUser = async (req, res) => {
 
     if (user) {
       let isValid = false;
+
+      // Social-only accounts are created with an empty password (the column is
+      // non-nullable, so "" stands in for "no password set"). bcrypt.compare
+      // against "" already returns false, but relying on that is one refactor
+      // away from being a login bypass — reject explicitly instead, and don't
+      // let an empty submitted password reach the comparison either.
+      if (!user.password || !password) {
+        return res.status(401).json({
+          message: "Invalid email or password. If you signed up with Google, use Continue with Google.",
+        });
+      }
+
       // Check if it's a Django PBKDF2 hash
       if (user.password.startsWith("pbkdf2_sha256$")) {
         isValid = verifyDjangoPassword(password, user.password);
@@ -876,47 +897,97 @@ export const verifyEmailOTP = async (req, res) => {
 // so a client-supplied role can never reach prisma.user.create() unvalidated.
 const ALLOWED_SIGNUP_ROLES = ["user", "vendor"];
 
+const googleOAuthClient = new OAuth2Client();
+
+/**
+ * OAuth client IDs whose ID tokens we accept.
+ *
+ * This is the security boundary for Google sign-in: a token is only ours if
+ * its `aud` is one of these. It must list every client that legitimately signs
+ * users in — the customer app and the vendor app, across the dev and prod
+ * Firebase projects — hence a comma-separated env var rather than a constant.
+ *
+ * Read at call time, not at module load, so a deployment can rotate the list
+ * without a code change.
+ *
+ * Throws when unset: an empty audience list would make verifyIdToken accept
+ * ANY audience, silently restoring the very hole this replaced. Failing the
+ * request is the safe direction.
+ */
+const getAllowedGoogleAudiences = () => {
+  const raw = process.env.GOOGLE_ALLOWED_AUDIENCES || "";
+  const audiences = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (audiences.length === 0) {
+    throw new Error(
+      "GOOGLE_ALLOWED_AUDIENCES is not set — refusing to verify Google tokens without an audience allowlist"
+    );
+  }
+  return audiences;
+};
+
 // @desc    Google Login
 export const googleLogin = async (req, res) => {
   const { idToken, role } = req.body;
   const safeRole = ALLOWED_SIGNUP_ROLES.includes(role) ? role : "user";
 
   try {
-    let email;
-    let name;
-
-    // 1. Try to verify as a Firebase ID Token (Standard flow)
+    // Verify the Google ID token properly.
+    //
+    // This previously fell back to GET /tokeninfo and checked only `iss` — i.e.
+    // "was this issued by Google?" — but never `aud`, "was this issued to US?".
+    // Because the apps send a raw Google ID token (not a Firebase one), the
+    // Firebase branch above always threw and every request took that fallback.
+    // The result was an account-takeover hole: an ID token minted for ANY
+    // Google OAuth client on earth was accepted, and the lookup below links by
+    // email alone, so anyone could obtain Keplix tokens for any account just by
+    // knowing its email address.
+    //
+    // verifyIdToken checks the signature, expiry, issuer AND audience against
+    // the allowlist, so a token minted for someone else's client is rejected.
+    // Resolved BEFORE the try below so a misconfigured server surfaces as a
+    // 500, not a 401. Telling a user "invalid token" when the real fault is a
+    // missing env var sends them chasing their own credentials.
+    let allowedAudiences;
     try {
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      email = decodedToken.email;
-      name = decodedToken.name;
-    } catch (firebaseError) {
-      // 2. Fallback: Verify as a generic Google ID Token (OIDC)
-      // This handles cases where the frontend sends the token directly from GoogleSignin
-      try {
-        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-        
-        if (!response.ok) {
-          throw new Error('Token validation failed');
-        }
-
-        const payload = await response.json();
-        
-        // Ensure the token issuer is actually Google
-        if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
-           throw new Error('Invalid token issuer');
-        }
-
-        email = payload.email;
-        name = payload.name;
-      } catch (googleError) {
-        console.error("Token verification failed for both Firebase and Google methods");
-        return res.status(401).json({ message: "Invalid token" });
-      }
+      allowedAudiences = getAllowedGoogleAudiences();
+    } catch (configError) {
+      console.error("Google sign-in misconfigured:", configError.message);
+      return res.status(500).json({ message: "Google sign-in is not configured on this server." });
     }
 
+    let payload;
+    try {
+      const ticket = await googleOAuthClient.verifyIdToken({
+        idToken,
+        audience: allowedAudiences,
+      });
+      payload = ticket.getPayload();
+    } catch (verifyError) {
+      console.error("Google ID token verification failed:", verifyError.message);
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    if (!payload?.email) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
+
+    // Google says it has not verified ownership of this address. Trusting it
+    // would let someone register an unverified Google account on a victim's
+    // address and be handed the victim's existing Keplix account by the lookup
+    // below.
+    if (payload.email_verified !== true) {
+      return res.status(401).json({
+        message: "Your Google account's email is not verified. Please verify it with Google and try again.",
+      });
+    }
+
+    const email = payload.email;
     // Default name if missing
-    name = name || email.split("@")[0];
+    const name = payload.name || email.split("@")[0];
 
     let user = await prisma.user.findUnique({
       where: { email },
@@ -961,12 +1032,55 @@ export const googleLogin = async (req, res) => {
       }
 
       // Re-fetch user with profile
-      user = await prisma.user.findUnique({ 
+      user = await prisma.user.findUnique({
         where: { id: user.id },
         include: {
           userProfile: true,
           vendorProfile: true,
         }
+      });
+    }
+
+    // A User row can exist WITHOUT its profile row. Profile creation above only
+    // runs for brand-new users, so any account that reached this point missing
+    // its profile — a partial signup, a failed profile insert, a user seeded by
+    // another path — stayed broken forever: the response builder below is
+    // guarded by `else if (user.userProfile)`, so it silently returned a
+    // userData with no name, phone or picture, and getUserProfile did the same.
+    // The app then showed a blank profile after signing in with Google.
+    //
+    // Two such accounts exist in the database today (ids 480 and 456), which is
+    // how this was found.
+    //
+    // Create only what is missing. Never touch an existing profile here: this
+    // path must not overwrite a name, phone or picture the user set during
+    // onboarding with whatever Google reports.
+    const needsUserProfile = user.role !== "vendor" && !user.userProfile;
+    const needsVendorProfile = user.role === "vendor" && !user.vendorProfile;
+
+    if (needsUserProfile || needsVendorProfile) {
+      console.warn(
+        `Google login: user ${user.id} (${user.email}) had no ${user.role === "vendor" ? "vendorProfile" : "userProfile"}; creating one.`
+      );
+
+      if (needsVendorProfile) {
+        await prisma.vendorProfile.create({
+          data: {
+            userId: user.id,
+            business_name: name,
+            phone: "",
+            onboarding_completed: false,
+          },
+        });
+      } else {
+        await prisma.userProfile.create({
+          data: { userId: user.id, name, phone: "" },
+        });
+      }
+
+      user = await prisma.user.findUnique({
+        where: { id: user.id },
+        include: { userProfile: true, vendorProfile: true },
       });
     }
 
@@ -978,9 +1092,15 @@ export const googleLogin = async (req, res) => {
       is_active: user.is_active,
     };
 
+    // phone_number mirrors phone throughout the API (see getUserProfile). The
+    // apps read `phone_number` in places — components/Profile/UserProfile.jsx
+    // populates its phone field from it — so omitting it here made the number
+    // vanish after a Google sign-in even when the profile held one.
     if (user.role === "vendor" && user.vendorProfile) {
       userData.business_name = user.vendorProfile.business_name;
+      userData.name = user.vendorProfile.business_name;
       userData.phone = user.vendorProfile.phone;
+      userData.phone_number = user.vendorProfile.phone;
       userData.address = user.vendorProfile.address;
       userData.image = user.vendorProfile.image;
       userData.cover_image = user.vendorProfile.cover_image;
@@ -989,8 +1109,11 @@ export const googleLogin = async (req, res) => {
     } else if (user.userProfile) {
       userData.name = user.userProfile.name;
       userData.phone = user.userProfile.phone;
+      userData.phone_number = user.userProfile.phone;
       userData.address = user.userProfile.address;
       userData.profile_picture = user.userProfile.profile_picture;
+      userData.id_proof_front = user.userProfile.id_proof_front;
+      userData.id_proof_back = user.userProfile.id_proof_back;
     }
 
     res.json({

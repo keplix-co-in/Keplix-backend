@@ -97,7 +97,11 @@ describe('confirmServiceCompletion', () => {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn() },
         payment: { update: jest.fn() },
-        review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() }
+        review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+        // Confirmation refuses to release a payout while a refund is reserved
+        // against the payment, checked under the same row lock. Default is
+        // "no refund in progress" so the happy path behaves as before.
+        refund: { findFirst: jest.fn().mockResolvedValue(null) }
       };
 
       return await callback(tx);

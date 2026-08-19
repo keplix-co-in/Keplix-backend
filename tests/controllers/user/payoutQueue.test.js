@@ -18,6 +18,8 @@ const mockPrisma = {
     // Default implementation for tests that don't override it
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+      // Payout release is refused while a refund is reserved; default none.
+      refund: { findFirst: jest.fn().mockResolvedValue(null) },
       booking: {
         findUnique: jest.fn().mockResolvedValue({
             status: 'service_completed',
@@ -106,6 +108,8 @@ describe('Vendor Payout Queueing & Worker', () => {
       prisma.$transaction.mockImplementation(async (callback) => {
         const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+      // Payout release is refused while a refund is reserved; default none.
+      refund: { findFirst: jest.fn().mockResolvedValue(null) },
             booking: {
                 findUnique: jest.fn().mockResolvedValue(mockBooking),
                 update: jest.fn().mockResolvedValue({}),
@@ -175,6 +179,8 @@ describe('Vendor Payout Queueing & Worker', () => {
       prisma.$transaction.mockImplementation(async (callback) => {
         const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
+      // Payout release is refused while a refund is reserved; default none.
+      refund: { findFirst: jest.fn().mockResolvedValue(null) },
             booking: {
                 findUnique: jest.fn().mockResolvedValue(mockBookingPaid),
             },

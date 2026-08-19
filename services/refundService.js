@@ -33,7 +33,10 @@ const GATEWAY_REACHED_STATUSES = ['gateway_confirmed', 'processed', 'reconciliat
 // 'initiated' row, neither counting the other, and both pass the
 // remaining-balance check. Only 'gateway_failed' releases its reservation,
 // because there the money provably did not move.
-const RESERVED_STATUSES = ['initiated', ...GATEWAY_REACHED_STATUSES];
+// Exported so the payout guard can ask "is any refund laying claim to this
+// payment?" using exactly this definition. If the two ever disagreed, a payout
+// could be released against money a refund had already reserved.
+export const RESERVED_STATUSES = ['initiated', ...GATEWAY_REACHED_STATUSES];
 
 /**
  * Issues a full or partial refund for a successful payment. Admin-only —

@@ -26,7 +26,15 @@ const worker = new Worker(
     Logger.info(`[OTP Cleanup] Pruned ${result.count} stale EmailOTP row(s)`);
     return result.count;
   },
-  { connection: redisConnection }
+  {
+    connection: redisConnection,
+    // This queue only ever gets ONE job an hour (the repeatable cron job in
+    // queues/otpCleanupQueue.js), so BullMQ's default 5s long-poll was
+    // wasted Redis traffic essentially 100% of the time — see the matching
+    // comment in notificationWorker.js for the actual cost this incurred.
+    drainDelay: 60,
+    stalledInterval: 300_000,
+  }
 );
 
 worker.on("failed", (job, err) => {

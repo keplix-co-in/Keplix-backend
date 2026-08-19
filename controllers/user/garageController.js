@@ -2,6 +2,7 @@ import prisma from '../../util/prisma.js';
 import Logger from '../../util/logger.js';
 import { generateOTP } from '../../util/otp.js';
 import { sendSMS } from '../../util/communication.js';
+import { normalizeRegistration } from '../../util/vehicle.js';
 
 /** Per-phone throttle on top of the per-IP rate limiter (claimRequestLimiter)
  * — that limiter alone doesn't stop someone spraying many different numbers
@@ -33,16 +34,197 @@ export const listVehicles = async (req, res) => {
     const data = vehicles.map((v) => ({
       id: v.id,
       registration: v.registration,
+      car_name: v.car_name,
+      segment: v.segment,
       make: v.make,
       model: v.model,
       year: v.year,
       odometer_km: v.odometer_km,
+      is_primary: v.is_primary,
       last_service_at: v.walkInJobs[0]?.createdAt ?? null,
     }));
 
     return res.json({ data });
   } catch (error) {
     Logger.error(`[Garage] listVehicles failed: ${error.message}`);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+/**
+ * Clears is_primary on every OTHER vehicle this user owns, inside the given
+ * transaction. Kept as its own step rather than a DB-level partial unique
+ * index: a partial unique index can't express "at most one TRUE per
+ * ownerUserId" cleanly alongside the existing per-vendor registration
+ * uniqueness, so this is enforced in the write path instead.
+ */
+const clearOtherPrimaries = (tx, userId, exceptVehicleId) =>
+  tx.vehicle.updateMany({
+    where: { ownerUserId: userId, id: { not: exceptVehicleId }, is_primary: true },
+    data: { is_primary: false },
+  });
+
+// @desc    Add a car the signed-in user owns.
+// @route   POST /service_api/user/garage/vehicles
+export const createVehicle = async (req, res) => {
+  try {
+    const registration = normalizeRegistration(req.body.registration);
+
+    // Onboarding is optional and a user may add several cars, so this is not
+    // a hard uniqueness constraint at the DB level (see vehicle_reg_per_vendor
+    // in schema.prisma) — but re-adding the same plate by mistake would create
+    // a confusing duplicate "My Vehicles" entry, so it is caught here.
+    const existing = await prisma.vehicle.findFirst({
+      where: { ownerUserId: req.user.id, registration },
+    });
+    if (existing) {
+      return res.status(409).json({ message: 'You already have a vehicle with this registration' });
+    }
+
+    // First vehicle is primary by default — there is nothing to pick between
+    // yet, and a user who never opens a picker should still get segment
+    // pricing on their one car.
+    const isFirstVehicle = (await prisma.vehicle.count({ where: { ownerUserId: req.user.id } })) === 0;
+    const wantsPrimary = req.body.is_primary === true || isFirstVehicle;
+
+    const vehicle = await prisma.$transaction(async (tx) => {
+      const created = await tx.vehicle.create({
+        data: {
+          registration,
+          ownerUserId: req.user.id,
+          car_name: req.body.car_name ?? null,
+          segment: req.body.segment ?? null,
+          make: req.body.make ?? null,
+          model: req.body.model ?? null,
+          year: req.body.year ?? null,
+          fuel_type: req.body.fuel_type ?? null,
+          colour: req.body.colour ?? null,
+          is_primary: wantsPrimary,
+        },
+      });
+      if (wantsPrimary) await clearOtherPrimaries(tx, req.user.id, created.id);
+      return created;
+    });
+
+    return res.status(201).json({ vehicle });
+  } catch (error) {
+    // The DB-level unique constraint is scoped per-vendor, but a race between
+    // two requests for the SAME user could still both pass the findFirst
+    // check above and both attempt to insert. Surface that as the same 409
+    // rather than a raw 500.
+    if (error.code === 'P2002') {
+      return res.status(409).json({ message: 'You already have a vehicle with this registration' });
+    }
+    Logger.error(`[Garage] createVehicle failed: ${error.message}`);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Edit a vehicle the signed-in user owns. Registration is immutable
+//          here — see updateVehicleSchema for why.
+// @route   PATCH /service_api/user/garage/vehicles/:id
+export const updateVehicle = async (req, res) => {
+  try {
+    const vehicleId = parseInt(req.params.id);
+    const owned = await prisma.vehicle.findFirst({
+      where: { id: vehicleId, ownerUserId: req.user.id },
+    });
+    if (!owned) return res.status(404).json({ message: 'Vehicle not found' });
+
+    const { is_primary, ...rest } = req.body;
+
+    const vehicle = await prisma.$transaction(async (tx) => {
+      const updated = await tx.vehicle.update({
+        where: { id: vehicleId },
+        data: { ...rest, ...(is_primary !== undefined ? { is_primary } : {}) },
+      });
+      if (is_primary === true) await clearOtherPrimaries(tx, req.user.id, vehicleId);
+      return updated;
+    });
+
+    return res.json({ vehicle });
+  } catch (error) {
+    Logger.error(`[Garage] updateVehicle failed: ${error.message}`);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Remove a vehicle. Its walk-in job / booking history is untouched —
+//          Vehicle relations are all onDelete: SetNull / no cascade from this
+//          side — so deleting a car never deletes a customer's service record.
+// @route   DELETE /service_api/user/garage/vehicles/:id
+export const deleteVehicle = async (req, res) => {
+  try {
+    const vehicleId = parseInt(req.params.id);
+    const owned = await prisma.vehicle.findFirst({
+      where: { id: vehicleId, ownerUserId: req.user.id },
+    });
+    if (!owned) return res.status(404).json({ message: 'Vehicle not found' });
+
+    await prisma.vehicle.delete({ where: { id: vehicleId } });
+    return res.json({ message: 'Vehicle removed' });
+  } catch (error) {
+    Logger.error(`[Garage] deleteVehicle failed: ${error.message}`);
+    return res.status(500).json({ message: 'Server Error' });
+  }
+};
+
+// @desc    Jobs currently in progress for the signed-in user — bookings and
+//          claimed walk-ins alike — for the Home screen's live tracker card
+//          (spec §2.1). This is a narrowed, differently-shaped view of the
+//          same open/in_progress rows getHistory already returns; kept
+//          separate because the home card wants a single "the one active job"
+//          answer, not a paginated list.
+// @route   GET /service_api/user/jobs/active
+export const getActiveJobs = async (req, res) => {
+  try {
+    const [bookings, walkIns] = await Promise.all([
+      prisma.booking.findMany({
+        where: { userId: req.user.id, status: { in: ['confirmed', 'scheduled', 'in_progress', 'service_completed'] } },
+        orderBy: { booking_date: 'asc' },
+        include: {
+          service: { select: { name: true, vendor: { select: { vendorProfile: { select: { business_name: true } } } } } },
+          bookingVehicle: { include: { vehicle: { select: { registration: true, make: true, model: true, car_name: true } } } },
+        },
+      }),
+      prisma.walkInJob.findMany({
+        where: { claimedByUserId: req.user.id, status: { in: ['open', 'in_progress'] } },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          vehicle: { select: { registration: true, make: true, model: true, car_name: true } },
+          vendor: { select: { vendorProfile: { select: { business_name: true } } } },
+        },
+      }),
+    ]);
+
+    const data = [
+      ...bookings.map((b) => ({
+        type: 'booking',
+        id: b.id,
+        status: b.status,
+        service_name: b.service?.name,
+        garage_name: b.service?.vendor?.vendorProfile?.business_name,
+        vehicle: b.bookingVehicle?.vehicle
+          ? { registration: b.bookingVehicle.vehicle.registration, label: b.bookingVehicle.vehicle.car_name || `${b.bookingVehicle.vehicle.make || ''} ${b.bookingVehicle.vehicle.model || ''}`.trim() }
+          : null,
+        started_at: b.booking_date,
+      })),
+      ...walkIns.map((w) => ({
+        type: 'walk_in',
+        id: w.id,
+        status: w.status,
+        service_name: 'Walk-in service',
+        garage_name: w.vendor?.vendorProfile?.business_name,
+        vehicle: w.vehicle
+          ? { registration: w.vehicle.registration, label: w.vehicle.car_name || `${w.vehicle.make || ''} ${w.vehicle.model || ''}`.trim() }
+          : { registration: null, label: w.customer_name },
+        started_at: w.started_at ?? w.createdAt,
+      })),
+    ].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+
+    return res.json({ data });
+  } catch (error) {
+    Logger.error(`[Garage] getActiveJobs failed: ${error.message}`);
     return res.status(500).json({ message: 'Server Error' });
   }
 };
@@ -57,12 +239,60 @@ export const getVehicle = async (req, res) => {
         walkInJobs: {
           where: { claimedByUserId: req.user.id },
           orderBy: { createdAt: 'desc' },
-          include: { healthSheet: { select: { id: true, submitted_at: true } } },
+          include: {
+            healthSheet: { select: { id: true, submitted_at: true } },
+            vendor: { select: { vendorProfile: { select: { business_name: true } } } },
+          },
+        },
+        // In-app bookings made FOR this specific car. Booking itself has no
+        // vehicle link (see BookingVehicle in schema.prisma — added after
+        // this endpoint's original walk-in-only version), so this reaches
+        // bookings through that side table rather than through Vehicle
+        // directly. Older bookings placed before that feature existed simply
+        // have no BookingVehicle row and won't appear here — they still show
+        // up in the un-grouped /garage/history feed.
+        bookingVehicles: {
+          where: { booking: { userId: req.user.id } },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            booking: {
+              select: {
+                id: true,
+                status: true,
+                booking_date: true,
+                service: { select: { name: true, vendor: { select: { vendorProfile: { select: { business_name: true } } } } } },
+                healthSheet: { select: { id: true, submitted_at: true } },
+              },
+            },
+          },
         },
       },
     });
     if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
-    return res.json({ vehicle });
+
+    // Merged into one chronological timeline for the app, rather than two
+    // arrays the client would have to interleave and sort itself.
+    const timeline = [
+      ...vehicle.walkInJobs.map((w) => ({
+        type: 'walk_in',
+        id: w.id,
+        date: w.createdAt,
+        status: w.status,
+        garage_name: w.vendor?.vendorProfile?.business_name,
+        health_sheet_id: w.healthSheet?.id ?? null,
+      })),
+      ...vehicle.bookingVehicles.map((bv) => ({
+        type: 'booking',
+        id: bv.booking.id,
+        date: bv.booking.booking_date,
+        status: bv.booking.status,
+        service_name: bv.booking.service?.name,
+        garage_name: bv.booking.service?.vendor?.vendorProfile?.business_name,
+        health_sheet_id: bv.booking.healthSheet?.id ?? null,
+      })),
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return res.json({ vehicle: { ...vehicle, timeline } });
   } catch (error) {
     Logger.error(`[Garage] getVehicle failed: ${error.message}`);
     return res.status(500).json({ message: 'Server Error' });

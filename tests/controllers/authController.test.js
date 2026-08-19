@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
 }));
 
 const mockVerifyIdToken = jest.fn();
+const mockVerifyGoogleToken = jest.fn();
 // util/redis.js opens a live IORedis connection at import time and is reached
 // transitively through middleware/authMiddleware.js. Left unmocked it both
 // requires a running Redis and keeps an open handle that stops jest exiting.
@@ -42,6 +43,16 @@ jest.unstable_mockModule('../../util/firebase.js', () => ({
     auth: () => ({ verifyIdToken: mockVerifyIdToken }),
   },
   messaging: null,
+}));
+
+// Google ID tokens are now verified with google-auth-library's OAuth2Client,
+// which checks the AUDIENCE as well as the signature. The old firebase-admin /
+// tokeninfo path was removed because it only checked the issuer, which let a
+// token minted for any OAuth client log someone in.
+jest.unstable_mockModule('google-auth-library', () => ({
+  OAuth2Client: jest.fn().mockImplementation(() => ({
+    verifyIdToken: mockVerifyGoogleToken,
+  })),
 }));
 
 jest.unstable_mockModule('jsonwebtoken', () => ({
@@ -68,7 +79,9 @@ function mockRes() {
   return res;
 }
 
-const DECODED_TOKEN = { email: 'newuser@example.com', name: 'New User' };
+// email_verified is now required by googleLogin — Google saying it has not
+// verified ownership of the address was half of the account-takeover chain.
+const DECODED_TOKEN = { email: 'newuser@example.com', name: 'New User', email_verified: true };
 
 const NEW_USER_ROW = (role) => ({
   id: 1,
@@ -86,7 +99,11 @@ function withProfile(user, role) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Without an audience allowlist googleLogin fails closed with a 500, so
+  // these role tests need one configured.
+  process.env.GOOGLE_ALLOWED_AUDIENCES = 'test-client.apps.googleusercontent.com';
   mockVerifyIdToken.mockResolvedValue(DECODED_TOKEN);
+  mockVerifyGoogleToken.mockResolvedValue({ getPayload: () => DECODED_TOKEN });
 });
 
 describe('googleLogin - role whitelist enforcement', () => {
@@ -187,6 +204,9 @@ describe('googleLogin - role whitelist enforcement', () => {
     for (const badRole of [['vendor'], { role: 'vendor' }, 123]) {
       jest.clearAllMocks();
       mockVerifyIdToken.mockResolvedValue(DECODED_TOKEN);
+      // Re-seed the Google verifier too — clearAllMocks wipes it, and without
+      // it every iteration after the first fails verification.
+      mockVerifyGoogleToken.mockResolvedValue({ getPayload: () => DECODED_TOKEN });
       prisma.user.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(withProfile(NEW_USER_ROW('user'), 'user'));
@@ -227,8 +247,10 @@ describe('googleLogin - role whitelist enforcement', () => {
   });
 
   it('returns 401 when the ID token is invalid', async () => {
-    mockVerifyIdToken.mockRejectedValue(new Error('bad token'));
-    global.fetch = jest.fn().mockResolvedValue({ ok: false });
+    // Rejected by the audience/signature check in google-auth-library.
+    // There is deliberately no /tokeninfo fallback any more — that fallback
+    // was the vulnerability.
+    mockVerifyGoogleToken.mockRejectedValue(new Error('Wrong recipient'));
 
     const req = mockReq({ idToken: 'garbage', role: 'vendor' });
     const res = mockRes();
