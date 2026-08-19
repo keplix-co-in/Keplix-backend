@@ -19,7 +19,6 @@ import {
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
-import { strictAuthLimiter } from '../middleware/rateLimitMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
@@ -63,8 +62,8 @@ const uploadProfileFields = uploadFieldss([
  *         description: Bad request
  */
 // Same strict limit as /signup — this alias was an unlimited signup route.
-router.post('/register', strictAuthLimiter, validateRequest(registerSchema), registerUser);
-router.post('/signup', strictAuthLimiter, validateRequest(registerSchema), registerUser); // Alias for compatibility
+router.post('/register', validateRequest(registerSchema), registerUser);
+router.post('/signup', validateRequest(registerSchema), registerUser); // Alias for compatibility
 
 /**
  * @swagger
@@ -91,7 +90,7 @@ router.post('/signup', strictAuthLimiter, validateRequest(registerSchema), regis
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', strictAuthLimiter, validateRequest(loginSchema), authUser);
+router.post('/login', validateRequest(loginSchema), authUser);
 
 /**
  * @swagger
@@ -133,7 +132,7 @@ router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken)
  *       200:
  *         description: Reset email sent
  */
-router.post('/forgot-password', strictAuthLimiter, validateRequest(forgotPasswordSchema), forgotPassword);
+router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
 
 /**
  * @swagger
@@ -154,7 +153,7 @@ router.post('/forgot-password', strictAuthLimiter, validateRequest(forgotPasswor
  *       200:
  *         description: OTP sent (if the email exists)
  */
-router.post('/send-password-reset-otp', strictAuthLimiter, validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
+router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
 
 /**
  * @swagger
@@ -179,7 +178,7 @@ router.post('/send-password-reset-otp', strictAuthLimiter, validateRequest(forgo
  *       200:
  *         description: Password reset successfully
  */
-router.post('/reset-password-otp', strictAuthLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
+router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
 
 /**
  * @swagger
@@ -211,7 +210,7 @@ router.post('/reset-password-otp', strictAuthLimiter, validateRequest(resetPassw
  *       200:
  *         description: Password reset successful
  */
-router.post('/reset-password/:uid/:token', strictAuthLimiter, validateRequest(resetPasswordSchema), resetPassword);
+router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);
 
 /**
  * @swagger
@@ -233,7 +232,7 @@ router.post('/reset-password/:uid/:token', strictAuthLimiter, validateRequest(re
  *         description: Login successful
  */
 // Rate limited like every other credential-accepting route.
-router.post('/google', strictAuthLimiter, validateRequest(googleLoginSchema), googleLogin);
+router.post('/google', validateRequest(googleLoginSchema), googleLogin);
 
 // OTP Routes
 /**
@@ -255,7 +254,7 @@ router.post('/google', strictAuthLimiter, validateRequest(googleLoginSchema), go
  *       200:
  *         description: OTP sent
  */
-router.post('/send-phone-otp', strictAuthLimiter, validateRequest(requestOtpSchema), sendPhoneOTP);
+router.post('/send-phone-otp', validateRequest(requestOtpSchema), sendPhoneOTP);
 
 /**
  * @swagger
@@ -278,11 +277,15 @@ router.post('/send-phone-otp', strictAuthLimiter, validateRequest(requestOtpSche
  *       200:
  *         description: OTP verified
  */
-// Deliberately on the mount-wide authLimiter (20/15min) rather than
-// strictAuthLimiter (3/2h): a legitimate user mistyping an OTP twice must not
-// be locked out for two hours. 20 tries per 15 min against a 6-digit code that
-// expires in minutes is ample — an attacker gets ~13 guesses out of 1,000,000
-// per OTP window.
+// Covered by the mount-wide authLimiter (20/15min). 20 tries per 15 min
+// against a 6-digit code that expires in minutes is ample — an attacker gets
+// ~13 guesses out of 1,000,000 per OTP window.
+//
+// The old per-route strictAuthLimiter (3 requests / 2 hours) has been removed
+// from this file entirely. It was keyed on req.ip while `trust proxy` was
+// unset, so behind Cloud Run every request resolved to the same proxy address
+// and the three attempts were shared by EVERY user of both apps — locking the
+// whole platform out of login for two hours at a time.
 router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOTP);
 
 /**
@@ -304,7 +307,7 @@ router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOT
  *       200:
  *         description: OTP sent
  */
-router.post('/send-email-otp', strictAuthLimiter, validateRequest(requestOtpSchema), sendEmailOTP);
+router.post('/send-email-otp', validateRequest(requestOtpSchema), sendEmailOTP);
 
 /**
  * @swagger
@@ -327,7 +330,7 @@ router.post('/send-email-otp', strictAuthLimiter, validateRequest(requestOtpSche
  *       200:
  *         description: OTP verified
  */
-// See verify-phone-otp for why this is not strictAuthLimiter.
+// See verify-phone-otp for the limiter reasoning.
 router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOTP);
 
 // Protected Routes
@@ -389,8 +392,8 @@ router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
 router.put('/push-token', protect, updatePushToken);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
-router.post('/signup/', strictAuthLimiter, validateRequest(registerSchema), registerUser);
-router.post('/login/', strictAuthLimiter, validateRequest(loginSchema), authUser);
+router.post('/signup/', validateRequest(registerSchema), registerUser);
+router.post('/login/', validateRequest(loginSchema), authUser);
 router.post('/token/refresh/', validateRequest(refreshTokenSchema), refreshToken);
 
 export default router;
