@@ -104,6 +104,16 @@ jobs:
             gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             npx prisma db push --schema prisma/schema.prisma
 
+      # The ^##^ prefix sets ## as the delimiter for this dict, instead of the
+      # default comma. That is REQUIRED, not cosmetic: GOOGLE_ALLOWED_AUDIENCES
+      # is itself a comma-separated list of client IDs, so with the default
+      # delimiter gcloud read "357379210332-...apps.googleusercontent.com" as a
+      # separate variable and failed with:
+      #   ERROR: argument --set-env-vars: Bad syntax for dict arg
+      # ALLOWED_ORIGINS has the same shape and the same hazard.
+      #
+      # If you add a variable to this line, separate it with ## and NOT a comma.
+      #
       # WARNING: --set-env-vars below REPLACES the service's entire environment.
       # Any variable not on that line is DELETED from the running service, and
       # nothing fails loudly when one goes missing -- the feature that needs it
@@ -126,7 +136,7 @@ jobs:
             --region $REGION \
             --project $PROJECT_ID \
             --port 8080 \
-            --set-env-vars="NODE_ENV=production,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},RAZORPAYX_KEY_ID=${{ secrets.RAZORPAYX_KEY_ID }},RAZORPAYX_KEY_SECRET=${{ secrets.RAZORPAYX_KEY_SECRET }},RAZORPAYX_ACCOUNT_NUMBER=${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }},RAZORPAYX_WEBHOOK_SECRET=${{ secrets.RAZORPAYX_WEBHOOK_SECRET }},RESEND_API_KEY=${{ secrets.RESEND_API_KEY }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }},TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }},TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }},TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }},TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID=${{ secrets.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID }},PUBLIC_WEB_BASE_URL=${{ secrets.PUBLIC_WEB_BASE_URL }},FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }},GOOGLE_ALLOWED_AUDIENCES=${{ secrets.GOOGLE_ALLOWED_AUDIENCES }},FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }},FRONTEND_URL=${{ secrets.FRONTEND_URL }}" \
+            --set-env-vars="^##^NODE_ENV=production##DATABASE_URL=${{ secrets.DATABASE_URL }}##JWT_SECRET=${{ secrets.JWT_SECRET }}##JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}##ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}##RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}##RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}##RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}##RAZORPAYX_KEY_ID=${{ secrets.RAZORPAYX_KEY_ID }}##RAZORPAYX_KEY_SECRET=${{ secrets.RAZORPAYX_KEY_SECRET }}##RAZORPAYX_ACCOUNT_NUMBER=${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }}##RAZORPAYX_WEBHOOK_SECRET=${{ secrets.RAZORPAYX_WEBHOOK_SECRET }}##RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}##EMAIL_FROM=${{ secrets.EMAIL_FROM }}##TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}##TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}##TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }}##TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }}##TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID=${{ secrets.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID }}##PUBLIC_WEB_BASE_URL=${{ secrets.PUBLIC_WEB_BASE_URL }}##FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}##CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }}##GOOGLE_ALLOWED_AUDIENCES=${{ secrets.GOOGLE_ALLOWED_AUDIENCES }}##FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}##FRONTEND_URL=${{ secrets.FRONTEND_URL }}" \
             --memory 2Gi \
             --cpu 2 \
             --max-instances 10 \
