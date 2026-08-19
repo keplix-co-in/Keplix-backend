@@ -38,20 +38,49 @@ export const blacklistToken = async (token, expUnixSeconds) => {
 };
 
 /**
+ * Prisma error codes that mean "this query could not run", as opposed to
+ * "this query ran and told us something".
+ *
+ * P2021 table does not exist   P1001 cannot reach the database
+ * P1002 connection timed out   P1017 server closed the connection
+ *
+ * @see https://www.prisma.io/docs/reference/api-reference/error-reference
+ */
+const INFRA_ERROR_CODES = new Set(["P2021", "P1001", "P1002", "P1017"]);
+
+/**
  * Checks whether a JWT has been blacklisted (e.g. via logout).
  *
- * Fails CLOSED, and that is no longer the liability it was. When this lived in
- * Redis, failing closed meant an unrelated cache outage 401'd every
- * authenticated request in both apps -- which is exactly what happened when the
- * hosted Redis quota ran out. The check now runs against Postgres, the same
- * database the very next line of this middleware must query to load the user.
- * There is no partial-failure mode left to protect against: if this query
- * cannot run, nothing downstream could have served the request anyway.
+ * Failure handling distinguishes two very different things, because conflating
+ * them caused a full production outage:
+ *
+ *   - The query RAN and the answer is unclear, or failed for any reason we do
+ *     not recognise -> fail CLOSED (reject). A revoked token must not slip
+ *     through on an ambiguous error.
+ *   - The query COULD NOT RUN -- missing table, unreachable database -> fail
+ *     OPEN (allow), loudly. We have no evidence this token was revoked, and
+ *     rejecting means rejecting EVERY user.
+ *
+ * The distinction is not hypothetical. When the blacklist moved from Redis into
+ * this table, the table did not exist in the deployed databases -- deploys run
+ * no Prisma step (see .github/workflows/deploy.yml), so schema changes only ever
+ * reached production by hand. Every lookup threw P2021, the old blanket
+ * `return true` treated that as "blacklisted", and `protect` 401'd every
+ * authenticated request in both apps with "Token has been logged out". Login
+ * itself succeeded, so it presented as a total, inexplicable product outage.
+ *
+ * The cost of failing open here is bounded and narrow: during an infrastructure
+ * fault, a token that was explicitly logged out is accepted until its own `exp`.
+ * The cost of failing closed is unbounded: the entire product stops. Refresh
+ * tokens do NOT get this treatment -- see isRefreshTokenBlacklisted.
  *
  * @param {string} token - Raw JWT string to check.
- * @returns {Promise<boolean>} True if blacklisted, or if the lookup errored.
+ * @param {object} [options]
+ * @param {boolean} [options.failOpenOnInfraError=true] - Whether an unrunnable
+ *   query should allow the request through.
+ * @returns {Promise<boolean>} True if blacklisted.
  */
-const isTokenBlacklisted = async (token) => {
+const isTokenBlacklisted = async (token, { failOpenOnInfraError = true } = {}) => {
   try {
     const row = await prisma.blacklistedToken.findUnique({
       where: { token },
@@ -60,6 +89,17 @@ const isTokenBlacklisted = async (token) => {
     return row !== null;
   } catch (error) {
     console.error("Auth blacklist read error:", error);
+
+    if (failOpenOnInfraError && INFRA_ERROR_CODES.has(error?.code)) {
+      console.error(
+        `Auth blacklist UNAVAILABLE (${error.code}) — allowing the request rather than ` +
+          `rejecting every user. Logout revocation is NOT being enforced until this is fixed. ` +
+          `If this is P2021, the BlacklistedToken table is missing: apply ` +
+          `prisma/migrations_applied/2026-08-19_redis_removal/001_redis_removal.sql`
+      );
+      return false;
+    }
+
     return true;
   }
 };
@@ -67,10 +107,50 @@ const isTokenBlacklisted = async (token) => {
 /**
  * Checks whether a refresh token has been blacklisted (e.g. by a prior
  * rotation or logout).
+ *
+ * Fails CLOSED even when the database is unreachable, unlike the access-token
+ * path. Refresh tokens live for weeks and rotation is a real security
+ * guarantee: accepting one we cannot verify would mint a fresh access token on
+ * every refresh for the whole duration of the fault. Access tokens expire on
+ * their own; this is the one that must not.
+ *
  * @param {string} token - Raw refresh JWT string to check.
  * @returns {Promise<boolean>} True if blacklisted or if the lookup errored.
  */
-export const isRefreshTokenBlacklisted = isTokenBlacklisted;
+export const isRefreshTokenBlacklisted = (token) =>
+  isTokenBlacklisted(token, { failOpenOnInfraError: false });
+
+/**
+ * No-op retained for API compatibility.
+ *
+ * The 60-second Redis user cache this used to invalidate is gone along with
+ * Redis. `protect` now reads the user straight from Postgres on every request,
+ * which is a query it already made on every cache miss. Callers are left in
+ * place so that reintroducing a cache later has an obvious seam, and so this
+ * change does not ripple into unrelated call sites.
+ *
+ * @param {string|number} _id - Ignored.
+ * @returns {Promise<void>}
+ */
+export const invalidateUserCache = async (_id) => {
+  // Intentionally empty: there is no cache to invalidate.
+};
+
+/**
+ * No-op retained for API compatibility.
+ *
+ * The 60-second Redis user cache this used to invalidate is gone along with
+ * Redis. `protect` now reads the user straight from Postgres on every request,
+ * which is a query it already made on every cache miss. Callers are left in
+ * place so that reintroducing a cache later has an obvious seam, and so this
+ * change does not ripple into unrelated call sites.
+ *
+ * @param {string|number} _id - Ignored.
+ * @returns {Promise<void>}
+ */
+export const invalidateUserCache = async (_id) => {
+  // Intentionally empty: there is no cache to invalidate.
+};
 
 /**
  * No-op retained for API compatibility.

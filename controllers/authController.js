@@ -186,6 +186,21 @@ export const authUser = async (req, res) => {
             profile_picture: user.vendorProfile.image,
             cover_image: user.vendorProfile.cover_image, // Add this!
             image: user.vendorProfile.image, // Ensure raw field is also there
+            // onboarding_completed decides where the vendor app lands after
+            // sign-in. resolveVendorLanding (keplix-frontend/utils/vendorLanding.js)
+            // reads it straight off this response and treats a falsy value as
+            // "onboarding unfinished", so omitting it -- as this branch did --
+            // sent EVERY returning vendor to OnboardingStart on email login.
+            //
+            // googleLogin has always returned it (see the vendor branch further
+            // down this file) and getUserProfile picks it up via a spread, so
+            // email login was the one path that dropped it. That is exactly why
+            // the bug showed on email login but not on Google.
+            onboarding_completed: user.vendorProfile.onboarding_completed,
+            // Sent for parity with googleLogin. The landing rule deliberately
+            // ignores status today; including it keeps the two login responses
+            // from drifting apart again.
+            status: user.vendorProfile.status,
           };
         } else if (user.userProfile) {
           profileData = {
