@@ -50,9 +50,12 @@ export const updateUserProfile = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
     
-    // If a file was uploaded by multer, use its path (Cloudinary URL) as the profile picture
+    // uploadMiddleware uses multer.memoryStorage(), so req.file has a `buffer`
+    // and NO `.path` — the Cloudinary result lives at req.file.cloudinary.
+    // Reading `.path` stored undefined (null), so uploaded profile pictures
+    // were silently discarded on every save.
     if (req.file) {
-      profile_picture = req.file.path;
+      profile_picture = req.file?.cloudinary?.secure_url;
     }
 
     // Build update data - only include fields that are provided
