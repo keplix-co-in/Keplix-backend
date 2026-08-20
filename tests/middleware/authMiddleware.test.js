@@ -148,11 +148,7 @@ describe('protect - blacklisted token', () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     mockVerify.mockReturnValue({ id: 1 });
 
-    const req = mockReq('valid.token');
-    const res = mockRes();
-    const next = jest.fn();
-
-    await protect(req, res, next);
+    await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
@@ -355,6 +351,17 @@ describe('isRefreshTokenBlacklisted', () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
   });
+
+  // Deliberately NOT given the access-token path's fail-open treatment. Refresh
+  // tokens live for weeks; accepting one we cannot verify would mint a fresh
+  // access token on every refresh for the whole duration of the fault.
+  test('fails closed even when the query cannot run (P2021)', async () => {
+    const err = new Error('table missing');
+    err.code = 'P2021';
+    mockPrisma.blacklistedToken.findUnique.mockRejectedValue(err);
+    await expect(isRefreshTokenBlacklisted('r.jwt')).resolves.toBe(true);
+  });
+});
 
   // Deliberately NOT given the access-token path's fail-open treatment. Refresh
   // tokens live for weeks; accepting one we cannot verify would mint a fresh
