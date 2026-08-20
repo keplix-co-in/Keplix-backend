@@ -47,6 +47,9 @@ export const createVendorProfileSchema = z.object({
   bank_account_number: z.string().optional(),
   ifsc_code: z.string().optional(),
   upi_id: z.string().optional(),
+  // Name on the bank account; RazorpayX needs the account holder, not the
+  // business name.
+  bank_account_holder_name: z.string().optional(),
 
   // Image fields (Optional, but allow passing them through if Zod strips keys)
   // Since Zod parse replaces req.body, if we don't include them, they might be lost if they were in body?

@@ -36,7 +36,7 @@ export const setupVendorPayoutAccount = async (vendorId, vendorProfile) => {
     try {
         Logger.info(`[RazorpayX] Setting up payout account for vendor ${vendorId}`);
 
-        const { bank_account_number, ifsc_code, upi_id, business_name, phone, email } = vendorProfile;
+        const { bank_account_number, ifsc_code, upi_id, business_name, bank_account_holder_name, phone, email } = vendorProfile;
 
         // Check if payout account already exists
         const existingAccount = await prisma.vendorPayoutAccount.findUnique({
@@ -68,7 +68,12 @@ export const setupVendorPayoutAccount = async (vendorId, vendorProfile) => {
                 contact_id: contact.id,
                 account_type: 'bank_account',
                 bank_account: {
-                    name: business_name || `Vendor ${vendorId}`,
+                    // RazorpayX validates this against the actual bank account
+                    // holder, which is often not the business name. Prefer the
+                    // explicitly captured holder name, falling back to
+                    // business_name so vendors onboarded before the field
+                    // existed keep working unchanged.
+                    name: bank_account_holder_name || business_name || `Vendor ${vendorId}`,
                     ifsc: ifsc_code,
                     account_number: bank_account_number
                 }
@@ -148,7 +153,9 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
                 contact_id: existingAccount.contactId,
                 account_type: 'bank_account',
                 bank_account: {
-                    name: vendorProfile.business_name || `Vendor ${vendorId}`,
+                    // See setupVendorPayoutAccount: holder name first, then
+                    // business_name for vendors who predate the column.
+                    name: vendorProfile.bank_account_holder_name || vendorProfile.business_name || `Vendor ${vendorId}`,
                     ifsc: ifsc_code,
                     account_number: bank_account_number
                 }

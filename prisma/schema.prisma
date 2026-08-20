@@ -136,6 +136,10 @@ model VendorProfile {
   bank_account_number  String?
   ifsc_code            String?
   upi_id               String?
+  // Name on the bank account ("name in the bank"), which is frequently not the
+  // business name. RazorpayX validates the payee name against the account, so
+  // payoutHelper used to send business_name and could misroute or reject.
+  bank_account_holder_name String?
   is_online            Boolean @default(true)
   // Denormalised review aggregates maintained by util/ratingHelper.js.
   // These were being read and written by that helper (from review creation,

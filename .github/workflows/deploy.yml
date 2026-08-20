@@ -55,11 +55,65 @@ jobs:
       # a destructive schema change blocks the deploy instead of silently
       # destroying a column. --skip-generate because the Docker build already
       # ran `prisma generate`.
+      # Run INSIDE the image we just built, not via `npx` on the runner.
+      #
+      # The runner never installs dependencies -- there is no setup-node or
+      # `npm ci` step, because everything is built in Docker. So a bare
+      # `npx prisma` downloads whatever the latest major happens to be (7.9.1
+      # at time of writing) into an empty tree, and prisma.config.js then dies
+      # with "Cannot find module 'prisma/config'" because node_modules does not
+      # exist. Pinning the npx version would not help: prisma.config.js resolves
+      # `prisma/config` from node_modules either way.
+      #
+      # The image already contains node_modules with the pinned prisma ^7.4.0,
+      # the schema, and prisma.config.js, and it is present locally from the
+      # build step -- so this needs no download and cannot drift from the
+      # version the app itself uses.
+      #
+      # No --skip-generate: that flag does not exist in Prisma 7. `db push`
+      # there accepts only --help, --config, --schema, --url, --accept-data-loss
+      # and --force-reset. Verified against the pinned CLI with
+      # `prisma db push --help`.
+      #
+      # No --accept-data-loss either, deliberately: without it a destructive
+      # schema change FAILS this step and blocks the rollout, instead of
+      # silently dropping a column in production.
+      #
+      # MIGRATION_DATABASE_URL, not DATABASE_URL, and the difference is network
+      # reachability rather than which database it is -- both point at the same
+      # Supabase project.
+      #
+      # Supabase's direct endpoint (db.<ref>.supabase.co) publishes ONLY an AAAA
+      # record; it has no IPv4 address. GitHub-hosted runners have no IPv6, so
+      # this step can never reach it and fails with P1001 -- while Cloud Run,
+      # whose egress does route IPv6, connects fine (/health reports the
+      # database healthy). That asymmetry is why the app works but CI could not.
+      #
+      # MIGRATION_DATABASE_URL must therefore use the POOLER host, which has
+      # A records: aws-1-ap-south-1.pooler.supabase.com. Use port 5432 (session
+      # mode), NOT 6543 (transaction mode) -- schema changes need advisory locks
+      # and prepared statements that transaction pooling does not support. Drop
+      # any `?pgbouncer=true` too; that flag is for transaction mode.
+      #
+      # DATABASE_URL is left untouched so the running service keeps the
+      # connection it already uses successfully.
       - name: Apply database schema
-        run: npx prisma db push --schema prisma/schema.prisma --skip-generate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL="${{ secrets.MIGRATION_DATABASE_URL }}" \
+            gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
+            npx prisma db push --schema prisma/schema.prisma
 
+      # The ^##^ prefix sets ## as the delimiter for this dict, instead of the
+      # default comma. That is REQUIRED, not cosmetic: GOOGLE_ALLOWED_AUDIENCES
+      # is itself a comma-separated list of client IDs, so with the default
+      # delimiter gcloud read "357379210332-...apps.googleusercontent.com" as a
+      # separate variable and failed with:
+      #   ERROR: argument --set-env-vars: Bad syntax for dict arg
+      # ALLOWED_ORIGINS has the same shape and the same hazard.
+      #
+      # If you add a variable to this line, separate it with ## and NOT a comma.
+      #
       # WARNING: --set-env-vars below REPLACES the service's entire environment.
       # Any variable not on that line is DELETED from the running service, and
       # nothing fails loudly when one goes missing -- the feature that needs it
@@ -82,7 +136,7 @@ jobs:
             --region $REGION \
             --project $PROJECT_ID \
             --port 8080 \
-            --set-env-vars="NODE_ENV=production,DATABASE_URL=${{ secrets.DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }},ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }},RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }},RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }},RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }},RAZORPAYX_KEY_ID=${{ secrets.RAZORPAYX_KEY_ID }},RAZORPAYX_KEY_SECRET=${{ secrets.RAZORPAYX_KEY_SECRET }},RAZORPAYX_ACCOUNT_NUMBER=${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }},RAZORPAYX_WEBHOOK_SECRET=${{ secrets.RAZORPAYX_WEBHOOK_SECRET }},RESEND_API_KEY=${{ secrets.RESEND_API_KEY }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }},TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }},TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }},TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }},TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID=${{ secrets.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID }},PUBLIC_WEB_BASE_URL=${{ secrets.PUBLIC_WEB_BASE_URL }},FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }},GOOGLE_ALLOWED_AUDIENCES=${{ secrets.GOOGLE_ALLOWED_AUDIENCES }},FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }},FRONTEND_URL=${{ secrets.FRONTEND_URL }}" \
+            --set-env-vars="^##^NODE_ENV=production##DATABASE_URL=${{ secrets.DATABASE_URL }}##JWT_SECRET=${{ secrets.JWT_SECRET }}##JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}##ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}##RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}##RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}##RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}##RAZORPAYX_KEY_ID=${{ secrets.RAZORPAYX_KEY_ID }}##RAZORPAYX_KEY_SECRET=${{ secrets.RAZORPAYX_KEY_SECRET }}##RAZORPAYX_ACCOUNT_NUMBER=${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }}##RAZORPAYX_WEBHOOK_SECRET=${{ secrets.RAZORPAYX_WEBHOOK_SECRET }}##RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}##EMAIL_FROM=${{ secrets.EMAIL_FROM }}##TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}##TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}##TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }}##TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }}##TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID=${{ secrets.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID }}##PUBLIC_WEB_BASE_URL=${{ secrets.PUBLIC_WEB_BASE_URL }}##FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}##CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }}##GOOGLE_ALLOWED_AUDIENCES=${{ secrets.GOOGLE_ALLOWED_AUDIENCES }}##FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}##FRONTEND_URL=${{ secrets.FRONTEND_URL }}" \
             --memory 2Gi \
             --cpu 2 \
             --max-instances 10 \
