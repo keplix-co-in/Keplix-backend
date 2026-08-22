@@ -367,19 +367,43 @@ class BookingStatusManager {
         return null;
       }
 
+      // The calendar day. `booking_date` is stored as UTC midnight of the
+      // intended day (a bare "YYYY-MM-DD" is always parsed as UTC per the
+      // date-only ISO rule), so reading it back via getUTC*() gives the right
+      // day regardless of what timezone THIS process happens to be running
+      // in -- unlike the `.setHours()` this replaces.
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth();
+      const day = date.getUTCDate();
+
+      let hours = 0;
+      let minutes = 0;
       if (timeString && typeof timeString === 'string') {
         // Parse time (HH:MM or HH:MM:SS)
         const timeParts = timeString.split(':');
-        const hours = parseInt(timeParts[0]) || 0;
-        const minutes = parseInt(timeParts[1]) || 0;
-
-        date.setHours(hours, minutes, 0, 0);
-      } else {
-        // Default to start of day if no time
-        date.setHours(0, 0, 0, 0);
+        hours = parseInt(timeParts[0]) || 0;
+        minutes = parseInt(timeParts[1]) || 0;
       }
 
-      return date;
+      // Every customer is booking against IST wall-clock time (this is an
+      // India-only service -- see getISTDate() in util/time.js for the same
+      // assumption elsewhere), but this used `date.setHours(hours, minutes)`,
+      // which sets the hour in whatever timezone the NODE PROCESS happens to
+      // be running in. Locally that is often IST already, so the bug is
+      // invisible in dev -- but nothing in this repo pins TZ=Asia/Kolkata for
+      // the deployed container (checked Dockerfile, deploy.yml,
+      // docker-compose.yml), and Cloud Run's default is UTC. On a UTC
+      // container, "8:30" was being set as 8:30 UTC = 2:00 PM IST -- hours
+      // away from the customer's actual 8:30 AM IST booking -- which is
+      // exactly the kind of drift that makes the ±5-minute activation window
+      // below fire at the wrong real-world moment, sometimes activating a
+      // booking well before or after the time the customer actually picked.
+      //
+      // Fixed by computing the UTC instant directly from the INTENDED IST
+      // wall-clock time (UTC = IST − 5:30), so the result is identical no
+      // matter what timezone this process is deployed into.
+      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+      return new Date(Date.UTC(year, month, day, hours, minutes, 0, 0) - IST_OFFSET_MS);
     } catch (error) {
       Logger.error('Error parsing booking date/time:', error, 'Input:', dateInput, 'Time:', timeString);
       return null;

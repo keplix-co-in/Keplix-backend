@@ -16,3 +16,12 @@ export const updateBookingStatusSchema = z.object({
     { message: "Invalid status" }
   ),
 });
+
+// Vendor's early-start request. Both fields optional: with no booking_time the
+// controller uses "now", rounded to the current half-hour slot. The time is a
+// free-text clock string (the whole codebase stores times that way) and is
+// validated properly by util/slots.js toCanonicalTime in the controller.
+export const requestEarlyStartSchema = z.object({
+  booking_time: z.string().min(1).optional(),
+  note: z.string().max(500).optional(),
+});

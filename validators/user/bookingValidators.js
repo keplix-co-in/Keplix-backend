@@ -28,3 +28,10 @@ export const disputeServiceSchema = z.object({
   reason: z.string().min(10, { message: "Please provide a detailed reason (minimum 10 characters)" })
     .max(1000, { message: "Reason too long (maximum 1000 characters)" }),
 });
+
+// The customer's answer to a vendor's early-start request. Strictly boolean:
+// a missing or string value would otherwise be read as "decline" by
+// `accept === true`, silently turning a malformed accept into a refusal.
+export const earlyStartRespondSchema = z.object({
+  accept: z.boolean({ message: "accept must be true or false" }),
+});

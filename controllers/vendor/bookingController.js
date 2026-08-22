@@ -4,6 +4,9 @@ import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
+import { addNotificationJob } from "../../queues/notificationQueue.js";
+import { toCanonicalTime, minutesToLabel } from "../../util/slots.js";
+import { getISTDate } from "../../util/time.js";
 
 
 
@@ -353,5 +356,145 @@ export const updateBookingStatus = async (req, res) => {
 };
 
 
+// Statuses a booking must be in for an early start to make any sense: the
+// vendor has accepted it and it has not started, finished or been cancelled.
+const EARLY_START_ELIGIBLE_STATUSES = ['confirmed', 'scheduled'];
 
+// Local helper: booking_time is free text, so both the canonical "14:00" rows
+// and legacy "2:00 PM" rows have to resolve to comparable minutes.
+const timeToMinutes = (value) => {
+  const canonical = toCanonicalTime(value);
+  if (!canonical) return null;
+  const [h, m] = canonical.split(":").map(Number);
+  return h * 60 + m;
+};
 
+// @desc    Vendor asks the customer if the job can start earlier
+// @route   POST /service_api/vendor/:vendorId/bookings/:id/early-start
+//
+// Deliberately does NOT change the booking's status. The customer's time is
+// theirs; the vendor is only making a request, and only the customer's answer
+// (respondToEarlyStart, controllers/user/bookingController.js) moves the
+// booking to in_progress.
+export const requestEarlyStart = async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.id);
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ success: false, message: "Invalid booking id" });
+    }
+
+    // Scoped to the caller's own services — same rule as updateBookingStatus.
+    // 404 rather than 403 so one vendor cannot probe another's booking ids.
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, service: { vendorId: req.user.id } },
+      include: { service: true, earlyStart: true },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    if (
+      booking.vendor_status !== 'accepted' ||
+      !EARLY_START_ELIGIBLE_STATUSES.includes(booking.status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot request an early start for a booking that is ${booking.status}.`,
+      });
+    }
+
+    const bookedMinutes = timeToMinutes(booking.booking_time);
+
+    // The vendor may name a slot; if they don't, "now" — rounded down to the
+    // current half-hour, the same grid util/slots.js generates — is what they
+    // mean.
+    let requestedTime = req.body?.booking_time ? toCanonicalTime(req.body.booking_time) : null;
+    if (req.body?.booking_time && !requestedTime) {
+      return res.status(400).json({ success: false, message: "Invalid time" });
+    }
+    if (!requestedTime) {
+      const nowIST = getISTDate();
+      const rounded = Math.floor((nowIST.getHours() * 60 + nowIST.getMinutes()) / 30) * 30;
+      requestedTime =
+        `${String(Math.floor(rounded / 60)).padStart(2, "0")}:${String(rounded % 60).padStart(2, "0")}`;
+    }
+
+    const requestedMinutes = timeToMinutes(requestedTime);
+    if (requestedMinutes === null || bookedMinutes === null || requestedMinutes >= bookedMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: "An early start must be earlier than the booked time.",
+      });
+    }
+
+    // The earlier window has to actually be free — otherwise accepting would
+    // hand the vendor two jobs at once, which is the exact problem the booking
+    // conflict check exists to prevent. Both time representations are matched
+    // because legacy rows still hold "2:00 PM".
+    const clash = await prisma.booking.findFirst({
+      where: {
+        id: { not: bookingId },
+        service: { vendorId: req.user.id },
+        booking_date: booking.booking_date,
+        booking_time: { in: [requestedTime, minutesToLabel(requestedMinutes)].filter(Boolean) },
+        NOT: { status: { in: ['cancelled', 'rejected'] } },
+      },
+      select: { id: true },
+    });
+
+    if (clash) {
+      return res.status(409).json({
+        success: false,
+        message: "You already have another booking in that earlier slot.",
+      });
+    }
+
+    // Upsert, not create: one live offer per booking, so a re-request replaces
+    // the old one instead of leaving a stale offer the customer could accept.
+    await prisma.bookingEarlyStart.upsert({
+      where: { bookingId },
+      create: {
+        bookingId,
+        requested_time: requestedTime,
+        requestedById: req.user.id,
+        note: req.body?.note ?? null,
+        status: 'pending',
+      },
+      update: {
+        requested_time: requestedTime,
+        requestedById: req.user.id,
+        note: req.body?.note ?? null,
+        status: 'pending',
+        requested_at: new Date(),
+        responded_at: null,
+        started_at: null,
+      },
+    });
+
+    // Best-effort, like every other notification in this file: the request row
+    // is already committed and a queue outage must not turn a successful
+    // request into a 500.
+    try {
+      await addNotificationJob({
+        type: 'EARLY_START_REQUEST',
+        recipientId: booking.userId,
+        title: "Can we start earlier?",
+        body: `Your ${booking.service.name} booking could start at ${minutesToLabel(requestedMinutes)}. Tap to accept or decline.`,
+        metadata: { type: 'EARLY_START_REQUEST', bookingId, requested_time: requestedTime },
+        socketEvent: "early_start_requested",
+        socketData: { bookingId, requested_time: requestedTime },
+      });
+    } catch (notifyError) {
+      console.error('Failed to queue EARLY_START_REQUEST for booking', bookingId, notifyError);
+    }
+
+    res.json({
+      success: true,
+      message: "Early start requested. The customer has been notified.",
+    });
+  } catch (error) {
+    console.error("requestEarlyStart error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
