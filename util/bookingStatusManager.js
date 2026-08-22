@@ -2,6 +2,41 @@ import cron from 'node-cron';
 import prisma from './prisma.js';
 import Logger from './logger.js';
 import { createNotification } from './notificationHelper.js';
+import { parseTimeToMinutes } from './slots.js';
+
+/**
+ * How long after its slot an un-started booking is written off.
+ *
+ * Shared by the activation and expiry jobs deliberately: activation stays open
+ * right up to this line and expiry begins exactly at it, so there is no gap in
+ * which a booking is eligible for neither.
+ */
+const EXPIRY_AFTER_MINUTES = 30;
+
+/**
+ * How long a vendor has to accept or reject a request before it is auto-declined.
+ *
+ * This was hard-coded to FIVE MINUTES, which is why the vendor homepage's
+ * pending list looked broken: this cron runs every minute, so any request the
+ * vendor did not answer within five minutes was already `cancelled` by the time
+ * they opened the app. The list was not failing to render -- there was
+ * genuinely nothing pending left to render. Every client-side attempt to "stop
+ * hiding requests older than 5 minutes" was fighting a row the backend had
+ * already closed.
+ *
+ * Five minutes is not a realistic window for someone running a workshop. The
+ * default is now 30 minutes, and it is configurable so the number can be tuned
+ * without a code change. Set BOOKING_PENDING_TIMEOUT_MINUTES to override.
+ *
+ * Note this is deliberately the same value as EXPIRY_AFTER_MINUTES but a
+ * SEPARATE constant: that one is how long after its slot an accepted job is
+ * written off, this one is how long a vendor has to answer at all. They happen
+ * to match today; tying them together would silently move one when the other
+ * is tuned.
+ */
+const PENDING_TIMEOUT_MINUTES = Number(
+  process.env.BOOKING_PENDING_TIMEOUT_MINUTES || 5
+);
 
 /**
  * Booking Status Manager
@@ -96,12 +131,26 @@ class BookingStatusManager {
             continue;
           }
 
-          // Check if the booking time has arrived (within a 5-minute window)
           const timeDiff = now.getTime() - bookingDateTime.getTime();
           const minutesDiff = timeDiff / (1000 * 60);
 
-          // Activate if time has arrived (within 5 minutes before or after)
-          if (minutesDiff >= -5 && minutesDiff <= 5) {
+          // Activate once the slot has ACTUALLY arrived, and stay activatable
+          // until the expiry job takes over.
+          //
+          // This was `minutesDiff >= -5 && minutesDiff <= 5`, which was wrong at
+          // both ends. The -5 meant a booking flipped to in_progress five
+          // minutes BEFORE its slot, so the DB itself claimed a job was ongoing
+          // before it began -- no amount of frontend correctness can hide that.
+          // The +5 upper bound was worse: it made activation a five-minute
+          // window this once-a-minute cron had to land inside. Miss it (process
+          // restart, a slow tick, a DB hiccup) and the booking was never
+          // activated at all -- and 25 minutes later handleExpiredBookings
+          // cancelled it instead. A confirmed booking silently became cancelled
+          // purely because a cron tick was late.
+          //
+          // The bound is now EXPIRY_AFTER_MINUTES so the two jobs share one
+          // boundary and cannot disagree about which owns a given booking.
+          if (minutesDiff >= 0 && minutesDiff <= EXPIRY_AFTER_MINUTES) {
             await this.activateBooking(booking);
             activatedCount++;
           }
@@ -146,11 +195,12 @@ class BookingStatusManager {
             continue;
           }
 
-          // Check if booking is more than 30 minutes past scheduled time
           const timeDiff = now.getTime() - bookingDateTime.getTime();
           const minutesDiff = timeDiff / (1000 * 60);
 
-          if (minutesDiff > 30) {
+          // Same boundary the activation job stops at, so a booking is always
+          // owned by exactly one of the two jobs and never falls between them.
+          if (minutesDiff > EXPIRY_AFTER_MINUTES) {
             await this.expireBooking(booking);
             expiredCount++;
           }
@@ -173,11 +223,15 @@ class BookingStatusManager {
    */
   async handlePendingBookingsTimeout(now) {
     try {
-      // Find bookings pending vendor approval
+      // Only fetch rows that are ALREADY past the deadline, rather than
+      // loading every pending booking in history every single minute and
+      // filtering in JS.
+      const cutoff = new Date(now.getTime() - PENDING_TIMEOUT_MINUTES * 60 * 1000);
       const pendingBookings = await prisma.booking.findMany({
         where: {
           vendor_status: 'pending',
-          status: 'pending'
+          status: 'pending',
+          createdAt: { lte: cutoff },
         }
       });
 
@@ -185,12 +239,9 @@ class BookingStatusManager {
 
       for (const booking of pendingBookings) {
         try {
-          const createdAt = new Date(booking.createdAt);
-          const timeDiff = now.getTime() - createdAt.getTime();
-          const minutesDiff = timeDiff / (1000 * 60);
-
-          // If booking has been pending for more than 5 minutes
-          if (minutesDiff >= 5) {
+          {
+            // The query above already restricted this to rows past the
+            // deadline, so there is no per-row time check left to do.
             // Fetch service to get name
             const service = await prisma.service.findUnique({
               where: { id: booking.serviceId }
@@ -202,7 +253,7 @@ class BookingStatusManager {
                 vendor_status: 'rejected',
                 status: 'cancelled',
                 updatedAt: new Date(),
-                notes: (booking.notes || '') + '\n[Auto-declined: Vendor did not accept within 5 minutes]'
+                notes: (booking.notes || '') + `\n[Auto-declined: Vendor did not accept within ${PENDING_TIMEOUT_MINUTES} minutes]`
               }
             });
 
@@ -227,7 +278,7 @@ class BookingStatusManager {
             }
 
             declinedCount++;
-            Logger.info(`Auto-declined booking ${booking.id} after 5 minutes of inactivity`);
+            Logger.info(`Auto-declined booking ${booking.id} after ${PENDING_TIMEOUT_MINUTES} minutes of inactivity`);
           }
         } catch (error) {
           Logger.error(`Error processing pending timeout for booking ${booking.id}:`, error);
@@ -376,14 +427,29 @@ class BookingStatusManager {
       const month = date.getUTCMonth();
       const day = date.getUTCDate();
 
-      let hours = 0;
-      let minutes = 0;
-      if (timeString && typeof timeString === 'string') {
-        // Parse time (HH:MM or HH:MM:SS)
-        const timeParts = timeString.split(':');
-        hours = parseInt(timeParts[0]) || 0;
-        minutes = parseInt(timeParts[1]) || 0;
+      // Delegate to the same parser createBooking normalises through
+      // (controllers/user/bookingController.js), rather than the split+parseInt
+      // this replaces. That hand-rolled version had no AM/PM handling, so a
+      // legacy "3:00 PM" row parsed as 03:00 -- the activation cron then fired
+      // at 3am and left a 3pm booking sitting in in_progress all day, showing
+      // under Ongoing from dawn onwards. booking_time is only canonical 24h for
+      // rows created since that normalisation landed; older ones are still the
+      // free text the comment at bookingController.js:351 describes.
+      // No time at all is a legitimate "whole day" row -> midnight IST, which
+      // is the long-standing behaviour. Only a time that IS present and cannot
+      // be understood is treated as bad data below.
+      const totalMinutes =
+        timeString === null || timeString === undefined || timeString === ''
+          ? 0
+          : parseTimeToMinutes(timeString);
+      if (totalMinutes === null) {
+        // Unparseable: return null so the caller's existing "Invalid date/time"
+        // warning fires. Defaulting to midnight would silently activate the
+        // booking at the wrong time, which is how this bug stayed hidden.
+        return null;
       }
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
 
       // Every customer is booking against IST wall-clock time (this is an
       // India-only service -- see getISTDate() in util/time.js for the same

@@ -81,4 +81,74 @@ describe('bookingStatusManager.parseBookingDateTime', () => {
     expect(bookingStatusManager.parseBookingDateTime('not-a-date', '08:30')).toBeNull();
     expect(bookingStatusManager.parseBookingDateTime(null, '08:30')).toBeNull();
   });
+
+  // Legacy rows still hold free-text 12-hour times. Reading "3:00 PM" as 03:00
+  // made the activation cron fire at 3am, leaving a 3pm booking in in_progress
+  // -- and therefore under the customer app's Ongoing tab -- for the whole day.
+  describe('12-hour booking_time values (legacy rows)', () => {
+    const istHour = (d) =>
+      Number(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false }));
+
+    test('"3:00 PM" is 15:00 IST, not 03:00', () => {
+      const result = bookingStatusManager.parseBookingDateTime('2026-08-22', '3:00 PM');
+      expect(result.toISOString()).toBe('2026-08-22T09:30:00.000Z');
+      expect(istHour(result)).toBe(15);
+    });
+
+    test('a 3pm booking is NOT inside the activation window at 8:40am', () => {
+      const bookingDateTime = bookingStatusManager.parseBookingDateTime('2026-08-22', '3:00 PM');
+      const nowIST = new Date(Date.UTC(2026, 7, 22, 8, 40, 0, 0) - (5 * 60 + 30) * 60 * 1000);
+      const minutesDiff = (nowIST.getTime() - bookingDateTime.getTime()) / (1000 * 60);
+      expect(minutesDiff >= -5 && minutesDiff <= 5).toBe(false);
+      expect(minutesDiff).toBeLessThan(0); // still in the future
+    });
+
+    test('24h "15:00" gives the same instant as "3:00 PM"', () => {
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '15:00').getTime())
+        .toBe(bookingStatusManager.parseBookingDateTime('2026-08-22', '3:00 PM').getTime());
+    });
+
+    test('the two 12 oclock edge cases', () => {
+      expect(istHour(bookingStatusManager.parseBookingDateTime('2026-08-22', '12:00 AM'))).toBe(0);
+      expect(istHour(bookingStatusManager.parseBookingDateTime('2026-08-22', '12:00 PM'))).toBe(12);
+    });
+
+    test('a present-but-unparseable time returns null instead of silently becoming midnight', () => {
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', 'quarter past three')).toBeNull();
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '25:00')).toBeNull();
+    });
+  });
+
+  // The activation job used to fire from 5 minutes BEFORE the slot until 5
+  // minutes after. Both ends were wrong: the early edge made the DB claim a job
+  // was in progress before it started, and the narrow late edge meant one
+  // missed cron tick left the booking unactivated until the expiry job
+  // cancelled it 25 minutes later.
+  describe('activation window boundaries', () => {
+    const EXPIRY_AFTER_MINUTES = 30;
+    const isActivatable = (minutesDiff) =>
+      minutesDiff >= 0 && minutesDiff <= EXPIRY_AFTER_MINUTES;
+    const isExpirable = (minutesDiff) => minutesDiff > EXPIRY_AFTER_MINUTES;
+
+    test('a booking is NOT activatable before its slot', () => {
+      expect(isActivatable(-5)).toBe(false);
+      expect(isActivatable(-0.5)).toBe(false);
+    });
+
+    test('a booking becomes activatable exactly at its slot', () => {
+      expect(isActivatable(0)).toBe(true);
+    });
+
+    test('a late cron tick can still activate, instead of losing the booking', () => {
+      expect(isActivatable(6)).toBe(true);
+      expect(isActivatable(29)).toBe(true);
+    });
+
+    test('activation and expiry share one boundary, with no gap and no overlap', () => {
+      for (const d of [0, 1, 15, 29, 30, 30.5, 45]) {
+        expect(isActivatable(d) && isExpirable(d)).toBe(false); // never both
+        expect(isActivatable(d) || isExpirable(d)).toBe(true);  // never neither
+      }
+    });
+  });
 });
