@@ -1,6 +1,7 @@
 import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 
 
 
@@ -237,11 +238,20 @@ export const sendMessage = async (req, res) => {
             ? conversation.booking.service.vendorId
             : conversation.booking.userId;
 
+        const chatNotification = renderNotification(NOTIFICATION_TYPES.NEW_MESSAGE, {
+          messageText: message_text,
+          conversationId: Number(conversationId),
+          bookingId: conversation.booking.id,
+        });
         await createNotification(
           receiverId,
-          "New Message",
-          `You have a new message: ${message_text.slice(0, 50)}`,
-          { type: "NEW_MESSAGE", conversationId: Number(conversationId) }
+          chatNotification.title,
+          chatNotification.body,
+          {
+            type: chatNotification.type,
+            data: chatNotification.data,
+            conversationId: Number(conversationId),
+          }
         );
       }
     } catch (err) {

@@ -1,5 +1,5 @@
 
-import prisma from '../util/prisma.js';
+import prisma from './util/prisma.js';
 
 
 

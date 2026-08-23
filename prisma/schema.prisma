@@ -217,6 +217,7 @@ model Booking {
   // modified.
   healthSheet       HealthSheet?
   bookingVehicle    BookingVehicle?
+  earlyStart        BookingEarlyStart?
 
   @@index([userId])
   @@index([serviceId])
@@ -470,10 +471,24 @@ model Notification {
   title     String
   message   String
   is_read   Boolean  @default(false)
+
+  // What KIND of notification this is (BOOKING_ACCEPTED, PAYMENT_RECEIVED, ...).
+  // Nullable because every row written before this column existed has no type.
+  // Both apps currently choose an icon by substring-matching `title`, which
+  // means most notifications fall through to a generic bell and any title
+  // reword silently changes the icon. This is what replaces that.
+  type      String?
+  // Payload for tap-to-navigate (bookingId, conversationId, ...). The helper
+  // already accepted a `metadata` argument and then discarded it.
+  data      Json?
+
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  // The list screens read newest-first for one user; without this the query
+  // sorts the whole table once the notification volume grows.
+  @@index([userId, createdAt])
 }
 
 model Feedback {
@@ -945,4 +960,40 @@ model PhoneIdentity {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+}
+
+// A vendor asking to start a job earlier than its booked slot, and the
+// customer's answer.
+//
+// A separate table rather than columns on Booking, for the same reason
+// BookingVehicle is one: Booking is the payment/escrow-critical model and is
+// not modified. The FK lives here, so Booking itself generates no new SQL —
+// only the virtual back-relation above.
+//
+// One request per booking (bookingId is unique): a re-request overwrites the
+// previous one, so a customer can never be looking at a stale offer while a
+// newer one exists.
+model BookingEarlyStart {
+  id        Int @id @default(autoincrement())
+  bookingId Int @unique
+
+  // Canonical 24h "HH:mm" (util/slots.js toCanonicalTime) — the earlier slot
+  // the vendor is asking for. Same representation as Booking.booking_time so
+  // the two can be compared directly.
+  requested_time String
+
+  // pending -> accepted | declined. Free text, matching the rest of the
+  // schema's status columns.
+  status String @default("pending")
+
+  requestedById Int?
+  note          String?
+
+  requested_at DateTime  @default(now())
+  responded_at DateTime?
+  started_at   DateTime?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
