@@ -1,5 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { sendPushNotification } from "../../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { confirmBookingAndQueuePayout, BookingConfirmationError } from "../../services/bookingConfirmationService.js";
 
 /**
@@ -109,15 +110,21 @@ export const disputeServiceCompletion = async (req, res) => {
     // Notify vendor
     const vendor = await prisma.user.findUnique({
       where: { id: booking.service.vendorId },
-      select: { fcmToken: true, email: true }
+      select: { pushToken: true, email: true }
     });
 
-    if (vendor && vendor.fcmToken) {
+    // Was `vendor.fcmToken`, which Expo can only reject -- an FCM token is not
+    // an ExponentPushToken, so the dispute push never once reached a vendor.
+    if (vendor && vendor.pushToken) {
+      const disputeNotification = renderNotification(NOTIFICATION_TYPES.SERVICE_DISPUTED, {
+        serviceName: booking.service?.name,
+        bookingId: bookingId.toString(),
+      });
       await sendPushNotification(
-        vendor.fcmToken,
-        "âš ï¸ Service Disputed",
-        `A customer has raised a dispute for ${booking.service.name}. Admin will review.`,
-        { bookingId: bookingId.toString(), type: "dispute" }
+        vendor.pushToken,
+        disputeNotification.title,
+        disputeNotification.body,
+        disputeNotification.data
       );
     }
 

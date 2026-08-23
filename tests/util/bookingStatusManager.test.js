@@ -116,6 +116,17 @@ describe('bookingStatusManager.parseBookingDateTime', () => {
     test('a present-but-unparseable time returns null instead of silently becoming midnight', () => {
       expect(bookingStatusManager.parseBookingDateTime('2026-08-22', 'quarter past three')).toBeNull();
       expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '25:00')).toBeNull();
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '13:00 PM')).toBeNull();
+    });
+
+    // An absent time means "whole day" -> midnight. A blank string is bad data,
+    // not an all-day booking, and used to take the midnight branch while a
+    // whitespace-only string returned null -- same garbage, two outcomes.
+    test('blank and whitespace-only times are both rejected, but an absent time is still midnight', () => {
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '')).toBeNull();
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', '   ')).toBeNull();
+      expect(bookingStatusManager.parseBookingDateTime('2026-08-22', null).toISOString())
+        .toBe('2026-08-21T18:30:00.000Z');
     });
   });
 

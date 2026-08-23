@@ -1,5 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { resolveServiceAmount } from "../../util/servicePricing.js";
 import { executeCancellationRefund, resolveCancellationRefund } from "../../services/refundPolicy.js";
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
@@ -456,12 +457,18 @@ export const createBooking = async (req, res) => {
         // successful booking into a 500 for the user. Best-effort only.
         if (booking.service && booking.service.vendorId) {
             try {
+                const newRequest = renderNotification(NOTIFICATION_TYPES.NEW_BOOKING_ALERT, {
+                    customerName: booking.user?.userProfile?.name,
+                    serviceName: booking.service?.name,
+                    bookingDate: booking_date,
+                    bookingId: booking.id,
+                });
                 await addNotificationJob({
-                    type: 'NEW_BOOKING_ALERT',
+                    type: newRequest.type,
                     recipientId: booking.service.vendorId,
-                    title: "New Service Request",
-                    body: `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
-                    metadata: { type: 'NEW_BOOKING_ALERT', bookingId: booking.id },
+                    title: newRequest.title,
+                    body: newRequest.body,
+                    metadata: { type: newRequest.type, data: newRequest.data, bookingId: booking.id },
                     socketEvent: "new_service_request",
                     socketData: {
                         bookingId: booking.id,
@@ -620,30 +627,27 @@ export const updateBooking = async (req, res) => {
         // BookingDetails with only an id, and that screen renders null without
         // the full booking object.
         const refundNotification = refundOutcome?.refunded
-          ? {
-              title: "Refund on its way",
-              body:
-                `₹${refundOutcome.amount.toLocaleString('en-IN')} for your cancelled booking is on ` +
-                `its way back to your original payment method — it should appear ${REFUND_ETA_TEXT}.`,
-            }
+          ? renderNotification(NOTIFICATION_TYPES.REFUND_ISSUED, {
+              amount: refundOutcome.amount,
+              etaText: REFUND_ETA_TEXT,
+              bookingId: booking.id,
+            })
           : booking.payment?.status === 'success'
-            ? {
-                title: "Booking Cancelled",
-                body:
-                  "Your booking is cancelled. Our team is reviewing your refund and will " +
-                  "contact you shortly.",
-              }
+            ? renderNotification(NOTIFICATION_TYPES.REFUND_UNDER_REVIEW, {
+                bookingId: booking.id,
+              })
             : null;
 
         if (refundNotification) {
           try {
             await addNotificationJob({
-              type: 'REFUND_ISSUED',
+              type: refundNotification.type,
               recipientId: booking.userId,
               title: refundNotification.title,
               body: refundNotification.body,
               metadata: {
-                type: 'REFUND_ISSUED',
+                type: refundNotification.type,
+                data: refundNotification.data,
                 bookingId: booking.id,
                 screen: 'BookingList',
                 params: { initialTab: 'cancelled' },
@@ -677,11 +681,16 @@ export const updateBooking = async (req, res) => {
     if (status === "cancelled") {
         // Queue cancellation notification for vendor
         try {
+            const vendorCancelled = renderNotification(
+                NOTIFICATION_TYPES.BOOKING_CANCELLED_BY_CUSTOMER,
+                { serviceName: updatedBooking.service?.name, bookingId: updatedBooking.id }
+            );
             await addNotificationJob({
-                type: 'BOOKING_CANCELLED',
+                type: vendorCancelled.type,
                 recipientId: updatedBooking.service.vendorId,
-                title: "Booking Cancelled",
-                body: `Booking for ${updatedBooking.service.name} was cancelled by the user.`,
+                title: vendorCancelled.title,
+                body: vendorCancelled.body,
+                metadata: { type: vendorCancelled.type, data: vendorCancelled.data },
                 socketEvent: "booking_cancelled",
                 socketData: {
                     bookingId: updatedBooking.id,
@@ -795,12 +804,16 @@ export const respondToEarlyStart = async (req, res) => {
       });
 
       try {
+        const esDeclined = renderNotification(NOTIFICATION_TYPES.EARLY_START_DECLINED, {
+          serviceName: booking.service?.name,
+          bookingId,
+        });
         await addNotificationJob({
-          type: 'EARLY_START_DECLINED',
+          type: esDeclined.type,
           recipientId: booking.service.vendorId,
-          title: "Early start declined",
-          body: `The customer would prefer to keep the original time for ${booking.service.name}.`,
-          metadata: { type: 'EARLY_START_DECLINED', bookingId },
+          title: esDeclined.title,
+          body: esDeclined.body,
+          metadata: { type: esDeclined.type, data: esDeclined.data, bookingId },
           socketEvent: "early_start_declined",
           socketData: { bookingId },
         });
@@ -845,12 +858,16 @@ export const respondToEarlyStart = async (req, res) => {
     });
 
     try {
+      const esAccepted = renderNotification(NOTIFICATION_TYPES.EARLY_START_ACCEPTED, {
+        serviceName: booking.service?.name,
+        bookingId,
+      });
       await addNotificationJob({
-        type: 'EARLY_START_ACCEPTED',
+        type: esAccepted.type,
         recipientId: booking.service.vendorId,
-        title: "Early start accepted",
-        body: `The customer agreed to start ${booking.service.name} early. The job is now in progress.`,
-        metadata: { type: 'EARLY_START_ACCEPTED', bookingId },
+        title: esAccepted.title,
+        body: esAccepted.body,
+        metadata: { type: esAccepted.type, data: esAccepted.data, bookingId },
         socketEvent: "early_start_accepted",
         socketData: { bookingId, booking_time: updated.booking_time },
       });

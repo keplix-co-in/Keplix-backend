@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import prisma from './prisma.js';
 import Logger from './logger.js';
 import { createNotification } from './notificationHelper.js';
+import { renderNotification, NOTIFICATION_TYPES } from './notificationTemplates.js';
 import { parseTimeToMinutes } from './slots.js';
 
 /**
@@ -260,20 +261,20 @@ class BookingStatusManager {
             // Notify user
             await createNotification({
               userId: booking.userId,
-              title: 'Booking Request Declined',
-              message: `Your booking request for ${service?.name || 'service'} was not accepted in time and has been automatically declined.`,
-              type: 'booking_update',
-              data: { bookingId: booking.id }
+              ...renderNotification(NOTIFICATION_TYPES.BOOKING_AUTO_DECLINED, {
+                serviceName: service?.name,
+                bookingId: booking.id,
+              }),
             });
 
             // Notify vendor - fetch vendor id from service
             if (service) {
               await createNotification({
                 userId: service.vendorId,
-                title: 'Booking Request Expired',
-                message: `You missed a booking request for ${service.name}. It has been automatically declined.`,
-                type: 'booking_update',
-                data: { bookingId: booking.id }
+                ...renderNotification(NOTIFICATION_TYPES.BOOKING_REQUEST_EXPIRED, {
+                  serviceName: service.name,
+                  bookingId: booking.id,
+                }),
               });
             }
 
@@ -316,20 +317,20 @@ class BookingStatusManager {
       // Create notification for user
       await createNotification({
         userId: booking.userId,
-        title: 'Service Started',
-        message: `Your ${service?.name || 'service'} service has started.`,
-        type: 'booking_update',
-        data: { bookingId: booking.id }
+        ...renderNotification(NOTIFICATION_TYPES.SERVICE_STARTED, {
+          serviceName: service?.name,
+          bookingId: booking.id,
+        }),
       });
 
       // Create notification for vendor
       if (service) {
         await createNotification({
           userId: service.vendorId,
-          title: 'Service Time Arrived',
-          message: `It's time to start the ${service.name} service.`,
-          type: 'booking_update',
-          data: { bookingId: booking.id }
+          ...renderNotification(NOTIFICATION_TYPES.SERVICE_TIME_ARRIVED, {
+            serviceName: service.name,
+            bookingId: booking.id,
+          }),
         });
       }
 
@@ -362,21 +363,23 @@ class BookingStatusManager {
       });
 
         // Create notification for user
-        await createNotification(
-          booking.userId,
-          'Booking Expired',
-          `Your ${service?.name || 'service'} booking has expired as the scheduled time passed.`,
-          { type: 'booking_update', bookingId: booking.id }
-        );
+        await createNotification({
+          userId: booking.userId,
+          ...renderNotification(NOTIFICATION_TYPES.BOOKING_EXPIRED, {
+            serviceName: service?.name,
+            bookingId: booking.id,
+          }),
+        });
 
         // Create notification for vendor
         if (service) {
-          await createNotification(
-            service.vendorId,
-            'Booking Expired',
-            `The ${service.name} booking has expired due to missed scheduled time.`,
-            { type: 'booking_update', bookingId: booking.id }
-          );
+          await createNotification({
+            userId: service.vendorId,
+            ...renderNotification(NOTIFICATION_TYPES.BOOKING_MISSED_EXPIRED, {
+              serviceName: service.name,
+              bookingId: booking.id,
+            }),
+          });
         }      Logger.info(`Expired booking ${booking.id} - moved to cancelled status`);
 
     } catch (error) {
@@ -438,9 +441,20 @@ class BookingStatusManager {
       // No time at all is a legitimate "whole day" row -> midnight IST, which
       // is the long-standing behaviour. Only a time that IS present and cannot
       // be understood is treated as bad data below.
-      const totalMinutes =
-        timeString === null || timeString === undefined || timeString === ''
-          ? 0
+      // An ABSENT time (null/undefined) is a legitimate "whole day" row and
+      // means midnight IST -- long-standing behaviour, kept.
+      //
+      // An empty or whitespace-only string is not that: it is bad data. It used
+      // to fall into the midnight branch, which would let the cron activate the
+      // booking at 00:00 and march it through to expiry, while a whitespace
+      // string ("  ") already returned null via the parser. Same garbage input,
+      // two different outcomes. Both are now treated as unparseable.
+      const isAbsent = timeString === null || timeString === undefined;
+      const isBlankString = typeof timeString === 'string' && timeString.trim() === '';
+      const totalMinutes = isAbsent
+        ? 0
+        : isBlankString
+          ? null
           : parseTimeToMinutes(timeString);
       if (totalMinutes === null) {
         // Unparseable: return null so the caller's existing "Invalid date/time"

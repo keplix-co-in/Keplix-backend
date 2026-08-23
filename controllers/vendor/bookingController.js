@@ -2,6 +2,7 @@
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
@@ -138,10 +139,15 @@ export const respondToServiceRequest = async (req, res) => {
     // Notify user about vendor's response
     if (vendor_status === 'accepted') {
       // Send notification (DB + Push)
+      const accepted = renderNotification(NOTIFICATION_TYPES.BOOKING_REQUEST_ACCEPTED, {
+        serviceName: booking.service?.name,
+        bookingId: booking.id,
+      });
       await createNotification(
         booking.userId,
-        "Request Accepted!",
-        `${booking.service.name} request accepted. You can now proceed with payment.`
+        accepted.title,
+        accepted.body,
+        { type: accepted.type, data: accepted.data }
       );
 
       // Socket notification
@@ -154,10 +160,15 @@ export const respondToServiceRequest = async (req, res) => {
       }
     } else {
       // Request rejected
+      const declined = renderNotification(NOTIFICATION_TYPES.BOOKING_REQUEST_DECLINED, {
+        serviceName: booking.service?.name,
+        bookingId: booking.id,
+      });
       await createNotification(
         booking.userId,
-        "Request Declined",
-        `Sorry, ${booking.service.name} request was declined by the vendor.`
+        declined.title,
+        declined.body,
+        { type: declined.type, data: declined.data }
       );
 
       if (io) {
@@ -317,22 +328,28 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     // === NOTIFICATIONS ===
-    let title = "Booking Update";
-    let body = `Your booking for ${booking.service.name} is now ${status}`;
-    
-    if (status === 'confirmed') {
-        title = "Booking Accepted!";
-        body = `The vendor has accepted your booking for ${booking.service.name}.`;
-    } else if (status === 'service_completed') {
-        title = "Service Completed";
-        body = `The vendor has marked ${booking.service.name} as completed. Please confirm to release payment.`;
-    } else if (status === 'cancelled') {
-         title = "Booking Cancelled";
-         body = `Your booking for ${booking.service.name} was cancelled.`;
-    }
+    // Copy comes from the template registry so the generic branch can no
+    // longer leak a raw enum ("is now service_completed") into a user's
+    // notification tray.
+    const statusTemplateType =
+        status === 'confirmed' ? NOTIFICATION_TYPES.BOOKING_CONFIRMED
+      : status === 'service_completed' ? NOTIFICATION_TYPES.SERVICE_COMPLETED
+      : status === 'cancelled' ? NOTIFICATION_TYPES.BOOKING_CANCELLED_BY_VENDOR
+      : NOTIFICATION_TYPES.BOOKING_STATUS_UPDATED;
+
+    const statusNotification = renderNotification(statusTemplateType, {
+        serviceName: booking.service?.name,
+        bookingId: booking.id,
+        status,
+    });
+    const title = statusNotification.title;
+    const body = statusNotification.body;
 
     // Store in DB & Send Push via Expo
-    await createNotification(booking.userId, title, body);
+    await createNotification(booking.userId, title, body, {
+        type: statusNotification.type,
+        data: statusNotification.data,
+    });
 
     // Socket notification
     const io = req.app.get("io");   
@@ -476,12 +493,18 @@ export const requestEarlyStart = async (req, res) => {
     // is already committed and a queue outage must not turn a successful
     // request into a 500.
     try {
+      const earlyStart = renderNotification(NOTIFICATION_TYPES.EARLY_START_REQUEST, {
+        serviceName: booking.service?.name,
+        bookingId,
+        requestedTime,
+        requestedTimeLabel: minutesToLabel(requestedMinutes),
+      });
       await addNotificationJob({
-        type: 'EARLY_START_REQUEST',
+        type: earlyStart.type,
         recipientId: booking.userId,
-        title: "Can we start earlier?",
-        body: `Your ${booking.service.name} booking could start at ${minutesToLabel(requestedMinutes)}. Tap to accept or decline.`,
-        metadata: { type: 'EARLY_START_REQUEST', bookingId, requested_time: requestedTime },
+        title: earlyStart.title,
+        body: earlyStart.body,
+        metadata: { type: earlyStart.type, data: earlyStart.data, bookingId, requested_time: requestedTime },
         socketEvent: "early_start_requested",
         socketData: { bookingId, requested_time: requestedTime },
       });

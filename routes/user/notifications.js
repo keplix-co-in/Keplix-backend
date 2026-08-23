@@ -1,6 +1,7 @@
 import express from 'express';
 import { getNotifications, markRead, markAllRead, deleteNotification, createNotification, updateFcmToken } from '../../controllers/user/notificationController.js';
 import { protect } from '../../middleware/authMiddleware.js';
+import { adminOnly } from '../../middleware/roleMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createNotificationSchema } from '../../validators/user/notificationValidators.js';
 
@@ -114,7 +115,12 @@ router.put('/:id/mark-read', protect, markRead);
  *       201:
  *         description: Notification created
  */
-router.post('/create', protect, validateRequest(createNotificationSchema), createNotification);
+// Admin-gated. With only `protect`, any logged-in user could write an
+// arbitrary title and message into the notification table -- a free-text
+// surface that renders as a system notification, which is a phishing vector
+// ("Your payment failed, tap here"). Nothing in either app calls this; it is
+// an operational/admin tool.
+router.post('/create', protect, adminOnly, validateRequest(createNotificationSchema), createNotification);
 
 /**
  * @swagger

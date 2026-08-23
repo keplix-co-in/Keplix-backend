@@ -471,10 +471,24 @@ model Notification {
   title     String
   message   String
   is_read   Boolean  @default(false)
+
+  // What KIND of notification this is (BOOKING_ACCEPTED, PAYMENT_RECEIVED, ...).
+  // Nullable because every row written before this column existed has no type.
+  // Both apps currently choose an icon by substring-matching `title`, which
+  // means most notifications fall through to a generic bell and any title
+  // reword silently changes the icon. This is what replaces that.
+  type      String?
+  // Payload for tap-to-navigate (bookingId, conversationId, ...). The helper
+  // already accepted a `metadata` argument and then discarded it.
+  data      Json?
+
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  // The list screens read newest-first for one user; without this the query
+  // sorts the whole table once the notification volume grows.
+  @@index([userId, createdAt])
 }
 
 model Feedback {
