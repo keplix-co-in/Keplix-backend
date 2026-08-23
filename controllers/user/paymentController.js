@@ -2,6 +2,7 @@ import Razorpay from "razorpay";
 import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import Logger from "../../util/logger.js";
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
 import { resolveBookingAmount } from "../../util/servicePricing.js";
@@ -127,11 +128,15 @@ export const verifyPayment = async (req, res) => {
     // Notify Vendor about successful payment
     if (updatedBooking) {
       if (updatedBooking.service && updatedBooking.service.vendorId) {
+        const paymentNotification = renderNotification(NOTIFICATION_TYPES.PAYMENT_RECEIVED, {
+          serviceName: updatedBooking.service?.name,
+          bookingId: updatedBooking.id,
+        });
         await createNotification(
           updatedBooking.service.vendorId,
-          "ðŸ’° New Payment Received!",
-          `A user has paid for ${updatedBooking.service.name}. You can now start the service.`,
-          { type: 'PAYMENT_RECEIVED', bookingId: updatedBooking.id }
+          paymentNotification.title,
+          paymentNotification.body,
+          { type: paymentNotification.type, data: paymentNotification.data, bookingId: updatedBooking.id }
         );
 
         // Notify vendor via socket

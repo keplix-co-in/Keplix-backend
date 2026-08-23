@@ -148,7 +148,7 @@ describe('protect - blacklisted token', () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
     mockVerify.mockReturnValue({ id: 1 });
 
-    const req = mockReq('valid.token');
+    const req = mockReq('some.jwt.value');
     const res = mockRes();
     const next = jest.fn();
 

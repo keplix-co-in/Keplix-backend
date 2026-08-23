@@ -112,7 +112,7 @@ export const updateVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
-        bank_account_number, ifsc_code, upi_id,
+        bank_account_number, ifsc_code, upi_id, bank_account_holder_name,
         onboarding_completed // if sent by frontend
     } = req.body;
 
@@ -166,6 +166,17 @@ export const updateVendorProfile = async (req, res) => {
     if (bank_account_number !== undefined) updates.bank_account_number = bank_account_number;
     if (ifsc_code !== undefined) updates.ifsc_code = ifsc_code;
     if (upi_id !== undefined) updates.upi_id = upi_id;
+    // The name on the bank account, which is often not the business name.
+    // RazorpayX validates the payee name against the account, so sending
+    // business_name (the old behaviour) fails or misroutes payouts.
+    if (bank_account_holder_name !== undefined) updates.bank_account_holder_name = bank_account_holder_name;
+    // The vendor app sends this at the end of onboarding (see keplix-frontend
+    // services/onboardingAPI.js:98). It was destructured above but never copied
+    // into `updates`, so Prisma never wrote it: the row stayed false forever and
+    // resolveVendorLanding sent every already-onboarded vendor back to onboarding
+    // on their next login. This also makes the role-sync check further down, which
+    // reads updates.onboarding_completed, reachable for the first time.
+    if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
     // If any address components were updated, also update the combined address field
     const addressComponents = [street, area, city, state, pincode].filter(val => val !== undefined && val !== null && val !== '');
     if (addressComponents.length > 0) {
@@ -194,15 +205,20 @@ export const updateVendorProfile = async (req, res) => {
     if (req.files) {
         const imageFiles = req.files.image || req.files['image'];
         if (imageFiles && imageFiles.length > 0) {
-            updates.image = imageFiles[0].path;
+            // uploadMiddleware uses multer.memoryStorage(), so an uploaded file
+            // has a `buffer` and NO `.path`; the Cloudinary result is attached
+            // at file.cloudinary by the middleware. Reading `.path` here wrote
+            // undefined (stored as null), so every vendor profile/cover image
+            // silently vanished. Same idiom as serviceController.js:32.
+            updates.image = imageFiles[0]?.cloudinary?.secure_url;
         }
 
         const coverFiles = req.files.cover_image || req.files['cover_image'];
         if (coverFiles && coverFiles.length > 0) {
-            updates.cover_image = coverFiles[0].path;
+            updates.cover_image = coverFiles[0]?.cloudinary?.secure_url;
         }
     } else if (req.file) {
-        updates.image = req.file.path;
+        updates.image = req.file?.cloudinary?.secure_url;
     }
 
     try {
@@ -294,7 +310,7 @@ export const createVendorProfile = async (req, res) => {
         latitude, longitude,
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
-        bank_account_number, ifsc_code, upi_id
+        bank_account_number, ifsc_code, upi_id, bank_account_holder_name
     } = req.body;
 
 
@@ -328,19 +344,20 @@ export const createVendorProfile = async (req, res) => {
         bank_account_number,
         ifsc_code,
         upi_id,
+        bank_account_holder_name,
         onboarding_completed: true 
     };
 
     // Handle Image uploads (fields: image, cover_image)
     if (req.files) {
         if (req.files.image && req.files.image[0]) {
-            data.image = req.files.image[0].path; 
+            data.image = req.files.image[0]?.cloudinary?.secure_url;
         }
         if (req.files.cover_image && req.files.cover_image[0]) {
-            data.cover_image = req.files.cover_image[0].path;
+            data.cover_image = req.files.cover_image[0]?.cloudinary?.secure_url;
         }
     } else if (req.file) {
-        data.image = req.file.path; 
+        data.image = req.file?.cloudinary?.secure_url;
     }
 
     try {

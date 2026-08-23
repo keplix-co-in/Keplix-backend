@@ -5,7 +5,14 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: {
     vendorProfile: {
       findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue({ id: 10, userId: 1 }),
     },
+    user: {
+      update: jest.fn().mockResolvedValue({ id: 1, role: 'vendor' }),
+    },
+    // updateVendorProfile wraps the profile write and the role promotion in a
+    // single transaction; the mock just runs the callback against itself.
+    $transaction: jest.fn(),
     booking: {
       count: jest.fn(),
     },
@@ -27,7 +34,7 @@ jest.unstable_mockModule('../../../util/payoutHelper.js', () => ({
   updateVendorPayoutAccount: jest.fn(),
 }));
 
-const { getVendorProfile } = await import('../../../controllers/vendor/profileController.js');
+const { getVendorProfile, updateVendorProfile } = await import('../../../controllers/vendor/profileController.js');
 const prisma = (await import('../../../util/prisma.js')).default;
 
 function mockReq(overrides = {}) {
@@ -46,6 +53,9 @@ function mockRes() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  prisma.vendorProfile.update.mockResolvedValue({ id: 10, userId: 1 });
+  prisma.user.update.mockResolvedValue({ id: 1, role: 'vendor' });
+  prisma.$transaction.mockImplementation((cb) => cb(prisma));
 });
 
 // ─── getVendorProfile ───────────────────────────────────────────────
@@ -397,5 +407,123 @@ describe('getVendorProfile — payout readiness reporting', () => {
     expect(res.json.mock.calls[0][0].payoutSetup).toEqual({
       ok: false, configured: false, reason: 'payout_account_inactive',
     });
+  });
+});
+
+/**
+ * The onboarding flag must actually be persisted.
+ *
+ * updateVendorProfile destructures `onboarding_completed` from req.body but
+ * never copied it into the `updates` object handed to Prisma, so the column
+ * stayed false forever and resolveVendorLanding bounced already-onboarded
+ * vendors back into onboarding on every login.
+ */
+describe('updateVendorProfile — onboarding_completed persistence', () => {
+  test('writes onboarding_completed into the prisma update data', async () => {
+    const req = mockReq({ body: { onboarding_completed: true } });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    expect(prisma.vendorProfile.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 1 },
+        data: expect.objectContaining({ onboarding_completed: true }),
+      })
+    );
+  });
+
+  test('promotes the user role to vendor when onboarding completes', async () => {
+    const req = mockReq({ body: { onboarding_completed: true } });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { role: 'vendor' },
+    });
+  });
+
+  test('does not touch onboarding_completed when the body omits it', async () => {
+    const req = mockReq({ body: { business_name: 'Shop' } });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('onboarding_completed');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+// ─── bank_account_holder_name + Cloudinary uploads ──────────────────
+// Two separate regressions, both silent data loss on write:
+//
+//  1. RazorpayX needs the *account holder's* name for a bank fund account;
+//     payoutHelper was sending business_name. There was no column to hold
+//     the real one, so it could never be captured.
+//  2. uploadMiddleware uses multer.memoryStorage() and attaches the upload
+//     result at `file.cloudinary.secure_url`. There is no `.path`, so every
+//     `imageFiles[0].path` read wrote undefined and the image was lost.
+describe('updateVendorProfile — payout holder name and image uploads', () => {
+
+  test('writes bank_account_holder_name to the update data when sent', async () => {
+    const req = mockReq({
+      body: {
+        bank_account_number: '1234567890',
+        ifsc_code: 'HDFC0001234',
+        bank_account_holder_name: 'Ramesh Kumar',
+      },
+    });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ bank_account_holder_name: 'Ramesh Kumar' });
+  });
+
+  test('stores the Cloudinary secure_url for an uploaded profile image', async () => {
+    const req = mockReq({
+      body: {},
+      files: {
+        image: [{ cloudinary: { secure_url: 'https://res.cloudinary.com/x.jpg' } }],
+      },
+    });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.image).toBe('https://res.cloudinary.com/x.jpg');
+  });
+
+  test('stores the Cloudinary secure_url for an uploaded cover image', async () => {
+    const req = mockReq({
+      body: {},
+      files: {
+        cover_image: [{ cloudinary: { secure_url: 'https://res.cloudinary.com/cover.jpg' } }],
+      },
+    });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.cover_image).toBe('https://res.cloudinary.com/cover.jpg');
+  });
+
+  test('stores the Cloudinary secure_url for a single-file (req.file) upload', async () => {
+    const req = mockReq({
+      body: {},
+      file: { cloudinary: { secure_url: 'https://res.cloudinary.com/single.jpg' } },
+    });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.image).toBe('https://res.cloudinary.com/single.jpg');
   });
 });

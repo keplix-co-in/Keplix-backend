@@ -1,10 +1,127 @@
 import prisma from "../../util/prisma.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { resolveServiceAmount } from "../../util/servicePricing.js";
 import { executeCancellationRefund, resolveCancellationRefund } from "../../services/refundPolicy.js";
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
+import { generateSlots, isHoliday, minutesToLabel, parseTimeToMinutes, toCanonicalTime } from "../../util/slots.js";
+import { getISTDate } from "../../util/time.js";
 
 
+
+// Exactly the vehicle fields the booking screens render. A select (rather than
+// `vehicle: true`) keeps owner ids, odometer and internal flags out of a
+// response that is sent to the customer app on every booking list load.
+const VEHICLE_SUMMARY_SELECT = {
+  id: true,
+  registration: true,
+  make: true,
+  model: true,
+  year: true,
+  colour: true,
+  fuel_type: true,
+};
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Statuses that do NOT hold a slot. Everything else — pending, confirmed,
+// scheduled, in_progress, completed … — occupies the vendor's time and must
+// make the slot unavailable. Expressed as an exclusion list deliberately: a
+// new status added later should default to "occupies the slot", because
+// double-booking a vendor is far worse than hiding one slot too many.
+const SLOT_FREEING_STATUSES = ["cancelled", "rejected"];
+
+// @desc    Bookable 30-minute slots for a vendor on a given date
+// @route   GET /service_api/user/vendors/:vendorId/slots?date=YYYY-MM-DD
+export const getVendorSlots = async (req, res) => {
+  try {
+    const vendorId = parseInt(req.params.vendorId);
+    if (isNaN(vendorId)) {
+      return res.status(400).json({ success: false, message: "Invalid vendorId" });
+    }
+
+    const dateStr = String(req.query.date ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "date is required in YYYY-MM-DD format" });
+    }
+
+    // Parsed as UTC midnight, which is how booking_date rows are written
+    // (`new Date("YYYY-MM-DD")`), so the day-window filter below lines up with
+    // what is actually stored.
+    const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+    if (isNaN(dayStart.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid date" });
+    }
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const profile = await prisma.vendorProfile.findUnique({
+      where: { userId: vendorId },
+      select: { operating_hours: true, breaks: true, holidays: true },
+    });
+
+    if (!profile) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
+
+    const weekday = WEEKDAYS[dayStart.getUTCDay()];
+
+    // Closed: either the weekday is a declared holiday, or the hours string is
+    // absent/unparseable. Both are reported the same way — an empty slot list
+    // with closed:true — because from the customer's side "this garage has no
+    // usable hours on record" and "this garage is shut" are the same outcome,
+    // and guessing default hours for a vendor who never entered any would
+    // create bookings nobody is there to honour.
+    if (isHoliday(profile.holidays, weekday)) {
+      return res.json({ success: true, data: { date: dateStr, closed: true, slots: [] } });
+    }
+
+    const generated = generateSlots(profile);
+    if (generated.length === 0) {
+      return res.json({ success: true, data: { date: dateStr, closed: true, slots: [] } });
+    }
+
+    // Bookings reach a vendor only through service.vendorId — Booking itself
+    // carries no vendorId column.
+    const taken = await prisma.booking.findMany({
+      where: {
+        service: { vendorId },
+        booking_date: { gte: dayStart, lt: dayEnd },
+        NOT: { status: { in: SLOT_FREEING_STATUSES } },
+      },
+      select: { booking_time: true },
+    });
+
+    // Normalise BOTH sides: legacy rows hold "2:00 PM" while new rows hold
+    // "14:00", and a raw string comparison would silently mark every legacy
+    // booking's slot as free.
+    const takenTimes = new Set(
+      taken.map((b) => toCanonicalTime(b.booking_time)).filter(Boolean)
+    );
+
+    // Past slots on today's date are not bookable. Compared in IST, the
+    // timezone the business actually operates in — using server-local time
+    // would open or close slots by hours depending on where this runs.
+    const nowIST = getISTDate();
+    const todayIST = `${nowIST.getFullYear()}-${String(nowIST.getMonth() + 1).padStart(2, "0")}-${String(nowIST.getDate()).padStart(2, "0")}`;
+    const isToday = todayIST === dateStr;
+    const nowMinutes = nowIST.getHours() * 60 + nowIST.getMinutes();
+
+    const slots = generated
+      .filter((slot) => {
+        if (!isToday) return true;
+        const [h, m] = slot.time.split(":").map(Number);
+        return h * 60 + m > nowMinutes;
+      })
+      .map((slot) => ({ ...slot, available: !takenTimes.has(slot.time) }));
+
+    res.json({ success: true, data: { date: dateStr, closed: false, slots } });
+  } catch (error) {
+    console.error("getVendorSlots error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
 
 // @desc    Get payment by bookingId
 // @route   GET /service_api/bookings/:bookingId/payment
@@ -69,6 +186,14 @@ export const getUserBookings = async (req, res) => {
         // my money" without a second round trip — which is what most refund
         // support contacts actually are.
         payment: { include: { refunds: true } },
+        // The customer app shows "which car is this for" on the booking card.
+        // createBooking has always written this row, but no read path included
+        // it, so the app had no way to render the vehicle at all.
+        bookingVehicle: { include: { vehicle: { select: VEHICLE_SUMMARY_SELECT } } },
+        // Without this the customer app cannot see that the vendor has asked to
+        // start early, so respondToEarlyStart could never be reached and the
+        // vendor-side request would dead-end.
+        earlyStart: true,
       },
       orderBy: { booking_date: "desc" },
     });
@@ -121,7 +246,12 @@ export const getSingleBooking = async (req, res) => {
           include: { vendor: { include: { vendorProfile: true } } },
         },
         payment: { include: { refunds: true } },
-        review: true
+        review: true,
+        bookingVehicle: { include: { vehicle: { select: VEHICLE_SUMMARY_SELECT } } },
+        // Without this the customer app cannot see that the vendor has asked to
+        // start early, so respondToEarlyStart could never be reached and the
+        // vendor-side request would dead-end.
+        earlyStart: true,
       },
     });
 
@@ -219,16 +349,79 @@ export const createBooking = async (req, res) => {
         // segment prices tomorrow must not change what this booking charges.
         const priceSnapshot = resolveServiceAmount(service, vehicle?.segment ?? null);
 
+        // booking_time arrives as free text ("2:00 PM" from older clients,
+        // "14:00" from the current one). Everything downstream — the conflict
+        // check below, the slots endpoint, the vendor's day view — compares
+        // times as strings, so it is stored canonically and compared
+        // canonically. Unparseable input is rejected here rather than written
+        // as an uncomparable string that would silently never conflict with
+        // anything.
+        const canonicalTime = toCanonicalTime(booking_time);
+        if (!canonicalTime) {
+            return res.status(400).json({ message: "Invalid booking time" });
+        }
+        const bookingDate = new Date(booking_date);
+
         // Booking + BookingVehicle together: a booking that priced against a
         // vehicle but has no snapshot row (or vice versa) is an inconsistent
         // state neither payment code path can safely reason about.
         const booking = await prisma.$transaction(async (tx) => {
+            // === DOUBLE-BOOKING GUARD ===
+            // There is no unique constraint covering (vendor, date, time), and
+            // until now there was no check either — two customers hitting
+            // "book" on the same slot both succeeded, and the vendor found out
+            // on the day.
+            //
+            // This MUST stay inside the transaction: a check before
+            // $transaction is a classic check-then-act race, and the losing
+            // request would still insert. Inside, the read and the insert are
+            // one atomic unit against the same snapshot.
+            //
+            // Both time representations are matched because legacy rows still
+            // hold "2:00 PM" — comparing only the canonical form would let a
+            // new booking land on top of every pre-existing one.
+            // The 12-hour label ("2:00 PM") is what legacy rows hold, so it
+            // must be in the list even when the REQUEST arrived canonical
+            // ("14:00") — matching only the canonical form and the raw request
+            // string let a new "14:00" booking land straight on top of an
+            // existing "2:00 PM" row.
+            const timeVariants = [canonicalTime];
+            const legacyLabel = minutesToLabel(parseTimeToMinutes(canonicalTime));
+            if (legacyLabel && !timeVariants.includes(legacyLabel)) {
+                timeVariants.push(legacyLabel);
+            }
+            if (typeof booking_time === 'string' && !timeVariants.includes(booking_time.trim())) {
+                timeVariants.push(booking_time.trim());
+            }
+
+            const clash = await tx.booking.findFirst({
+                where: {
+                    // Bookings reach a vendor only via service.vendorId —
+                    // Booking has no vendorId column of its own.
+                    service: { vendorId: service.vendorId },
+                    booking_date: bookingDate,
+                    booking_time: { in: timeVariants },
+                    NOT: { status: { in: ['cancelled', 'rejected'] } },
+                },
+                select: { id: true },
+            });
+
+            if (clash) {
+                // Surfaced as 409 by the caller. Thrown rather than returned so
+                // the transaction rolls back and nothing is written.
+                const conflictError = new Error(
+                    "That slot has just been booked and is no longer available. Please pick another time."
+                );
+                conflictError.statusCode = 409;
+                throw conflictError;
+            }
+
             const created = await tx.booking.create({
                 data: {
                     userId: req.user.id,
                     serviceId: serviceId, // Already validated as number by Zod
-                    booking_date: new Date(booking_date),
-                    booking_time,
+                    booking_date: bookingDate,
+                    booking_time: canonicalTime,
                     notes,
                     vendor_status: 'pending', // Vendor must accept/reject
                     status: 'pending', // Overall status
@@ -264,12 +457,18 @@ export const createBooking = async (req, res) => {
         // successful booking into a 500 for the user. Best-effort only.
         if (booking.service && booking.service.vendorId) {
             try {
+                const newRequest = renderNotification(NOTIFICATION_TYPES.NEW_BOOKING_ALERT, {
+                    customerName: booking.user?.userProfile?.name,
+                    serviceName: booking.service?.name,
+                    bookingDate: booking_date,
+                    bookingId: booking.id,
+                });
                 await addNotificationJob({
-                    type: 'NEW_BOOKING_ALERT',
+                    type: newRequest.type,
                     recipientId: booking.service.vendorId,
-                    title: "New Service Request",
-                    body: `${booking.user.userProfile?.name || 'A user'} requested ${booking.service.name} on ${new Date(booking_date).toLocaleDateString()}`,
-                    metadata: { type: 'NEW_BOOKING_ALERT', bookingId: booking.id },
+                    title: newRequest.title,
+                    body: newRequest.body,
+                    metadata: { type: newRequest.type, data: newRequest.data, bookingId: booking.id },
                     socketEvent: "new_service_request",
                     socketData: {
                         bookingId: booking.id,
@@ -290,6 +489,11 @@ export const createBooking = async (req, res) => {
             message: "Service request sent to vendor. Waiting for acceptance."
         });
     } catch (error) {
+        // The double-booking guard throws from inside the transaction so the
+        // whole thing rolls back; it is a client-visible conflict, not a bug.
+        if (error?.statusCode === 409) {
+            return res.status(409).json({ message: error.message, code: 'SLOT_TAKEN' });
+        }
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
@@ -340,6 +544,16 @@ export const updateBooking = async (req, res) => {
   const { status, booking_date, booking_time, notes } = req.body;
   const bookingId = parseInt(req.params.id);
 
+  // Same normalisation as createBooking: a reschedule must not reintroduce a
+  // free-text time that the slot and conflict checks cannot see.
+  let canonicalTime;
+  if (booking_time) {
+    canonicalTime = toCanonicalTime(booking_time);
+    if (!canonicalTime) {
+      return res.status(400).json({ message: "Invalid booking time" });
+    }
+  }
+
   try {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -376,7 +590,7 @@ export const updateBooking = async (req, res) => {
       data: {
         status: status || undefined,
         booking_date: booking_date ? new Date(booking_date) : undefined,
-        booking_time: booking_time || undefined,
+        booking_time: canonicalTime || undefined,
         notes: notes || undefined,
       },
       include: { service: true }
@@ -413,30 +627,27 @@ export const updateBooking = async (req, res) => {
         // BookingDetails with only an id, and that screen renders null without
         // the full booking object.
         const refundNotification = refundOutcome?.refunded
-          ? {
-              title: "Refund on its way",
-              body:
-                `₹${refundOutcome.amount.toLocaleString('en-IN')} for your cancelled booking is on ` +
-                `its way back to your original payment method — it should appear ${REFUND_ETA_TEXT}.`,
-            }
+          ? renderNotification(NOTIFICATION_TYPES.REFUND_ISSUED, {
+              amount: refundOutcome.amount,
+              etaText: REFUND_ETA_TEXT,
+              bookingId: booking.id,
+            })
           : booking.payment?.status === 'success'
-            ? {
-                title: "Booking Cancelled",
-                body:
-                  "Your booking is cancelled. Our team is reviewing your refund and will " +
-                  "contact you shortly.",
-              }
+            ? renderNotification(NOTIFICATION_TYPES.REFUND_UNDER_REVIEW, {
+                bookingId: booking.id,
+              })
             : null;
 
         if (refundNotification) {
           try {
             await addNotificationJob({
-              type: 'REFUND_ISSUED',
+              type: refundNotification.type,
               recipientId: booking.userId,
               title: refundNotification.title,
               body: refundNotification.body,
               metadata: {
-                type: 'REFUND_ISSUED',
+                type: refundNotification.type,
+                data: refundNotification.data,
                 bookingId: booking.id,
                 screen: 'BookingList',
                 params: { initialTab: 'cancelled' },
@@ -470,11 +681,16 @@ export const updateBooking = async (req, res) => {
     if (status === "cancelled") {
         // Queue cancellation notification for vendor
         try {
+            const vendorCancelled = renderNotification(
+                NOTIFICATION_TYPES.BOOKING_CANCELLED_BY_CUSTOMER,
+                { serviceName: updatedBooking.service?.name, bookingId: updatedBooking.id }
+            );
             await addNotificationJob({
-                type: 'BOOKING_CANCELLED',
+                type: vendorCancelled.type,
                 recipientId: updatedBooking.service.vendorId,
-                title: "Booking Cancelled",
-                body: `Booking for ${updatedBooking.service.name} was cancelled by the user.`,
+                title: vendorCancelled.title,
+                body: vendorCancelled.body,
+                metadata: { type: vendorCancelled.type, data: vendorCancelled.data },
                 socketEvent: "booking_cancelled",
                 socketData: {
                     bookingId: updatedBooking.id,
@@ -551,3 +767,121 @@ export const updateBooking = async (req, res) => {
 };
 
 
+// @desc    Customer accepts or declines the vendor's early-start request
+// @route   POST /service_api/user/:userId/bookings/:id/early-start/respond
+// @body    { accept: boolean }
+export const respondToEarlyStart = async (req, res) => {
+  try {
+    const bookingId = parseInt(req.params.id);
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ success: false, message: "Invalid booking id" });
+    }
+
+    const accept = req.body?.accept === true;
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { service: true, earlyStart: true },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+    if (booking.userId !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Not authorized for this booking" });
+    }
+    if (!booking.earlyStart || booking.earlyStart.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: "There is no pending early-start request for this booking",
+      });
+    }
+
+    if (!accept) {
+      await prisma.bookingEarlyStart.update({
+        where: { bookingId },
+        data: { status: 'declined', responded_at: new Date() },
+      });
+
+      try {
+        const esDeclined = renderNotification(NOTIFICATION_TYPES.EARLY_START_DECLINED, {
+          serviceName: booking.service?.name,
+          bookingId,
+        });
+        await addNotificationJob({
+          type: esDeclined.type,
+          recipientId: booking.service.vendorId,
+          title: esDeclined.title,
+          body: esDeclined.body,
+          metadata: { type: esDeclined.type, data: esDeclined.data, bookingId },
+          socketEvent: "early_start_declined",
+          socketData: { bookingId },
+        });
+      } catch (notifyError) {
+        console.error('Failed to queue EARLY_START_DECLINED for booking', bookingId, notifyError);
+      }
+
+      return res.json({
+        success: true,
+        booking,
+        message: "Early start declined. Your original time stands.",
+      });
+    }
+
+    const startedAt = new Date();
+
+    // One transaction: moving the booking to in_progress and marking the
+    // request accepted are the same decision. Half of it landing would leave a
+    // job that is running against a request still showing as pending.
+    //
+    // Moving booking_time to the earlier slot is what "frees the original
+    // slot": slot occupancy is derived from booking_time (see getVendorSlots),
+    // so the later window becomes bookable again the moment this commits.
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.bookingEarlyStart.update({
+        where: { bookingId },
+        data: { status: 'accepted', responded_at: startedAt, started_at: startedAt },
+      });
+
+      return tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: 'in_progress',
+          booking_time: booking.earlyStart.requested_time,
+        },
+        include: {
+          service: true,
+          earlyStart: true,
+          bookingVehicle: { include: { vehicle: { select: VEHICLE_SUMMARY_SELECT } } },
+        },
+      });
+    });
+
+    try {
+      const esAccepted = renderNotification(NOTIFICATION_TYPES.EARLY_START_ACCEPTED, {
+        serviceName: booking.service?.name,
+        bookingId,
+      });
+      await addNotificationJob({
+        type: esAccepted.type,
+        recipientId: booking.service.vendorId,
+        title: esAccepted.title,
+        body: esAccepted.body,
+        metadata: { type: esAccepted.type, data: esAccepted.data, bookingId },
+        socketEvent: "early_start_accepted",
+        socketData: { bookingId, booking_time: updated.booking_time },
+      });
+    } catch (notifyError) {
+      console.error('Failed to queue EARLY_START_ACCEPTED for booking', bookingId, notifyError);
+    }
+
+    res.json({
+      success: true,
+      booking: updated,
+      message: "Early start accepted. Your service is now in progress.",
+    });
+  } catch (error) {
+    console.error("respondToEarlyStart error:", error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};

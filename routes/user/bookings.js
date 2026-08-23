@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment, getCancellationPreview } from '../../controllers/user/bookingController.js';
+import { getUserBookings, getSingleBooking, createBooking, updateBooking, canProceedToPayment, getCancellationPreview, getVendorSlots, respondToEarlyStart } from '../../controllers/user/bookingController.js';
 import { confirmServiceCompletion, disputeServiceCompletion } from '../../controllers/user/serviceConfirmationController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -7,7 +7,8 @@ import {
   createBookingSchema, 
   updateBookingSchema, 
   confirmServiceSchema, 
-  disputeServiceSchema 
+  disputeServiceSchema,
+  earlyStartRespondSchema
 } from '../../validators/user/bookingValidators.js';
 
 const router = express.Router();
@@ -35,6 +36,69 @@ import { getPaymentByBooking } from '../../controllers/user/bookingController.js
  *       500:
  *         description: Server Error
  */
+/**
+ * @swagger
+ * /service_api/user/vendors/{vendorId}/slots:
+ *   get:
+ *     summary: Bookable 30-minute slots for a vendor on a date
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: vendorId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: date
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: "2026-08-25"
+ *     responses:
+ *       200:
+ *         description: >
+ *           { success, data: { date, closed, slots: [{ time, label, available }] } }.
+ *           closed is true with an empty slots array when the weekday is a
+ *           holiday or the vendor's hours are missing/unparseable.
+ *       400:
+ *         description: Missing or malformed date
+ *       404:
+ *         description: Vendor not found
+ */
+router.get('/vendors/:vendorId/slots', protect, getVendorSlots);
+
+/**
+ * @swagger
+ * /service_api/user/{userId}/bookings/{id}/early-start/respond:
+ *   post:
+ *     summary: Accept or decline the vendor's request to start earlier
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [accept]
+ *             properties:
+ *               accept:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: "{ success, booking, message }. On accept the booking moves to in_progress."
+ *       400:
+ *         description: No pending early-start request
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Booking not found
+ */
+router.post('/:userId/bookings/:id/early-start/respond', protect, validateRequest(earlyStartRespondSchema), respondToEarlyStart);
+
 // Matches GET /service_api/user/:userId/bookings
 router.get('/:userId/bookings', protect, getUserBookings);
 

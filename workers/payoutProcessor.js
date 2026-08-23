@@ -1,6 +1,7 @@
 import prisma from "../util/prisma.js";
 import { initiateVendorPayout } from "../util/payoutHelper.js";
 import { createNotification } from "../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
 import Logger from "../util/logger.js";
 
 /**
@@ -124,10 +125,19 @@ export const processPayoutJob = async (job) => {
 
     await prisma.payoutSettlement.update({ where: { paymentId }, data: { status: "settled" } });
 
+    // Previously rendered "₹undefined ..." whenever vendorAmount was null;
+    // the template drops the amount clause entirely rather than guessing.
+    const payoutNotification = renderNotification(NOTIFICATION_TYPES.PAYOUT_SETTLED, {
+      amount: payment.vendorAmount,
+      serviceName: payment.booking?.service?.name,
+      bookingId: payment.bookingId ?? payment.booking?.id,
+      paymentId,
+    });
     await createNotification(
       vendorId,
-      "💰 Payment Received!",
-      `₹${payment.vendorAmount} has been transferred to your account for ${payment.booking.service.name}`
+      payoutNotification.title,
+      payoutNotification.body,
+      { type: payoutNotification.type, data: payoutNotification.data }
     );
 
     Logger.info(`[Payout Worker] Payout successful for Payment ID: ${paymentId}`);

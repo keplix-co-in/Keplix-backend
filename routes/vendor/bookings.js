@@ -1,8 +1,8 @@
 import express from 'express';
-import { getVendorBookings, updateBookingStatus, respondToServiceRequest } from '../../controllers/vendor/bookingController.js';
+import { getVendorBookings, updateBookingStatus, respondToServiceRequest, requestEarlyStart } from '../../controllers/vendor/bookingController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
-import { updateBookingStatusSchema, respondToServiceRequestSchema } from '../../validators/vendor/bookingValidators.js';
+import { updateBookingStatusSchema, respondToServiceRequestSchema, requestEarlyStartSchema } from '../../validators/vendor/bookingValidators.js';
 import {uploadSingle, uploadFieldss} from '../../middleware/uploadMiddleware.js';
 
 const router = express.Router();
@@ -182,5 +182,39 @@ router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'i
 router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
   next(); // Keep PATCH for backward compatibility if needed, but prefer POST for files
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
+
+/**
+ * @swagger
+ * /service_api/vendor/{vendorId}/bookings/{id}/early-start:
+ *   post:
+ *     summary: Ask the customer whether the job can start earlier
+ *     description: >
+ *       Records the request and notifies the customer. Does NOT change the
+ *       booking's status — only the customer's response can do that.
+ *     tags: [Vendor]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               booking_time:
+ *                 type: string
+ *                 description: Earlier slot; defaults to the current half-hour.
+ *               note:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: "{ success, message }"
+ *       400:
+ *         description: Booking not eligible, or the time is not earlier
+ *       404:
+ *         description: Booking not found
+ *       409:
+ *         description: The earlier slot is already occupied
+ */
+router.post('/:vendorId/bookings/:id/early-start', protect, validateRequest(requestEarlyStartSchema), requestEarlyStart);
 
 export default router;
