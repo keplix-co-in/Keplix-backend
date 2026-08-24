@@ -44,6 +44,7 @@ describe('confirmServiceCompletion', () => {
     req = {
       params: { userId: '1', id: '100' },
       body: { confirmed: true, rating: 5, comment: 'Great job!' },
+      user: { id: 1 },
     };
     res = {
       status: jest.fn().mockReturnThis(),
@@ -51,8 +52,8 @@ describe('confirmServiceCompletion', () => {
     };
   });
 
-  test('should return 400 if userId or bookingId is invalid', async () => {
-    req.params.userId = 'abc';
+  test('should return 400 if bookingId is invalid', async () => {
+    req.params.id = 'abc';
     await confirmServiceCompletion(req, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ message: 'Invalid user or booking ID' });
@@ -66,6 +67,8 @@ describe('confirmServiceCompletion', () => {
   });
 
   test('should return 403 if user does not own booking', async () => {
+    // req.user.id is 1; booking belongs to a different user (2) --
+    // ownership must be checked against the authenticated user, not a param.
     prisma.booking.findUnique.mockResolvedValue({ userId: 2 });
     await confirmServiceCompletion(req, res);
     expect(res.status).toHaveBeenCalledWith(403);

@@ -177,6 +177,12 @@ export const getVendorEarnings = async (req, res) => {
   try {
     const vendorId = Number(req.params.vendor_id);
 
+    // Ownership must be enforced against the authenticated caller, not the
+    // URL param — mirrors the fix in getVendorPayments above.
+    if (!req.user || req.user.id !== vendorId) {
+      return res.status(403).json({ message: "Not authorized to view these earnings" });
+    }
+
     const now = new Date();
 
     const today = new Date();

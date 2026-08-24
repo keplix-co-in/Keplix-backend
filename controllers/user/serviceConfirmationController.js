@@ -15,7 +15,11 @@ import { confirmBookingAndQueuePayout, BookingConfirmationError } from "../../se
  */
 export const confirmServiceCompletion = async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId);
+    // Ownership must be decided from the authenticated caller, never from the
+    // URL — req.params.userId is attacker-controlled and was previously
+    // trusted here, letting any user drain another user's escrow by swapping
+    // the userId in the path.
+    const userId = req.user.id;
     const bookingId = parseInt(req.params.id);
     const { confirmed, rating, comment } = req.body;
 
@@ -64,7 +68,9 @@ export const confirmServiceCompletion = async (req, res) => {
  */
 export const disputeServiceCompletion = async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId);
+    // As above: ownership is decided from the authenticated caller, not the
+    // URL parameter.
+    const userId = req.user.id;
     const bookingId = parseInt(req.params.id);
     const { reason } = req.body;
 

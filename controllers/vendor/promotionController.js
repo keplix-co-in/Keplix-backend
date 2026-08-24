@@ -6,8 +6,14 @@
 // @route   GET /interactions/api/promotions/vendor/:vendorId
 export const getPromotions = async (req, res) => {
   try {
+    const vendorId = parseInt(req.params.vendorId);
+
+    if (req.user.id !== vendorId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
     const promotions = await prisma.promotion.findMany({
-      where: { vendorId: parseInt(req.params.vendorId) },
+      where: { vendorId },
     });
     res.json(promotions);
   } catch (error) {

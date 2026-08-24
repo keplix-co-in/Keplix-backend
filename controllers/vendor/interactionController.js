@@ -121,10 +121,26 @@ export const getVendorConversations = async (req, res) => {
 export const getVendorMessages = async (req, res) => {
     try {
         const conversationId = req.params.conversationId || req.query.conversation_id;
+        const vendorId = req.user.id;
         const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
         if (!conversationId) {
             return res.status(400).json({ message: 'Conversation ID required' });
+        }
+
+        // Ownership check: the conversation's booking must be for this vendor's
+        // service. conversationId comes from the URL/query, attacker-controlled.
+        const conversation = await prisma.conversation.findUnique({
+            where: { id: Number(conversationId) },
+            select: { booking: { select: { service: { select: { vendorId: true } } } } },
+        });
+
+        if (!conversation) {
+            return res.status(404).json({ message: 'Conversation not found' });
+        }
+
+        if (conversation.booking?.service?.vendorId !== vendorId) {
+            return res.status(403).json({ message: 'Not authorized' });
         }
 
         const where = { conversationId: Number(conversationId) };
@@ -163,6 +179,21 @@ export const sendVendorMessage = async (req, res) => {
 
         if (!conversationId || !message_text) {
              return res.status(400).json({ message: "Missing fields" });
+        }
+
+        // Ownership check: only the vendor whose service the conversation's
+        // booking belongs to may post into it.
+        const ownerConversation = await prisma.conversation.findUnique({
+            where: { id: Number(conversationId) },
+            select: { booking: { select: { service: { select: { vendorId: true } } } } },
+        });
+
+        if (!ownerConversation) {
+            return res.status(404).json({ message: "Conversation not found" });
+        }
+
+        if (ownerConversation.booking?.service?.vendorId !== senderId) {
+            return res.status(403).json({ message: "Not authorized" });
         }
 
         const message = await prisma.message.create({

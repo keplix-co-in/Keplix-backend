@@ -8,6 +8,7 @@ import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { toCanonicalTime, minutesToLabel } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
+import { isValidBookingStatus, isValidVendorStatus } from "../../util/bookingStatus.js";
 
 
 
@@ -87,6 +88,11 @@ export const getVendorBookings = async (req, res) => {
 export const respondToServiceRequest = async (req, res) => {
   const { vendor_status } = req.body; // 'accepted' or 'rejected'
   const bookingId = parseInt(req.params.id);
+
+  if (!isValidVendorStatus(vendor_status)) {
+    return res.status(400).json({ message: `Invalid vendor_status: ${vendor_status}` });
+  }
+
   try {
     // Verify booking exists and belongs to vendor's services
     const booking = await prisma.booking.findFirst({
@@ -143,12 +149,13 @@ export const respondToServiceRequest = async (req, res) => {
         serviceName: booking.service?.name,
         bookingId: booking.id,
       });
-      await createNotification(
-        booking.userId,
-        accepted.title,
-        accepted.body,
-        { type: accepted.type, data: accepted.data }
-      );
+      await createNotification({
+        userId: booking.userId,
+        title: accepted.title,
+        message: accepted.body,
+        type: accepted.type,
+        data: accepted.data,
+      });
 
       // Socket notification
       if (io) {
@@ -198,6 +205,10 @@ export const respondToServiceRequest = async (req, res) => {
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
   const { status, notes } = req.body;
+
+  if (status && !isValidBookingStatus(status)) {
+    return res.status(400).json({ message: `Invalid status: ${status}` });
+  }
 
   try {
 
