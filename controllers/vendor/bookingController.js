@@ -6,7 +6,7 @@ import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationT
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
-import { toCanonicalTime, minutesToLabel } from "../../util/slots.js";
+import { toCanonicalTime, minutesToLabel, SLOT_MINUTES } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
 import { isValidBookingStatus, isValidVendorStatus } from "../../util/bookingStatus.js";
 
@@ -458,17 +458,27 @@ export const requestEarlyStart = async (req, res) => {
 
     // The earlier window has to actually be free — otherwise accepting would
     // hand the vendor two jobs at once, which is the exact problem the booking
-    // conflict check exists to prevent. Both time representations are matched
-    // because legacy rows still hold "2:00 PM".
-    const clash = await prisma.booking.findFirst({
+    // conflict check exists to prevent. This used to match `booking_time`
+    // exactly, but each booking occupies a SLOT_MINUTES-wide window, not a
+    // single instant: a 14:00 booking occupies 14:00-14:30, so an early-start
+    // request for 14:15 doesn't equal "14:00" (or its label form) and slipped
+    // through uncaught. Instead, pull the vendor's other same-day live
+    // bookings and check whether the requested minute actually falls inside
+    // any of their occupied ranges.
+    const sameDayBookings = await prisma.booking.findMany({
       where: {
         id: { not: bookingId },
         service: { vendorId: req.user.id },
         booking_date: booking.booking_date,
-        booking_time: { in: [requestedTime, minutesToLabel(requestedMinutes)].filter(Boolean) },
         NOT: { status: { in: ['cancelled', 'rejected'] } },
       },
-      select: { id: true },
+      select: { booking_time: true },
+    });
+
+    const clash = sameDayBookings.some((b) => {
+      const otherStart = timeToMinutes(b.booking_time);
+      if (otherStart === null) return false;
+      return requestedMinutes >= otherStart && requestedMinutes < otherStart + SLOT_MINUTES;
     });
 
     if (clash) {

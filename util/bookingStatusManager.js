@@ -4,6 +4,7 @@ import Logger from './logger.js';
 import { createNotification } from './notificationHelper.js';
 import { renderNotification, NOTIFICATION_TYPES } from './notificationTemplates.js';
 import { parseTimeToMinutes } from './slots.js';
+import { getISTDate } from './time.js';
 
 /**
  * How long after its slot an un-started booking is written off.
@@ -104,13 +105,18 @@ class BookingStatusManager {
    */
   async activateBookingsAtScheduledTime(now) {
     try {
-      // Find bookings that are confirmed/scheduled and their time has arrived
+      // Find bookings that are confirmed/scheduled and their time has arrived.
+      // Bounded to "yesterday (IST) onwards" -- a booking older than that has
+      // long since either activated or expired (EXPIRY_AFTER_MINUTES is only
+      // 30 minutes), so scanning further back just makes every once-a-minute
+      // tick walk the entire booking history for nothing.
       const bookingsToActivate = await prisma.booking.findMany({
         where: {
           status: {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
+          booking_date: { gte: this.getActivationLowerBound(now) },
         }
       });
 
@@ -174,13 +180,15 @@ class BookingStatusManager {
    */
   async handleExpiredBookings(now) {
     try {
-      // Find confirmed/scheduled bookings that are past their time
+      // Find confirmed/scheduled bookings that are past their time. Same
+      // lower bound as activateBookingsAtScheduledTime -- see its comment.
       const expiredBookings = await prisma.booking.findMany({
         where: {
           status: {
             in: ['confirmed', 'scheduled']
           },
           vendor_status: 'accepted',
+          booking_date: { gte: this.getActivationLowerBound(now) },
         }
       });
 
@@ -386,6 +394,21 @@ class BookingStatusManager {
       Logger.error(`Error expiring booking ${booking.id}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Lower bound for the activation/expiry queries: today minus one day, IST,
+   * at UTC midnight -- matching how `booking_date` itself is stored (see the
+   * comment in parseBookingDateTime). One day of slack rather than zero
+   * covers a booking dated "yesterday" IST whose late-night slot is still
+   * within EXPIRY_AFTER_MINUTES of `now` when read back as UTC.
+   */
+  getActivationLowerBound(now) {
+    const ist = getISTDate(now);
+    const year = ist.getFullYear();
+    const month = ist.getMonth();
+    const day = ist.getDate();
+    return new Date(Date.UTC(year, month, day - 1, 0, 0, 0, 0));
   }
 
   /**
