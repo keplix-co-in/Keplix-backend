@@ -45,7 +45,13 @@ const REQUIRED_IN_PRODUCTION = [
 // declared so they aren't stripped from `env`, not required.
 const twilioFields = {
   TWILIO_ACCOUNT_SID: z.string().optional(),
+  // Twilio accepts either the classic Auth Token, or an API Key SID +
+  // Secret pair (still combined with TWILIO_ACCOUNT_SID above) -- see
+  // util/communication.js's getTwilioClient for which one wins when both
+  // are set.
   TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_API_KEY_SID: z.string().optional(),
+  TWILIO_API_KEY_SECRET: z.string().optional(),
   TWILIO_PHONE_NUMBER: z.string().optional(),
   TWILIO_WHATSAPP_FROM: z.string().optional(),
   TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID: z.string().optional(),

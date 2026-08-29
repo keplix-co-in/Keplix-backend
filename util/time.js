@@ -3,3 +3,4 @@ export const getISTDate = (date = new Date()) => {
     date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
 };
+

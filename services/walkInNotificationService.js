@@ -25,19 +25,23 @@ export async function sendJobSheetNotification({ customerName, customerPhone, ve
 
   try {
     const contentSid = process.env.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID;
+    // Must match the DLT-registered SMS template exactly — DLT operators
+    // silently drop unregistered content (Twilio still returns success),
+    // so any wording change here needs the template re-approved first. Also
+    // reused as WhatsApp's plain-text body when no contentSid is set (see
+    // sendWhatsApp's Sandbox fallback) -- the Sandbox has no DLT constraint,
+    // so no separate wording is needed there.
+    const messageText = `Hi ${firstName}, your vehicle is checked in at ${vendorName}. Track status & view the health report: ${trackingUrl} - Keplix`;
+
     result.whatsapp = await sendWhatsApp(customerPhone, contentSid, {
       '1': firstName,
       '2': vendorName,
       '3': trackingUrl,
-    });
+    }, messageText);
 
     const bothChannels = process.env.NOTIFY_BOTH_CHANNELS !== 'false';
     if (!result.whatsapp || bothChannels) {
-      // Must match the DLT-registered SMS template exactly — DLT operators
-      // silently drop unregistered content (Twilio still returns success),
-      // so any wording change here needs the template re-approved first.
-      const smsText = `Hi ${firstName}, your vehicle is checked in at ${vendorName}. Track status & view the health report: ${trackingUrl} - Keplix`;
-      result.sms = await sendSMS(customerPhone, smsText);
+      result.sms = await sendSMS(customerPhone, messageText);
     }
   } catch (error) {
     // sendWhatsApp/sendSMS already catch internally and return false rather

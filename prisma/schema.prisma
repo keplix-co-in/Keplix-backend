@@ -413,7 +413,7 @@ model OfferSlot {
 
   headline   String? // "15%"
   body       String? // "discount on the first order."
-  badge_text String? // "Flat ₹100 off"
+  badge_text String? // "20% off first service"
   image_url  String?
 
   discount_type  String? // 'percent' | 'flat' — reserved, unused

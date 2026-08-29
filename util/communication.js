@@ -1,6 +1,26 @@
 import { messaging } from './firebase.js';
 import Logger from './logger.js';
 
+// Twilio supports two credential shapes: the classic Account SID + Auth
+// Token pair, or an API Key (SK...) + Secret, which still needs the Account
+// SID passed separately since an API Key SID isn't one. Both are accepted
+// here since which one is configured varies by how the account was set up.
+const hasTwilioCredentials = () =>
+    !!process.env.TWILIO_ACCOUNT_SID &&
+    ((process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET) || process.env.TWILIO_AUTH_TOKEN);
+
+const getTwilioClient = async () => {
+    const twilio = await import('twilio');
+    if (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET) {
+        return twilio.default(
+            process.env.TWILIO_API_KEY_SID,
+            process.env.TWILIO_API_KEY_SECRET,
+            { accountSid: process.env.TWILIO_ACCOUNT_SID }
+        );
+    }
+    return twilio.default(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+};
+
 export const sendEmail = async (to, subject, text, html = null) => {
     // Check if Resend is configured
     if (!process.env.RESEND_API_KEY) {
@@ -33,19 +53,14 @@ export const sendEmail = async (to, subject, text, html = null) => {
 
 export const sendSMS = async (to, message) => {
     // Check if Twilio is configured
-    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+    if (!hasTwilioCredentials()) {
         Logger.warn("[SMS] Twilio not configured (Missing TWILIO credentials). Skipping.");
         Logger.info(`[MOCK SMS] To: ${to} | Message: ${message}`);
         return false;
     }
 
     try {
-        // Dynamic import to avoid errors if twilio package not installed
-        const twilio = await import('twilio');
-        const client = twilio.default(
-            process.env.TWILIO_ACCOUNT_SID,
-            process.env.TWILIO_AUTH_TOKEN
-        );
+        const client = await getTwilioClient();
 
         const result = await client.messages.create({
             body: message,
@@ -64,48 +79,60 @@ export const sendSMS = async (to, message) => {
 
 /**
  * WhatsApp via Twilio. Deliberately not sendSMS with a different `to` prefix:
- * a business-initiated WhatsApp message outside the 24h session window (which
- * this always is — the customer hasn't messaged in) must reference a
- * pre-approved Content Template by SID with positional variables, not a free
- * `body` string. Twilio also requires the `whatsapp:` address prefix and a
- * separate `from` number. Same env-guard-and-mock-log shape as sendSMS so
- * local dev without WhatsApp credentials behaves the same way.
+ * a business-initiated WhatsApp message outside the 24h session window
+ * normally must reference a pre-approved Content Template by SID rather than
+ * a free `body` string. Twilio also requires the `whatsapp:` address prefix
+ * and a separate `from` number. Same env-guard-and-mock-log shape as sendSMS
+ * so local dev without WhatsApp credentials behaves the same way.
+ *
+ * The Sandbox relaxes the template requirement: any number that has sent the
+ * sandbox its join code can receive plain free-text messages from it, no
+ * approved template needed. So when no contentSid is configured, this falls
+ * back to sending `fallbackText` as a plain body instead of refusing outright
+ * — which only works against the Sandbox number, not a real approved WhatsApp
+ * Business sender. Once a real template SID is set, that path is used
+ * instead and this fallback is unreachable.
  *
  * @param {string} to E.164 phone number, e.g. "+919876543210"
- * @param {string} contentSid Twilio Content Template SID (HXxxxx)
+ * @param {string} contentSid Twilio Content Template SID (HXxxxx), or falsy to use fallbackText
  * @param {Record<string,string>} variables positional template variables, e.g. { "1": "Rahul", "2": "Royal Auto Care" }
+ * @param {string} [fallbackText] plain-text body sent when contentSid is not set (Sandbox-only)
  */
-export const sendWhatsApp = async (to, contentSid, variables = {}) => {
-    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_WHATSAPP_FROM) {
+export const sendWhatsApp = async (to, contentSid, variables = {}, fallbackText = null) => {
+    if (!hasTwilioCredentials() || !process.env.TWILIO_WHATSAPP_FROM) {
         Logger.warn("[WhatsApp] Twilio WhatsApp not configured (Missing TWILIO_WHATSAPP_FROM or account credentials). Skipping.");
-        Logger.info(`[MOCK WHATSAPP] To: ${to} | Template: ${contentSid} | Vars: ${JSON.stringify(variables)}`);
+        Logger.info(`[MOCK WHATSAPP] To: ${to} | Template: ${contentSid || '(none, would use fallback text)'} | Vars: ${JSON.stringify(variables)}`);
         return false;
     }
 
-    if (!contentSid) {
-        Logger.warn("[WhatsApp] No contentSid provided — WhatsApp business-initiated messages require an approved template.");
+    if (!contentSid && !fallbackText) {
+        Logger.warn("[WhatsApp] No contentSid or fallbackText provided — nothing to send.");
         return false;
     }
 
     try {
-        const twilio = await import('twilio');
-        const client = twilio.default(
-            process.env.TWILIO_ACCOUNT_SID,
-            process.env.TWILIO_AUTH_TOKEN
-        );
+        const client = await getTwilioClient();
 
-        const result = await client.messages.create({
-            from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`,
-            to: `whatsapp:${to}`,
-            contentSid,
-            contentVariables: JSON.stringify(variables),
-        });
+        const message = contentSid
+            ? {
+                from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`,
+                to: `whatsapp:${to}`,
+                contentSid,
+                contentVariables: JSON.stringify(variables),
+            }
+            : {
+                from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`,
+                to: `whatsapp:${to}`,
+                body: fallbackText,
+            };
+
+        const result = await client.messages.create(message);
 
         Logger.info(`[Twilio] WhatsApp sent successfully to ${to}: ${result.sid}`);
         return true;
     } catch (error) {
         Logger.error(`[WhatsApp] Failed to send: ${error.message}`);
-        Logger.info(`[FALLBACK MOCK WHATSAPP] To: ${to} | Template: ${contentSid}`);
+        Logger.info(`[FALLBACK MOCK WHATSAPP] To: ${to} | Template: ${contentSid || '(none)'}`);
         return false;
     }
 };
