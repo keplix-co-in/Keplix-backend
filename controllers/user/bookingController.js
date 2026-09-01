@@ -6,6 +6,7 @@ import { executeCancellationRefund, resolveCancellationRefund } from "../../serv
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 import { generateSlots, isHoliday, minutesToLabel, parseTimeToMinutes, toCanonicalTime } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
+import { isValidBookingStatus } from "../../util/bookingStatus.js";
 
 
 
@@ -234,10 +235,12 @@ export const getUserBookings = async (req, res) => {
 export const getSingleBooking = async (req, res) => {
   try {
     const bookingId = parseInt(req.params.id);
-    const userId = parseInt(req.params.userId);
+    // Ownership must come from the authenticated user, not the URL param
+    // (req.params.userId is attacker-controlled).
+    const userId = req.user.id;
 
     const booking = await prisma.booking.findFirst({
-      where: { 
+      where: {
         id: bookingId,
         userId: userId // Ensure user owns this booking
       },
@@ -543,6 +546,10 @@ export const canProceedToPayment = async (req, res) => {
 export const updateBooking = async (req, res) => {
   const { status, booking_date, booking_time, notes } = req.body;
   const bookingId = parseInt(req.params.id);
+
+  if (status && !isValidBookingStatus(status)) {
+    return res.status(400).json({ message: `Invalid status: ${status}` });
+  }
 
   // Same normalisation as createBooking: a reschedule must not reintroduce a
   // free-text time that the slot and conflict checks cannot see.

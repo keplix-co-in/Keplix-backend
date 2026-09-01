@@ -7,6 +7,11 @@ import prisma from "../../util/prisma.js";
 export const getNotifications = async (req, res) => {
     try {
         const userId = parseInt(req.params.user_id);
+
+        if (req.user.id !== userId) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const isRead = req.query.isRead;
@@ -45,8 +50,21 @@ export const getNotifications = async (req, res) => {
 // @route   PUT /interactions/api/notifications/:id/mark-read/
 export const markRead = async (req, res) => {
     try {
+        const notificationId = parseInt(req.params.id);
+
+        const existing = await prisma.notification.findUnique({
+            where: { id: notificationId }
+        });
+
+        // 404, not 403, for both "doesn't exist" and "not yours" -- matches
+        // how the other read/delete/update on this resource should read and
+        // avoids confirming to an attacker that a given id belongs to someone.
+        if (!existing || existing.userId !== req.user.id) {
+            return res.status(404).json({ message: 'Notification not found' });
+        }
+
         const notification = await prisma.notification.update({
-            where: { id: parseInt(req.params.id) },
+            where: { id: notificationId },
             data: { is_read: true }
         });
         res.json(notification);

@@ -16,6 +16,12 @@ const mockPrisma = {
     findUnique: jest.fn(),
     upsert: jest.fn(),
   },
+  // The commission rate is read from PlatformSettings at record time
+  // (resolvePlatformFeeRate). Configured in beforeEach, since clearAllMocks
+  // would otherwise strip the resolved value.
+  platformSettings: {
+    findFirst: jest.fn(),
+  },
   $transaction: jest.fn(async (cb) =>
     cb({
       // The write path takes a SELECT ... FOR UPDATE on the booking row to
@@ -77,6 +83,9 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // No settings row -> documented fallback to the 10% default these fixtures
+  // assume. See util/platformSettings.js.
+  mockPrisma.platformSettings.findFirst.mockResolvedValue(null);
   mockPrisma.payment.findUnique.mockResolvedValue(null);
   mockPrisma.payment.upsert.mockImplementation(async ({ create }) => ({
     id: 99,

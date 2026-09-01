@@ -120,13 +120,17 @@ export const getVendors = async (req, res) => {
       select: {
         id: true,
         is_active: true,
+        email: true,
 
         vendorProfile: {
           select: {
             business_name: true,
             business_type: true,
             city: true,
-            status: true
+            status: true,
+            owner_name: true,
+            onboarding_completed: true,
+            image: true
           }
         },
 
@@ -145,15 +149,48 @@ export const getVendors = async (req, res) => {
       take: Number(limit)
     });
 
+    // Earnings per vendor: sum of Payment.vendorAmount for payouts that have
+    // actually settled, same definition the vendor-facing earnings endpoint
+    // uses (controllers/vendor/paymentController.js) -- listing "total
+    // earnings" as 0 for every vendor here was never a real number, just a
+    // hardcoded placeholder.
+    // Prisma's groupBy can't aggregate on a nested-relation column
+    // (booking.service.vendorId), so the per-vendor total is built by
+    // fetching each matching payment's vendorId alongside its amount and
+    // summing in JS instead.
+    const vendorIds = vendors.map(v => v.id);
+    const earningsByVendor = {};
+    if (vendorIds.length) {
+      const payments = await prisma.payment.findMany({
+        where: {
+          vendorPayoutStatus: { in: ['paid', 'settled'] },
+          booking: { service: { vendorId: { in: vendorIds } } }
+        },
+        select: {
+          vendorAmount: true,
+          booking: { select: { service: { select: { vendorId: true } } } }
+        }
+      });
+      for (const p of payments) {
+        const vId = p.booking?.service?.vendorId;
+        if (vId == null) continue;
+        earningsByVendor[vId] = (earningsByVendor[vId] || 0) + Number(p.vendorAmount || 0);
+      }
+    }
+
     const formatted = vendors.map(v => ({
       id: v.id,
       vendor: v.vendorProfile?.business_name || "N/A",
+      owner: v.vendorProfile?.owner_name || "",
+      email: v.email || "",
+      profileImage: v.vendorProfile?.image || null,
       category: v.vendorProfile?.business_type || "N/A",
       city: v.vendorProfile?.city || "N/A",
       bookings: v._count.bookings,
       rating: 0,
       status: v.vendorProfile?.status || "pending",
-      totalEarnings: 0
+      verified: v.vendorProfile?.onboarding_completed ? "verified" : "basic",
+      totalEarnings: earningsByVendor[v.id] || 0
     }));
 
     res.json(formatted);

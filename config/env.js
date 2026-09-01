@@ -1,26 +1,155 @@
 import { z } from "zod";
 
-const envSchema = z.object({
-  PORT: z.string().optional(),
+// Vars that are only ever read by prisma/seed*.js, never by the running
+// server. Missing them must not stop the app from booting -- they are
+// validated here only so a typo shows up when a seed script actually needs
+// them, not stripped by z.object() and not required at server startup.
+const seedOnlyFields = {
+  SEED_ADMIN_EMAIL: z.string().optional(),
+  SEED_ADMIN_NAME: z.string().optional(),
+  SEED_ADMIN_PASSWORD: z.string().optional(),
+  SEED_ADMIN_PHONE: z.string().optional(),
+  SEED_PASSWORD: z.string().optional(),
+};
 
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+// Razorpay/RazorpayX vars already have a production-only required check in
+// util/payoutHelper.js (it throws at import time if any of the four core
+// keys are missing under NODE_ENV=production), and every call site falls
+// back to a placeholder key outside production so local/dev/test boots keep
+// working without them. This schema mirrors that same production-only gate
+// -- rather than making the vars unconditionally required, which would break
+// the dev/test placeholder fallback that already works -- so a production
+// deploy still fails fast, at startup, with every missing key named at once.
+const razorpayFields = {
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  RAZORPAYX_ACCOUNT_NUMBER: z.string().optional(),
+  RAZORPAYX_KEY_ID: z.string().optional(),
+  RAZORPAYX_KEY_SECRET: z.string().optional(),
+};
+const REQUIRED_IN_PRODUCTION = [
+  "RAZORPAY_KEY_ID",
+  "RAZORPAY_KEY_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET",
+  "RAZORPAYX_ACCOUNT_NUMBER",
+  "RAZORPAYX_KEY_ID",
+  "RAZORPAYX_KEY_SECRET",
+];
 
-  JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
+// Twilio/WhatsApp: every call site (util/communication.js,
+// services/walkInNotificationService.js) already checks for these and logs
+// a warning + skips the send when they're absent, rather than throwing.
+// That's a working graceful degradation (SMS/WhatsApp becomes a no-op, the
+// rest of the app keeps running), so these stay optional here too --
+// declared so they aren't stripped from `env`, not required.
+const twilioFields = {
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  // Twilio accepts either the classic Auth Token, or an API Key SID +
+  // Secret pair (still combined with TWILIO_ACCOUNT_SID above) -- see
+  // util/communication.js's getTwilioClient for which one wins when both
+  // are set.
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_API_KEY_SID: z.string().optional(),
+  TWILIO_API_KEY_SECRET: z.string().optional(),
+  TWILIO_PHONE_NUMBER: z.string().optional(),
+  TWILIO_WHATSAPP_FROM: z.string().optional(),
+  TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID: z.string().optional(),
+};
 
-  DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
+const envSchema = z
+  .object({
+    PORT: z.string().optional(),
 
-  CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
+    NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
-  // No REDIS_* vars: Redis was removed entirely. Background jobs live in
-  // Postgres (util/jobQueue.js) and the token blacklist is a table
-  // (middleware/authMiddleware.js), so DATABASE_URL is the only datastore
-  // config this app needs. Leftover REDIS_* values in the environment are
-  // ignored -- z.object() strips undeclared keys -- and can be deleted.
+    JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
 
-  // "false" keeps background job dispatching out of this process. See server.js.
-  // Declared here because z.object() STRIPS undeclared keys -- reading
-  // env.RUN_WORKERS without this line would always be undefined.
-  RUN_WORKERS: z.string().optional(),
-});
+    // authController.js already falls back to JWT_SECRET when this is unset
+    // (with a console.warn) outside of throwing itself when it's missing, so
+    // it stays optional here to avoid duplicating/contradicting that
+    // existing runtime check.
+    JWT_REFRESH_SECRET: z.string().optional(),
+
+    DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
+
+    CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
+
+    // No REDIS_* vars: Redis was removed entirely. Background jobs live in
+    // Postgres (util/jobQueue.js) and the token blacklist is a table
+    // (middleware/authMiddleware.js), so DATABASE_URL is the only datastore
+    // config this app needs. Leftover REDIS_* values in the environment are
+    // ignored -- z.object() strips undeclared keys -- and can be deleted.
+
+    // "false" keeps background job dispatching out of this process. See server.js.
+    // Declared here because z.object() STRIPS undeclared keys -- reading
+    // env.RUN_WORKERS without this line would always be undefined.
+    RUN_WORKERS: z.string().optional(),
+
+    ...razorpayFields,
+    ...twilioFields,
+
+    // util/communication.js already warns + skips sending when this is
+    // absent (Resend just never gets called) -- a working graceful
+    // degradation, kept optional here to match.
+    RESEND_API_KEY: z.string().optional(),
+
+    // util/firebase.js already falls back to a local serviceAccountKey.json
+    // file, and warns + disables push if neither is present -- a working
+    // graceful degradation, kept optional here to match.
+    FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
+
+    // Used directly in controllers/authController.js to build the
+    // password-reset link with no fallback -- an unset value silently ships
+    // "undefined/reset-password/..." to a user's inbox. It is NOT declared
+    // required here even though that's a real gap: the existing .env has no
+    // FRONTEND_URL entry at all, so making it required would fail every
+    // boot (including the whole test suite, which loads real dotenv config)
+    // rather than the one broken email flow. Left optional to avoid that
+    // regression; flagged for follow-up instead.
+    FRONTEND_URL: z.string().optional(),
+
+    // services/walkInNotificationService.js already falls back to
+    // 'https://keplix.co.in' when this is unset -- kept optional to match
+    // that existing default.
+    PUBLIC_WEB_BASE_URL: z.string().optional(),
+
+    // Every call site (controllers/authController.js, util/communication.js)
+    // already falls back to 'Keplix <noreply@keplix.co.in>' when this is
+    // unset -- kept optional to preserve that existing default.
+    EMAIL_FROM: z.string().optional(),
+
+    // util/bookingStatusManager.js already does
+    // `process.env.BOOKING_PENDING_TIMEOUT_MINUTES || 5`. Declared here only
+    // so it isn't stripped from `env` for anything that wants to read it via
+    // config/env.js instead of process.env directly; the `|| 5` fallback in
+    // bookingStatusManager.js is untouched and still wins when this is unset.
+    BOOKING_PENDING_TIMEOUT_MINUTES: z.string().optional(),
+
+    // services/walkInNotificationService.js already does
+    // `process.env.NOTIFY_BOTH_CHANNELS !== 'false'` (defaults to true).
+    // Declared so it isn't stripped; that existing default is untouched.
+    NOTIFY_BOTH_CHANNELS: z.string().optional(),
+
+    ...seedOnlyFields,
+  })
+  .superRefine((vars, ctx) => {
+    // Mirrors util/payoutHelper.js's own production-only guard: in
+    // production, fail fast at startup (naming every missing key) instead of
+    // letting Razorpay calls fail deep inside a request handler, or -- worse
+    // -- silently fall back to the shared 'rzp_test_placeholder' credentials
+    // that every call site uses outside production.
+    if (vars.NODE_ENV === "production") {
+      for (const key of REQUIRED_IN_PRODUCTION) {
+        if (!vars[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when NODE_ENV=production`,
+          });
+        }
+      }
+    }
+  });
 
 export const env = envSchema.parse(process.env);

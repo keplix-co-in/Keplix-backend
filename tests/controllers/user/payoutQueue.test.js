@@ -122,7 +122,8 @@ describe('Vendor Payout Queueing & Worker', () => {
 
       mockReq = {
         params: { userId: '1', id: '1' },
-        body: { confirmed: true }
+        body: { confirmed: true },
+        user: { id: 1 }
       };
 
       await confirmServiceCompletion(mockReq, mockRes);
@@ -147,7 +148,8 @@ describe('Vendor Payout Queueing & Worker', () => {
 
       mockReq = {
         params: { userId: '1', id: '1' },
-        body: { confirmed: true }
+        body: { confirmed: true },
+        user: { id: 1 }
       };
 
       await confirmServiceCompletion(mockReq, mockRes);
@@ -183,7 +185,8 @@ describe('Vendor Payout Queueing & Worker', () => {
 
       mockReq = {
         params: { userId: '1', id: '1' },
-        body: { confirmed: true }
+        body: { confirmed: true },
+        user: { id: 1 }
       };
 
       await confirmServiceCompletion(mockReq, mockRes);

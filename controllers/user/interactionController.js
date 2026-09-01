@@ -147,9 +147,26 @@ export const getConversations = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
+    const userId = req.user.id;
     const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
     const safeLimit = Math.min(Number(limit), 100);
+
+    // Ownership check: the conversation's booking must belong to the caller.
+    // conversationId comes straight from the URL, so without this any
+    // authenticated user could read any other user's chat by guessing ids.
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: Number(conversationId) },
+      select: { booking: { select: { userId: true } } },
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ message: "Conversation not found" });
+    }
+
+    if (conversation.booking?.userId !== userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
 
     const where = { conversationId: Number(conversationId) };
     if (before) {
@@ -196,6 +213,21 @@ export const sendMessage = async (req, res) => {
 
     if (!conversationId || !message_text) {
       return res.status(400).json({ message: "Missing fields" });
+    }
+
+    // Ownership check: only the user who owns the conversation's booking may
+    // post into it. conversationId is attacker-controlled body input.
+    const ownerConversation = await prisma.conversation.findUnique({
+      where: { id: Number(conversationId) },
+      select: { booking: { select: { userId: true } } },
+    });
+
+    if (!ownerConversation) {
+      return res.status(404).json({ message: "Conversation not found" });
+    }
+
+    if (ownerConversation.booking?.userId !== senderId) {
+      return res.status(403).json({ message: "Not authorized" });
     }
 
     const message = await prisma.message.create({

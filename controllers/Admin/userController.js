@@ -104,11 +104,13 @@ export const getUsers = async (req, res) => {
         id: true,
         is_active: true,
         createdAt: true,
+        email: true,
 
         userProfile: {
           select: {
             name: true,
-            phone: true
+            phone: true,
+            profile_picture: true
           }
         },
 
@@ -127,11 +129,13 @@ export const getUsers = async (req, res) => {
       take: Number(limit)
     });
 
-    
+
     const formatted = users.map(user => ({
       id: user.id,
       name: user.userProfile?.name || "N/A",
+      email: user.email || "",
       contact: user.userProfile?.phone || "N/A",
+      profileImage: user.userProfile?.profile_picture || null,
       bookings: user._count.bookings,
       status: user.is_active ? "active" : "inactive",
       joined: user.createdAt
