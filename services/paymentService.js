@@ -2,6 +2,7 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolveBookingAmount } from "../util/servicePricing.js";
+import { resolvePlatformFeeRate } from "../util/platformSettings.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -21,7 +22,6 @@ const razorpay = new Razorpay({
 // initiated by the vendor or an admin who witnessed the cash, never asserted by
 // the person who owes it.
 const ONLINE_GATEWAYS = ['razorpay'];
-const PLATFORM_FEE_PERCENTAGE = 0.1; // 10% fee
 
 /**
  * Constant-time string comparison. Lengths are compared first because
@@ -140,7 +140,10 @@ export const verifyAndRecordPayment = async ({
   // valid for the order amount will fail this file's OWN captured-amount
   // check a few lines down.
   const totalAmount = resolveBookingAmount(booking);
-  const platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
+  // Read from PlatformSettings, not a constant — the admin commission toggle
+  // is what decides this. Resolved here, at record time, and persisted below;
+  // never re-derived later. See resolvePlatformFeeRate.
+  const platformFee = totalAmount * (await resolvePlatformFeeRate());
   const vendorAmount = totalAmount - platformFee;
 
   // The signature only proves this (orderId, paymentId) pair was produced by
@@ -286,7 +289,9 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
     return { created: false, unresolved: true, mismatch: true };
   }
 
-  const platformFee = totalAmount * PLATFORM_FEE_PERCENTAGE;
+  // Must use the same resolver as the client-verify path above, or the two
+  // routes to recording one payment could split it differently.
+  const platformFee = totalAmount * (await resolvePlatformFeeRate());
   const vendorAmount = totalAmount - platformFee;
 
   const { payment, updatedBooking } = await recordSuccessfulPayment({

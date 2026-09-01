@@ -64,25 +64,8 @@ export const verifyRazorpayXWebhook = (req, webhookSecret) => {
   return verifyRazorpayWebhook(req, webhookSecret);
 };
 
-/**
- * Verify payment signature (for client-side payment verification)
- * @param {string} orderId - Razorpay order ID
- * @param {string} paymentId - Razorpay payment ID
- * @param {string} signature - Signature from client
- * @param {string} keySecret - Razorpay key secret
- * @returns {boolean} - True if signature is valid
- */
-export const verifyPaymentSignature = (orderId, paymentId, signature, keySecret) => {
-  try {
-    const body = orderId + '|' + paymentId;
-    const expectedSignature = crypto
-      .createHmac('sha256', keySecret)
-      .update(body)
-      .digest('hex');
-
-    return signature === expectedSignature;
-  } catch (error) {
-    Logger.error(`[Payment] Signature verification error: ${error.message}`);
-    return false;
-  }
-};
+// `verifyPaymentSignature` used to live here: a client-payment-signature check
+// that compared digests with `===` rather than a timing-safe comparison. It had
+// no callers — services/paymentService.js does its own verification with
+// crypto.timingSafeEqual — so it was removed rather than left as a
+// ready-to-misuse copy of the same check without the timing safety.

@@ -39,6 +39,46 @@ export async function isHealthSheetRequiredFor(createdAt) {
 }
 
 /**
+ * The commission rate to apply to a payment being recorded RIGHT NOW.
+ *
+ * `isPlatformFeeEnabled` and `platformFeePercentage` have existed on
+ * PlatformSettings (and in the admin PATCH endpoint) since the settings
+ * singleton was added, but nothing ever read them: services/paymentService.js
+ * used a local `PLATFORM_FEE_PERCENTAGE = 0.1` constant, so toggling the
+ * admin switch changed precisely nothing about the money. This is the reader
+ * that makes the switch real.
+ *
+ * Returns 0 when the fee is switched off, which makes vendorAmount equal the
+ * full amount — the customer's total is untouched either way, because the fee
+ * is carved OUT of the service price rather than added on top of it (see
+ * resolveBookingAmount in util/servicePricing.js).
+ *
+ * A missing settings row falls back to DEFAULTS (fee ON at 10%), NOT to zero:
+ * an absent row must never silently waive the platform's entire revenue. Same
+ * principle as getPlatformSettings above, opposite direction — there, a
+ * missing row must not silently switch something ON.
+ *
+ * Callers must resolve this ONCE at payment-record time and persist the
+ * result on Payment.platformFee/vendorAmount, never re-derive it later:
+ * payoutHelper transfers straight from the stored vendorAmount, so a rate
+ * change must not be able to alter money already promised to a vendor. Same
+ * reasoning as resolvePayoutHoldUntil below.
+ */
+export async function resolvePlatformFeeRate() {
+  const settings = await getPlatformSettings();
+  if (settings.isPlatformFeeEnabled === false) return 0;
+
+  const rate = Number(settings.platformFeePercentage);
+  // A corrupt/out-of-range stored value falls back to the default rather than
+  // producing a negative fee (which would pay the vendor MORE than collected)
+  // or a >100% fee (which would make vendorAmount negative).
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+    return DEFAULTS.platformFeePercentage;
+  }
+  return rate;
+}
+
+/**
  * When a payout for a booking completed now becomes releasable.
  *
  * Computed at completion time and stored on Payment.payoutHoldUntil rather
