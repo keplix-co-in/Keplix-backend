@@ -6,7 +6,7 @@ import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: {
-    booking: { findFirst: jest.fn(), update: jest.fn() },
+    booking: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     bookingEarlyStart: { upsert: jest.fn() },
     service: { findMany: jest.fn() },
     $transaction: jest.fn(),
@@ -49,6 +49,7 @@ describe('requestEarlyStart', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.booking.findMany.mockResolvedValue([]);
     req = {
       user: { id: VENDOR },
       params: { vendorId: String(VENDOR), id: '100' },
@@ -100,28 +101,51 @@ describe('requestEarlyStart', () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
-  test('409 when the earlier window is already occupied', async () => {
-    prisma.booking.findFirst
-      .mockResolvedValueOnce(booking())
-      .mockResolvedValueOnce({ id: 77 }); // the clash query
+  test('409 when the earlier window is already occupied (exact match)', async () => {
+    prisma.booking.findFirst.mockResolvedValue(booking());
+    prisma.booking.findMany.mockResolvedValue([{ booking_time: '11:00' }]);
     await requestEarlyStart(req, res);
     expect(res.status).toHaveBeenCalledWith(409);
     expect(prisma.bookingEarlyStart.upsert).not.toHaveBeenCalled();
   });
 
-  test('the clash query matches both canonical and legacy stored times, excluding self and dead statuses', async () => {
-    prisma.booking.findFirst.mockResolvedValueOnce(booking()).mockResolvedValueOnce(null);
+  test('409 when the requested time falls INSIDE another booking\'s slot window, not just an exact match', async () => {
+    // Requesting 11:15 — no other booking starts at exactly 11:15, but a
+    // 10:50 booking occupies 10:50-11:20 (SLOT_MINUTES=30), which overlaps.
+    // This is the interval-overlap gap: the old exact-string clash query
+    // would have missed this and let the vendor double-book themselves.
+    prisma.booking.findFirst.mockResolvedValue(booking());
+    prisma.booking.findMany.mockResolvedValue([{ booking_time: '10:50' }]);
+    req.body.booking_time = '11:15';
+    await requestEarlyStart(req, res);
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(prisma.bookingEarlyStart.upsert).not.toHaveBeenCalled();
+  });
+
+  test('allows a request that lands after another booking\'s slot window ends', async () => {
+    // A 10:00 booking occupies 10:00-10:30; 11:00 doesn't overlap it.
+    prisma.booking.findFirst.mockResolvedValue(booking());
+    prisma.booking.findMany.mockResolvedValue([{ booking_time: '10:00' }]);
+    await requestEarlyStart(req, res);
+    expect(res.status).not.toHaveBeenCalledWith(409);
+    expect(prisma.bookingEarlyStart.upsert).toHaveBeenCalled();
+  });
+
+  test('the clash lookup excludes self and dead statuses, scoped to the vendor and date', async () => {
+    prisma.booking.findFirst.mockResolvedValue(booking());
+    prisma.booking.findMany.mockResolvedValue([]);
     await requestEarlyStart(req, res);
 
-    const where = prisma.booking.findFirst.mock.calls[1][0].where;
+    const where = prisma.booking.findMany.mock.calls[0][0].where;
     expect(where.id).toEqual({ not: 100 });
     expect(where.service).toEqual({ vendorId: VENDOR });
-    expect(where.booking_time.in).toEqual(expect.arrayContaining(['11:00', '11:00 AM']));
+    expect(where.booking_date).toEqual(booking().booking_date);
     expect(where.NOT).toEqual({ status: { in: ['cancelled', 'rejected'] } });
   });
 
   test('a successful request does NOT change the booking status or time', async () => {
-    prisma.booking.findFirst.mockResolvedValueOnce(booking()).mockResolvedValueOnce(null);
+    prisma.booking.findFirst.mockResolvedValue(booking());
+    prisma.booking.findMany.mockResolvedValue([]);
     await requestEarlyStart(req, res);
 
     expect(prisma.booking.update).not.toHaveBeenCalled();
@@ -136,9 +160,10 @@ describe('requestEarlyStart', () => {
   });
 
   test('re-requesting replaces the previous offer rather than leaving a stale accepted one', async () => {
-    prisma.booking.findFirst
-      .mockResolvedValueOnce(booking({ earlyStart: { status: 'declined', requested_time: '12:00' } }))
-      .mockResolvedValueOnce(null);
+    prisma.booking.findFirst.mockResolvedValue(
+      booking({ earlyStart: { status: 'declined', requested_time: '12:00' } })
+    );
+    prisma.booking.findMany.mockResolvedValue([]);
     await requestEarlyStart(req, res);
 
     const upsert = prisma.bookingEarlyStart.upsert.mock.calls[0][0];

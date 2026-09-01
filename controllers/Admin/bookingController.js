@@ -1,5 +1,6 @@
 import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
+import { toCanonicalTime } from "../../util/slots.js";
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -148,7 +149,16 @@ export const getBookings = async (req, res) => {
       phone: b.user?.userProfile?.phone || "N/A",
       vendor: b.service?.vendor?.vendorProfile?.business_name || "N/A",
       service: b.service?.name,
-      slot: `${b.booking_date} ${b.booking_time}`,
+      // Found live in the admin panel: the SLOT column rendered
+      // "Sat Aug 22 2026 05:30:00 GMT+0530 (India Standard Time) 19:30" --
+      // `b.booking_date` is a Prisma DateTime object, and interpolating it
+      // directly into a template literal implicitly calls Date.prototype.toString(),
+      // which returns that entire verbose string, before booking_time gets
+      // appended after it. Only the calendar date was ever wanted here.
+      // `booking_time` also gets normalised through toCanonicalTime -- legacy
+      // rows still hold 12-hour strings like "2:00 PM", which otherwise sit
+      // inconsistently next to canonical "14:00" rows in the same column.
+      slot: `${b.booking_date instanceof Date ? b.booking_date.toISOString().slice(0, 10) : b.booking_date} ${toCanonicalTime(b.booking_time) || b.booking_time}`,
       amount: b.payment?.amount || 0,
       fee: b.payment?.platformFee || 0,
       status: b.status,
