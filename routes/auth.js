@@ -18,6 +18,9 @@ import {
   updatePushToken
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
+// Mounted AFTER protect on the routes below, so the limiter keys on the user id
+// rather than the shared carrier NAT address. See app.js for the full reasoning.
+import { authedReadLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
@@ -365,8 +368,12 @@ router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOT
  *       200:
  *         description: Profile updated
  */
-router.get('/profile', protect, getUserProfile);
-router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
+// authedReadLimiter, not the surrounding authLimiter: these are ordinary
+// authenticated endpoints that both apps call on every screen focus. Sharing the
+// 40-per-15-min credential budget meant ~20 profile views locked every user on
+// that IP out of logging in.
+router.get('/profile', protect, authedReadLimiter, getUserProfile);
+router.put('/profile', protect, authedReadLimiter, uploadProfileFields, updateUserProfileAuth);
 
 /**
  * @swagger
@@ -389,7 +396,8 @@ router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
  *       200:
  *         description: Push token updated
  */
-router.put('/push-token', protect, updatePushToken);
+// Re-sent on every app launch -- same reasoning as /profile above.
+router.put('/push-token', protect, authedReadLimiter, updatePushToken);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
 router.post('/signup/', validateRequest(registerSchema), registerUser);

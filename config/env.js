@@ -63,6 +63,21 @@ const envSchema = z
 
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
+    // --- Rate limiting -----------------------------------------------------
+    // Previously hardcoded literals in app.js, which meant a load test could
+    // only ever measure the limiter (the global budget works out at roughly
+    // 1.1 req/sec) and staging could not be loosened without a code change.
+    //
+    // coerce.number() because every process.env value is a string; z.number()
+    // alone would reject "1000". Defaults reproduce the previous behaviour
+    // exactly, so an environment that sets none of these is unchanged -- except
+    // AUTH_MAX, which was 20 in production and is raised to 40 now that
+    // /profile and /push-token no longer share this budget.
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+    RATE_LIMIT_MAX: z.coerce.number().int().positive().default(1000),
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(40),
+    RATE_LIMIT_AUTHED_MAX: z.coerce.number().int().positive().default(600),
+
     JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
 
     // authController.js already falls back to JWT_SECRET when this is unset
