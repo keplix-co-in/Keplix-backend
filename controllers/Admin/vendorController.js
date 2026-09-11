@@ -1,4 +1,5 @@
 import prisma from '../../util/prisma.js';
+import Logger from "../../util/logger.js";
 
 export const getVendorMetrics = async (req, res) => {
   try {
@@ -197,5 +198,66 @@ export const getVendors = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch vendors" });
+  }
+};
+
+
+/**
+ * Approve, reject or suspend a vendor.
+ *
+ * This endpoint did not exist. VendorProfile.status defaulted to "pending" and
+ * NOTHING in the codebase ever wrote it -- "approved" appeared only in admin READ
+ * queries. Three things followed:
+ *
+ *   - no verification gated a vendor from listing services or taking money;
+ *   - searchVendorsByLocation filters `WHERE status = 'approved'`, so the nearby
+ *     search could never return a single row;
+ *   - the admin "approved vendors" KPI was permanently zero.
+ *
+ * Statuses are the ones the existing read queries already look for
+ * (Admin/vendorController.js getVendors, dashBoardController.js), so adding the
+ * write makes those reports start working rather than introducing a new vocabulary.
+ */
+export const setVendorStatus = async (req, res) => {
+  const vendorId = parseInt(req.params.id, 10);
+  const { status, reason } = req.body;
+
+  if (!Number.isInteger(vendorId)) {
+    return res.status(400).json({ message: "Invalid vendor id" });
+  }
+
+  try {
+    const profile = await prisma.vendorProfile.findUnique({
+      where: { userId: vendorId },
+      select: { id: true, status: true, shop_name: true },
+    });
+
+    if (!profile) {
+      return res.status(404).json({ message: "Vendor profile not found" });
+    }
+
+    if (profile.status === status) {
+      return res.status(200).json({
+        message: `Vendor is already ${status}.`,
+        vendor: { id: vendorId, status },
+      });
+    }
+
+    const updated = await prisma.vendorProfile.update({
+      where: { userId: vendorId },
+      data: { status },
+      select: { userId: true, status: true, shop_name: true },
+    });
+
+    // Loud on purpose: this is the gate between a signup and a business that can
+    // take customers' money, so it needs to be searchable in logs afterwards.
+    Logger.warn(
+      `[Admin] Vendor ${vendorId} (${updated.shop_name || "unnamed"}) status ${profile.status} -> ${status} by admin ${req.user?.id}. Reason: ${reason || "(none given)"}`,
+    );
+
+    return res.json({ message: `Vendor ${status}.`, vendor: updated });
+  } catch (error) {
+    Logger.error(`[Admin] setVendorStatus failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
   }
 };

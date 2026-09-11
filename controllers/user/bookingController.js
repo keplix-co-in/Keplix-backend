@@ -6,6 +6,7 @@ import { executeCancellationRefund, resolveCancellationRefund } from "../../serv
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 import { generateSlots, isHoliday, minutesToLabel, parseTimeToMinutes, toCanonicalTime } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
+import { stripVendorSecrets } from "../../util/publicVendor.js";
 import { isValidBookingStatus } from "../../util/bookingStatus.js";
 
 
@@ -223,7 +224,9 @@ export const getUserBookings = async (req, res) => {
       refund: buildRefundView({ booking, payment: booking.payment }),
     }));
 
-    res.json(formattedBookings);
+    // Strip vendor bank/contact/password: ...booking.service carries the
+    // included vendor + vendorProfile even for the customer's own bookings.
+    res.json(formattedBookings.map(stripVendorSecrets));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -262,7 +265,7 @@ export const getSingleBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    res.json({ ...booking, refund: buildRefundView({ booking, payment: booking.payment }) });
+    res.json(stripVendorSecrets({ ...booking, refund: buildRefundView({ booking, payment: booking.payment }) }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -567,7 +570,12 @@ export const updateBooking = async (req, res) => {
       // Payment is needed to decide a cancellation refund below. Loaded here
       // rather than re-queried later so the refund decision sees the booking
       // exactly as it was BEFORE the cancellation was written.
-      include: { payment: true },
+      //
+      // service is needed for the reschedule conflict check: bookings reach a
+      // vendor only through service.vendorId, and an undefined vendorId in that
+      // query would mean "no vendor filter" -- i.e. every vendor's bookings would
+      // count as a clash.
+      include: { payment: true, service: { select: { vendorId: true } } },
     });
 
     if (!booking) {
@@ -581,14 +589,97 @@ export const updateBooking = async (req, res) => {
         .json({ message: "Not authorized to update this booking" });
     }
 
-    // Only allow cancellation if status is pending or confirmed (not completed)
-    if (status === "cancelled") {
-      if (booking.status === "completed" || booking.status === "cancelled") {
-        return res
-          .status(400)
-          .json({
-            message: `Cannot cancel booking that is already ${booking.status}`,
-          });
+    // Defence in depth behind the validator's enum.
+    //
+    // The validator now permits only 'cancelled' here, but this endpoint is
+    // reachable at two URLs and the enum has been widened before by accident, so
+    // the invariant is restated where it is enforced rather than relying solely
+    // on the schema. Anything a customer does not own belongs to the vendor
+    // endpoint.
+    if (status && status !== "cancelled") {
+      return res.status(403).json({
+        message: "Customers may only cancel a booking. Other status changes are made by the workshop.",
+      });
+    }
+
+    // Which states a cancellation may still be made from.
+    //
+    // This used to block only 'completed' and 'cancelled', which left
+    // 'user_confirmed' cancellable -- and by that point the vendor payout has
+    // already been queued (services/bookingConfirmationService.js), so the
+    // booking would end up cancelled with the money already on its way out.
+    // 'service_completed' is excluded for the same reason: the work is done and
+    // the customer's remedy is the dispute flow, not cancellation.
+    const NON_CANCELLABLE = new Set([
+      "completed",
+      "cancelled",
+      "service_completed",
+      "user_confirmed",
+      "disputed",
+    ]);
+    if (status === "cancelled" && NON_CANCELLABLE.has(booking.status)) {
+      return res.status(400).json({
+        message: `Cannot cancel a booking that is already ${booking.status}.`,
+      });
+    }
+
+    // Reschedule guards.
+    //
+    // createBooking checks slot conflicts inside a transaction (see the
+    // timeVariants/clash block above), but this path wrote booking_date and
+    // booking_time with no equivalent check at all -- so a reschedule could land
+    // on a slot another customer already held, or in the past. Same matching
+    // rules as createBooking, including the legacy 12-hour label, because
+    // existing rows store the time in either form and matching only the
+    // canonical value lets a "14:00" reschedule sit on top of a "2:00 PM" row.
+    const isReschedule = Boolean(booking_date || canonicalTime);
+    if (isReschedule) {
+      const targetDate = booking_date ? new Date(booking_date) : booking.booking_date;
+      const targetTime = canonicalTime || booking.booking_time;
+
+      if (Number.isNaN(targetDate.getTime())) {
+        return res.status(400).json({ message: "Invalid booking date" });
+      }
+
+      // Compare against IST like the rest of the scheduling code, not the
+      // container's clock.
+      const nowIst = getISTDate();
+      const targetMinutes = parseTimeToMinutes(targetTime);
+      const target = new Date(targetDate);
+      if (Number.isFinite(targetMinutes)) {
+        target.setHours(Math.floor(targetMinutes / 60), targetMinutes % 60, 0, 0);
+      }
+      if (target < nowIst) {
+        return res.status(400).json({ message: "Cannot reschedule to a time in the past." });
+      }
+
+      if (!booking.service?.vendorId) {
+        // Cannot scope the conflict query without it; refusing beats running a
+        // query that would match every vendor.
+        return res.status(500).json({ message: "Could not verify slot availability." });
+      }
+
+      const timeVariants = [targetTime];
+      const legacyLabel = minutesToLabel(parseTimeToMinutes(targetTime));
+      if (legacyLabel && !timeVariants.includes(legacyLabel)) {
+        timeVariants.push(legacyLabel);
+      }
+
+      const clash = await prisma.booking.findFirst({
+        where: {
+          id: { not: bookingId },
+          service: { vendorId: booking.service.vendorId },
+          booking_date: targetDate,
+          booking_time: { in: timeVariants },
+          NOT: { status: { in: ['cancelled', 'rejected'] } },
+        },
+        select: { id: true },
+      });
+
+      if (clash) {
+        return res.status(409).json({
+          message: "That slot is already booked. Please pick another time.",
+        });
       }
     }
 

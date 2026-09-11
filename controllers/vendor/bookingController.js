@@ -253,6 +253,25 @@ export const updateBookingStatus = async (req, res) => {
              }
         }
 
+        // 3. Finish: the partner app sends 'completed' directly (not
+        //    'service_completed'), so this value has to keep working -- verified
+        //    against keplix-frontend/components/Vendor/Bookings/Bookings.jsx,
+        //    which sends 'in_progress' and 'completed' and nothing else.
+        //
+        //    It previously had NO branch here at all, so it was reachable from
+        //    any state: a vendor could mark a booking completed that they had
+        //    never accepted and that had never been paid for. Same precondition
+        //    as service_completed, plus service_completed itself so the natural
+        //    two-step finish still works.
+        if (status === 'completed') {
+            const CAN_COMPLETE = ['in_progress', 'confirmed', 'scheduled', 'service_completed'];
+            if (!CAN_COMPLETE.includes(currentBooking.status)) {
+                return res.status(400).json({
+                    message: `Cannot mark completed. Service must be in progress, confirmed or already marked service-complete. Current status: ${currentBooking.status}`
+                });
+            }
+        }
+
         // Mandatory-inspection gate. Same rule, same rollout anchoring as
         // walk-in job completion — see services/healthSheetService.js and
         // the PlatformSettings comment in schema.prisma. 409, not 400, so the

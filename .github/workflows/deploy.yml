@@ -130,6 +130,15 @@ jobs:
       # and compare against the names set here.
       - name: Deploy to Cloud Run
         run: |
+          # Single-instance topology, on purpose (min=max=1). The app holds
+          # Socket.IO, the express-rate-limit store and the node-cron job
+          # dispatcher IN-PROCESS, so it is correct on exactly one instance and
+          # misbehaves on more: cross-instance chat is lost (no shared adapter),
+          # the rate limit multiplies per instance, and the cron dispatcher runs
+          # N times at once. min=1 keeps the instance warm and removes the ~5s
+          # cold start. One 2cpu/2Gi instance at concurrency 80 is ample here.
+          # Raising max>1 REQUIRES a shared adapter/store first (the deferred
+          # "Redis / horizontal" path).
           gcloud run deploy $SERVICE_NAME \
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
@@ -139,8 +148,9 @@ jobs:
             --set-env-vars="^##^NODE_ENV=production##DATABASE_URL=${{ secrets.DATABASE_URL }}##JWT_SECRET=${{ secrets.JWT_SECRET }}##JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}##ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}##RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}##RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}##RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}##RAZORPAYX_KEY_ID=${{ secrets.RAZORPAYX_KEY_ID }}##RAZORPAYX_KEY_SECRET=${{ secrets.RAZORPAYX_KEY_SECRET }}##RAZORPAYX_ACCOUNT_NUMBER=${{ secrets.RAZORPAYX_ACCOUNT_NUMBER }}##RAZORPAYX_WEBHOOK_SECRET=${{ secrets.RAZORPAYX_WEBHOOK_SECRET }}##RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}##EMAIL_FROM=${{ secrets.EMAIL_FROM }}##TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}##TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}##TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }}##TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }}##TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID=${{ secrets.TWILIO_WHATSAPP_WALKIN_TEMPLATE_SID }}##PUBLIC_WEB_BASE_URL=${{ secrets.PUBLIC_WEB_BASE_URL }}##FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}##CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }}##GOOGLE_ALLOWED_AUDIENCES=${{ secrets.GOOGLE_ALLOWED_AUDIENCES }}##FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}##FRONTEND_URL=${{ secrets.FRONTEND_URL }}" \
             --memory 2Gi \
             --cpu 2 \
-            --max-instances 10 \
-            --min-instances 0 \
+            --max-instances 1 \
+            --min-instances 1 \
+            --concurrency 80 \
             --timeout 600 \
             --cpu-boost \
             --allow-unauthenticated

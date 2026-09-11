@@ -256,8 +256,25 @@ class BookingStatusManager {
               where: { id: booking.serviceId }
             });
 
-            await prisma.booking.update({
-              where: { id: booking.id },
+            // updateMany with the precondition repeated in the WHERE, not
+            // update({ where: { id } }).
+            //
+            // The findMany above selected rows that were pending at that moment,
+            // but the write happened unconditionally, so a vendor who accepted in
+            // the gap between the read and this line had their acceptance silently
+            // overwritten to rejected/cancelled. The window is small per row, but
+            // this loop runs every minute over every expired booking, and the
+            // visible result was a job the vendor had just taken being cancelled
+            // out from under both parties.
+            //
+            // count === 0 means the vendor got there first: skip the rest of this
+            // iteration rather than telling both sides the request expired.
+            const declined = await prisma.booking.updateMany({
+              where: {
+                id: booking.id,
+                vendor_status: 'pending',
+                status: 'pending',
+              },
               data: {
                 vendor_status: 'rejected',
                 status: 'cancelled',
@@ -265,6 +282,11 @@ class BookingStatusManager {
                 notes: (booking.notes || '') + `\n[Auto-declined: Vendor did not accept within ${PENDING_TIMEOUT_MINUTES} minutes]`
               }
             });
+
+            if (declined.count === 0) {
+              Logger.info(`Booking ${booking.id} was accepted while the auto-decline was running; leaving it alone.`);
+              continue;
+            }
 
             // Notify user
             await createNotification({
