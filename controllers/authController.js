@@ -1299,6 +1299,56 @@ export const updateUserProfileAuth = async (req, res) => {
   }
 };
 // Update push token for logged in user
+// @desc    Change password for the currently authenticated user, verifying
+//          the current password server-side before allowing the change.
+export const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const user = req.user; // set by `protect` middleware, includes password hash
+
+    // Same rule as login: an empty stored password means a social-only
+    // account, which has nothing to verify against.
+    if (!user.password || !oldPassword) {
+      return res.status(400).json({
+        message: "Current password is required. Social-login accounts cannot change a password this way.",
+      });
+    }
+
+    let isValid = false;
+    if (user.password.startsWith("pbkdf2_sha256$")) {
+      isValid = verifyDjangoPassword(oldPassword, user.password);
+    } else {
+      isValid = await bcrypt.compare(oldPassword, user.password);
+    }
+
+    if (!isValid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    // Force re-login on this device; the client discards its tokens after
+    // this call succeeds. (Other devices' tokens remain valid until they
+    // expire naturally — full multi-session revocation is out of scope here.)
+    const token = req.headers.authorization?.split(" ")[1];
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded?.exp) {
+        await blacklistToken(token, decoded.exp);
+      }
+    }
+
+    return res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 export const updatePushToken = async (req, res) => {
   try {
     const { pushToken } = req.body;
