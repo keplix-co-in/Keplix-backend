@@ -253,6 +253,9 @@ app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
 // Admin
+// NOTE: /admin/auth/login carries its own authLimiter (see routes/Admin/authAdmin.js)
+// applied only to that route, not the whole router -- /refresh is called
+// routinely by the SPA and must not share a login rate limit.
 app.use("/admin/auth", authAdminRoutes);
 app.use("/admin", dashBoardRoutes);
 app.use("/admin", adminBookingRoutes);

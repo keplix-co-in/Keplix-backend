@@ -70,6 +70,13 @@ export const initSocket = (httpServer) => {
       if (!token) return next(new Error("Authentication required"));
 
       const decoded = jwt.verify(token, JWT_SECRET);
+      // Same cross-table token-confusion guard as authMiddleware.js `protect`
+      // — without it, an admin access token or a 30-day refresh token
+      // (signed with the same JWT_SECRET) authenticates a socket connection
+      // as whichever User row happens to share the token's `id` claim.
+      if (decoded.type !== "access") {
+        return next(new Error("Authentication required"));
+      }
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
         select: { id: true, role: true, is_active: true },
