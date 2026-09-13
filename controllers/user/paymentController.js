@@ -226,34 +226,53 @@ export const handleRazorpayWebhook = async (req, res) => {
       throw dedupeErr;
     }
 
-    // Handle different payment events
-    switch (event) {
-      case 'payment.captured':
-        await handlePaymentCaptured(payload.payment.entity);
-        break;
-        
-      case 'payment.failed':
-        await handlePaymentFailed(payload.payment.entity);
-        break;
-        
-      case 'order.paid':
-        Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
-        break;
+    // The dedupe row above is committed BEFORE processing runs, deliberately
+    // -- two concurrent deliveries of the same webhook must not both pass the
+    // "not yet seen" check and double-process a payment. That means a
+    // transient failure during processing (a DB error mid-write, a captured
+    // payment that can't yet be matched, etc.) leaves the dedupe row in place
+    // with the actual event never handled. Razorpay retries on a non-2xx
+    // response, but the retry's identical eventId would collide with this
+    // row and be silently dropped as a duplicate -- permanently losing a
+    // captured payment. Catching processing errors here and deleting the
+    // dedupe row before returning 500 means the retry can go through cleanly
+    // instead.
+    try {
+      switch (event) {
+        case 'payment.captured':
+          await handlePaymentCaptured(payload.payment.entity);
+          break;
 
-      // Refund outcomes. issueRefund writes 'gateway_confirmed' the moment the
-      // API call returns, but the refund is only actually settled later —
-      // without these two the row would never reach the truth.
-      case 'refund.processed':
-        await handleRefundProcessed(payload.refund.entity);
-        break;
+        case 'payment.failed':
+          await handlePaymentFailed(payload.payment.entity);
+          break;
 
-      case 'refund.failed':
-        await handleRefundFailed(payload.refund.entity);
-        break;
+        case 'order.paid':
+          Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
+          break;
+
+        // Refund outcomes. issueRefund writes 'gateway_confirmed' the moment the
+        // API call returns, but the refund is only actually settled later —
+        // without these two the row would never reach the truth.
+        case 'refund.processed':
+          await handleRefundProcessed(payload.refund.entity);
+          break;
+
+        case 'refund.failed':
+          await handleRefundFailed(payload.refund.entity);
+          break;
 
 
-      default:
-        Logger.info(`[Webhook] Unhandled event type: ${event}`);
+        default:
+          Logger.info(`[Webhook] Unhandled event type: ${event}`);
+      }
+    } catch (processingError) {
+      await prisma.webhookEvent
+        .delete({ where: { eventId: String(eventId) } })
+        .catch((cleanupErr) =>
+          Logger.error(`[Webhook] Failed to roll back dedupe row for ${eventId} after processing error: ${cleanupErr.message}`)
+        );
+      throw processingError;
     }
 
     res.json({ received: true });
@@ -293,6 +312,14 @@ async function handlePaymentCaptured(payment) {
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentCaptured error: ${error.message}`);
+    // Every anticipated business-rule outcome above (no booking hint,
+    // booking not found, amount mismatch) already returns gracefully via
+    // `result.unresolved`/`result.mismatch` -- anything that reaches this
+    // catch is by construction unexpected (a transient DB error, etc.).
+    // Swallowing it here made the webhook ACK 200 even though nothing was
+    // recorded, so Razorpay never even retried. Rethrowing lets the caller's
+    // dedupe-rollback-and-500 logic run, so a real retry can follow.
+    throw error;
   }
 }
 
@@ -333,6 +360,10 @@ async function handlePaymentFailed(payment) {
     }
   } catch (error) {
     Logger.error(`[Webhook] handlePaymentFailed error: ${error.message}`);
+    // Same rationale as handlePaymentCaptured above: rethrow so an
+    // unexpected error triggers the dedupe rollback and a real retry,
+    // instead of a silent 200 that never happened.
+    throw error;
   }
 }
 
@@ -371,6 +402,8 @@ async function handleRefundProcessed(refundEntity) {
     Logger.info(`[Webhook] Refund ${id} confirmed processed`);
   } catch (error) {
     Logger.error(`[Webhook] handleRefundProcessed error: ${error.message}`);
+    // Same rationale as handlePaymentCaptured above.
+    throw error;
   }
 }
 
@@ -410,6 +443,8 @@ async function handleRefundFailed(refundEntity) {
     Logger.error(`[MANUAL ACTION] Refund ${id} failed at the gateway — customer has NOT been refunded.`);
   } catch (error) {
     Logger.error(`[Webhook] handleRefundFailed error: ${error.message}`);
+    // Same rationale as handlePaymentCaptured above.
+    throw error;
   }
 }
 
