@@ -1,6 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { claimAndQueuePayout, PayoutError } from "../../services/payoutService.js";
-import { issueRefund, RefundError } from "../../services/refundService.js";
+import { issueRefund, RefundError, GATEWAY_REACHED_STATUSES } from "../../services/refundService.js";
 
 export const getFinanceKpis = async (req, res) => {
   try {
@@ -12,35 +12,52 @@ export const getFinanceKpis = async (req, res) => {
       refunds,
       failed
     ] = await Promise.all([
-      // Total Collected in Escrow
+      // Total Collected in Escrow. Was `status: "success"` only -- a full
+      // refund moves a payment out of 'success' into 'refunded', which
+      // retroactively erased it from this historical total the moment it was
+      // refunded. Collections are a fact of what happened; the refund is
+      // shown as its own separate deduction below, not by hiding the payment.
       prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: "success" }
+        where: { status: { in: ["success", "refunded"] } }
       }),
       // Disbursed to Vendors
       prisma.payment.aggregate({
         _sum: { vendorAmount: true },
         where: { vendorPayoutStatus: { in: ["settled", "paid"] }, status: "success" }
       }),
-      // Platform Commission
+      // Platform Commission. Same fix as totalCollected: a refunded booking's
+      // platform fee may well have been retained, so refunding it should not
+      // silently understate commission by dropping the row from 'success'.
       prisma.payment.aggregate({
         _sum: { platformFee: true },
-        where: { status: "success" }
+        where: { status: { in: ["success", "refunded"] } }
       }),
-      // Pending Disbursement
+      // Pending Disbursement. Was missing "processing" -- a payment claimed
+      // for payout but stranded there if the queue enqueue failed (see the
+      // audit's F42) was invisible here, with no KPI ever showing it needed
+      // attention.
       prisma.payment.aggregate({
         _sum: { vendorAmount: true },
-        where: { vendorPayoutStatus: "pending", status: "success" }
+        where: { vendorPayoutStatus: { in: ["pending", "processing"] }, status: "success" }
       }),
-      // Refunds Issued
-      prisma.payment.aggregate({
+      // Refunds Issued. Was summing Payment.amount where status:"refunded",
+      // which refundService.js only sets on a FULL refund -- every partial
+      // refund contributed zero. Refund is the table that actually records
+      // refund amounts; GATEWAY_REACHED_STATUSES (imported, not re-listed) is
+      // refundService's own definition of "this refund actually reached the
+      // gateway", so this figure can't silently drift from what /refund
+      // actually does.
+      prisma.refund.aggregate({
         _sum: { amount: true },
-        where: { status: "refunded" }
+        where: { status: { in: GATEWAY_REACHED_STATUSES } }
       }),
-      // Failed Payouts
+      // Failed Payouts. Had no `status` filter at all, unlike every sibling
+      // query here -- summing vendorAmount across payments regardless of
+      // whether the payment itself ever succeeded.
       prisma.payment.aggregate({
         _sum: { vendorAmount: true },
-        where: { vendorPayoutStatus: "failed" }
+        where: { vendorPayoutStatus: "failed", status: "success" }
       })
     ]);
 
