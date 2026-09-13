@@ -1,6 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { Prisma } from "@prisma/client";
-import { stripVendorSecrets } from "../../util/publicVendor.js";
+import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
 
 /**
  * Get All Services (Public)
@@ -109,7 +109,7 @@ export const getAllServices = async (req, res) => {
         where,
         skip: Number(skip),
         take: Number(limit),
-        include: { vendor: { include: { vendorProfile: true } } },
+        include: { vendor: PUBLIC_VENDOR_INCLUDE },
         orderBy: { id: "desc" },
       });
 
@@ -205,7 +205,7 @@ export const getServiceById = async (req, res) => {
   try {
     const service = await prisma.service.findUnique({
       where: { id: parseInt(req.params.id) },
-      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
     });
 
     if (service) {
@@ -300,7 +300,7 @@ export const getFeaturedServices = async (req, res) => {
       where,
       skip,
       take: limit,
-      include: { vendor: { include: { vendorProfile: true } } },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE },
       orderBy: { id: "desc" },
     });
 
@@ -465,7 +465,7 @@ export const getServicesByVendor = async (req, res) => {
 
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
-      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
       take: Number(limit),
