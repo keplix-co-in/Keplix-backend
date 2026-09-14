@@ -13,7 +13,31 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Gate added 2026-09-14 (audit F60): this workflow built, pushed and
+  # deployed a new image to production on every push to main with no test
+  # run at all. Only the fast, DB-less suite (`npm test`, which already
+  # excludes tests/e2e) runs here as a hard gate -- the e2e suite needs a
+  # real Postgres and is intentionally NOT run in this gate, so deploys
+  # aren't blocked by infra flakiness in a CI-provisioned database that
+  # doesn't reflect production. Run `npm run test:e2e` locally/manually
+  # against a disposable database before a change that needs that coverage.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
@@ -162,7 +186,3 @@ jobs:
             --region $REGION \
             --project $PROJECT_ID \
             --format 'value(status.url)'
-
-      - name: Show deployment URL
-        run: |
-          gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)'
