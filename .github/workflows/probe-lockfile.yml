@@ -11,8 +11,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: node --version && npm --version
       - run: npm install --package-lock-only
-      - run: git diff --stat package-lock.json || true
-      - run: git diff package-lock.json | head -300 || true
       - run: npm ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixed-lockfile
+          path: package-lock.json
