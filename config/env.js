@@ -94,7 +94,6 @@ const envSchema = z
     // it stays optional here to avoid duplicating/contradicting that
     // existing runtime check.
     JWT_REFRESH_SECRET: z.string().optional(),
-
     DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
 
     CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
@@ -137,7 +136,6 @@ const envSchema = z
     // fail boot loudly instead of every Google login 500ing at request time
     // -- the exact incident TODO.md records this var having caused already.
     GOOGLE_ALLOWED_AUDIENCES: z.string().optional(),
-
     // services/walkInNotificationService.js already falls back to
     // 'https://keplix.co.in' when this is unset -- kept optional to match
     // that existing default.
