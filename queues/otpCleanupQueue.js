@@ -10,11 +10,16 @@ const VERIFIED_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 let task = null;
 
 /**
- * Prunes stale EmailOTP rows, and expired BlacklistedToken rows alongside them.
+ * Prunes stale EmailOTP and PhoneOTP rows, and expired BlacklistedToken rows
+ * alongside them.
  *
  * Rows are never deleted by the OTP-send flow except when a new OTP is
- * requested for the same email, so verified/expired rows for addresses that
- * don't request another OTP would otherwise accumulate forever.
+ * requested for the same email/phone, so verified/expired rows for
+ * addresses that don't request another OTP would otherwise accumulate
+ * forever. PhoneOTP held phone numbers and OTP codes with no pruning at
+ * all until this fix (2026-09-12 audit, F49) -- EmailOTP got this exact
+ * treatment already; PhoneOTP was simply missed, despite having the same
+ * `expiresAt`/`verified`/`createdAt` shape.
  *
  * BlacklistedToken is pruned here too because it is the same kind of chore and
  * wants the same schedule. That table is the Postgres replacement for what used
@@ -22,7 +27,7 @@ let task = null;
  * taking Redis away means someone has to, and a row whose expiresAt has passed
  * is meaningless (the JWT it names is rejected by signature-expiry anyway).
  *
- * @returns {Promise<{otps: number, tokens: number}>} Rows deleted from each table.
+ * @returns {Promise<{otps: number, phoneOtps: number, tokens: number}>} Rows deleted from each table.
  */
 export const pruneExpiredRecords = async () => {
   const now = new Date();
@@ -37,15 +42,24 @@ export const pruneExpiredRecords = async () => {
     },
   });
 
+  const phoneOtpResult = await prisma.phoneOTP.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: now } },
+        { verified: true, createdAt: { lt: verifiedCutoff } },
+      ],
+    },
+  });
+
   const tokenResult = await prisma.blacklistedToken.deleteMany({
     where: { expiresAt: { lt: now } },
   });
 
   Logger.info(
-    `[Cleanup] Pruned ${otpResult.count} stale EmailOTP row(s) and ${tokenResult.count} expired BlacklistedToken row(s)`
+    `[Cleanup] Pruned ${otpResult.count} stale EmailOTP row(s), ${phoneOtpResult.count} stale PhoneOTP row(s), and ${tokenResult.count} expired BlacklistedToken row(s)`
   );
 
-  return { otps: otpResult.count, tokens: tokenResult.count };
+  return { otps: otpResult.count, phoneOtps: phoneOtpResult.count, tokens: tokenResult.count };
 };
 
 /**
