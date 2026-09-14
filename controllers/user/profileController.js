@@ -1,5 +1,7 @@
 ﻿import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
+import { eraseUserPii } from "../../services/accountErasureService.js";
+import { getUserDataExport } from "../../services/accountExportService.js";
 
 
 
@@ -86,6 +88,62 @@ export const updateUserProfile = async (req, res) => {
     res.json(profile);
   } catch (error) {
     Logger.error(`[Profile] Update error: ${error.message}`);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Erase the caller's own account (GDPR Art.17). Deactivates and
+//          redacts personal data; see services/accountErasureService.js for
+//          exactly what is and is not touched.
+// @route   DELETE /service_api/user/:userId/account
+export const deleteUserAccount = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+
+    // Verify the caller owns this account -- there is no admin bypass on
+    // this route, unlike controllers/Admin/userController.js's deleteUser.
+    if (req.user.id !== userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    const result = await eraseUserPii(userId);
+
+    Logger.info(`[Profile] Self-service account erasure for user ${userId}`);
+    res.json({
+      message: "Account deactivated and personal data erased.",
+      erasure: result,
+    });
+  } catch (error) {
+    if (error.statusCode === 404) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    Logger.error(`[Profile] Account erasure error: ${error.message}`);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Export the caller's own data (GDPR Art.15/Art.20 access and
+//          portability). No admin bypass, no DSAR ticket needed -- this is
+//          the backing implementation the privacy policy's third-party DSAR
+//          form previously had nothing behind (2026-09-12 audit, F48).
+// @route   GET /service_api/user/:userId/export
+export const exportUserData = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+
+    if (req.user.id !== userId) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    const bundle = await getUserDataExport(userId);
+    if (!bundle) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    Logger.info(`[Profile] Data export requested by user ${userId}`);
+    res.json(bundle);
+  } catch (error) {
+    Logger.error(`[Profile] Export error: ${error.message}`);
     res.status(500).json({ message: "Server Error" });
   }
 };

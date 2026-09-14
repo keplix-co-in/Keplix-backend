@@ -12,6 +12,8 @@ import { sendEmail, sendSMS } from "../util/communication.js";
 import { normalizeIndianPhone } from "../util/phone.js";
 import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
+import { eraseUserPii } from "../services/accountErasureService.js";
+import { getUserDataExport } from "../services/accountExportService.js";
 
 const require = createRequire(import.meta.url);
 
@@ -1369,3 +1371,48 @@ export const updatePushToken = async (req, res) => {
 // keplix-backend/authController.js
 // ======================
 
+
+// @desc    Erase the caller's own account (GDPR Art.17). Thin wrapper around
+//          services/accountErasureService.js's eraseUserPii -- the actual
+//          redaction logic lives there once, shared with
+//          controllers/user/profileController.js's equivalent
+//          :userId-scoped route. This one exists because the mobile app's
+//          own profile calls (getProfile/updateProfile above) go through
+//          /accounts/auth/profile, not /service_api/user/:userId/profile,
+//          so a delete/export button in the app needs an equivalent route
+//          in THIS family to actually be reachable from where the app
+//          already authenticates.
+// @route   DELETE /accounts/auth/account
+export const deleteAccount = async (req, res) => {
+  try {
+    const result = await eraseUserPii(req.user.id);
+    res.json({
+      message: "Account deactivated and personal data erased.",
+      erasure: result,
+    });
+  } catch (error) {
+    if (error.statusCode === 404) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.error('[Auth] Account erasure error:', error.message);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Export the caller's own data (GDPR Art.15/Art.20). Thin wrapper
+//          around services/accountExportService.js's getUserDataExport --
+//          see deleteAccount above for why this route exists alongside the
+//          :userId-scoped one in controllers/user/profileController.js.
+// @route   GET /accounts/auth/export
+export const exportAccountData = async (req, res) => {
+  try {
+    const bundle = await getUserDataExport(req.user.id);
+    if (!bundle) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(bundle);
+  } catch (error) {
+    console.error('[Auth] Data export error:', error.message);
+    res.status(500).json({ message: "Server Error" });
+  }
+};

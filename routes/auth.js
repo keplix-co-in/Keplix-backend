@@ -16,7 +16,9 @@ import {
   verifyEmailOTP,
   googleLogin,
   updatePushToken,
-  changePassword
+  changePassword,
+  deleteAccount,
+  exportAccountData
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 // Mounted AFTER protect on the routes below, so the limiter keys on the user id
@@ -426,6 +428,34 @@ router.put('/push-token', protect, authedReadLimiter, updatePushToken);
  *         description: Current password is incorrect
  */
 router.put('/password/change', protect, authedReadLimiter, validateRequest(updatePasswordSchema), changePassword);
+
+/**
+ * @swagger
+ * /accounts/auth/account:
+ *   delete:
+ *     summary: Erase the caller's own account (GDPR Art.17) — deactivates and redacts personal data
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account deactivated and personal data erased
+ */
+router.delete('/account', protect, authedReadLimiter, deleteAccount);
+
+/**
+ * @swagger
+ * /accounts/auth/export:
+ *   get:
+ *     summary: Export all of the caller's own data (GDPR Art.15/Art.20 access and portability)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: JSON bundle of the caller's account, bookings, payments, reviews, messages, notifications, feedback, vehicles and walk-in history
+ */
+router.get('/export', protect, authedReadLimiter, exportAccountData);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
 router.post('/signup/', validateRequest(registerSchema), registerUser);
