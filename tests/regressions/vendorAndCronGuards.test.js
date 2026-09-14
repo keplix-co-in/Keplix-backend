@@ -8,7 +8,7 @@ import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
-    booking: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    booking: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     service: { findUnique: jest.fn() },
     payment: { updateMany: jest.fn(), update: jest.fn() },
     healthSheet: { findFirst: jest.fn() },
@@ -65,6 +65,16 @@ beforeEach(() => {
     payoutHoldHours: 24,
   });
   prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+  // updateBookingStatus's guard-and-write is now one updateMany (F41 fix),
+  // followed by a findUnique re-fetch for the response/notification data --
+  // mirrors the update-then-return shape these tests previously relied on.
+  prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+  prisma.booking.findUnique.mockImplementation(async () => ({
+    ...unacceptedUnpaidBooking(),
+    status: 'completed',
+    service: { id: 1, vendorId: VENDOR_ID, name: 'Full Service', price: 5000 },
+    user: { id: 501, name: 'Test Customer' },
+  }));
   prisma.booking.update.mockImplementation(async ({ data }) => ({
     ...unacceptedUnpaidBooking(),
     ...data,
@@ -97,7 +107,7 @@ describe('D3 — vendor status:"completed" is guarded', () => {
     await updateBookingStatus(req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
   });
 
   /**
@@ -117,7 +127,7 @@ describe('D3 — vendor status:"completed" is guarded', () => {
 
     await updateBookingStatus(req, res);
 
-    expect(prisma.booking.update).toHaveBeenCalled();
+    expect(prisma.booking.updateMany).toHaveBeenCalled();
   });
 
 });
