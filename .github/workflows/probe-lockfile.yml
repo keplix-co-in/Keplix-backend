@@ -1,0 +1,14 @@
+name: Probe lockfile
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --package-lock-only
+      - run: git diff --stat package-lock.json || true
+      - run: git diff package-lock.json | head -200 || true
+      - run: npm ci
