@@ -23,6 +23,20 @@ jobs:
   # against a disposable database before a change that needs that coverage.
   test:
     runs-on: ubuntu-latest
+    # Dummy, non-production placeholder values -- NOT secrets. The DB-less
+    # suite (see the gate note above) never talks to a real database or
+    # gateway; these only satisfy config/env.js's Zod schema and the
+    # Razorpay SDK constructor, which throws at import time if key_id is
+    # undefined even though the schema itself treats it as optional.
+    env:
+      NODE_ENV: test
+      JWT_SECRET: test-only-jwt-secret-not-a-real-secret
+      JWT_REFRESH_SECRET: test-only-jwt-refresh-secret-not-a-real-secret
+      DATABASE_URL: postgresql://user:pass@localhost:5432/keplix_test
+      CLOUDINARY_URL: cloudinary://key:secret@cloud-name
+      RAZORPAY_KEY_ID: rzp_test_dummy
+      RAZORPAY_KEY_SECRET: dummy_secret
+      GOOGLE_ALLOWED_AUDIENCES: dummy-client-id.apps.googleusercontent.com
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,6 +47,8 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Generate Prisma Client
+        run: npx prisma generate
       - name: Run tests
         run: npm test
 
