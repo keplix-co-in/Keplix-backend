@@ -45,6 +45,15 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      # package-lock.json is generated with npm 11 locally. Node 20's bundled
+      # npm (10.8.x) validates peer-dependency lockfile entries more strictly
+      # than npm 11 does, and fails `npm ci` with EUSAGE "Missing: react,
+      # react-dom, scheduler, openapi-types from lock file" even though the
+      # lockfile is otherwise in sync with package.json -- those are peer
+      # deps of @prisma/studio-core / swagger-parser that npm 11 tolerates
+      # unresolved in the tree. Pin npm to match what generated the lockfile.
+      - name: Update npm
+        run: npm install -g npm@11
       - name: Install dependencies
         run: npm ci
       - name: Generate Prisma Client
