@@ -76,6 +76,7 @@ describe('createBooking conflict matrix (fake booking table)', () => {
         })),
       },
       bookingVehicle: { create: jest.fn() },
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
 
     prisma.$transaction.mockImplementation(async (cb) => cb(tx));

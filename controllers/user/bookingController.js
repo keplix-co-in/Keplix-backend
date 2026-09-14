@@ -371,18 +371,34 @@ export const createBooking = async (req, res) => {
         // Booking + BookingVehicle together: a booking that priced against a
         // vehicle but has no snapshot row (or vice versa) is an inconsistent
         // state neither payment code path can safely reason about.
+        const bookingDateKey = bookingDate.toISOString().slice(0, 10);
+
         const booking = await prisma.$transaction(async (tx) => {
             // === DOUBLE-BOOKING GUARD ===
-            // There is no unique constraint covering (vendor, date, time), and
-            // until now there was no check either — two customers hitting
-            // "book" on the same slot both succeeded, and the vendor found out
-            // on the day.
+            // There is no unique constraint covering (vendor, date, time).
             //
-            // This MUST stay inside the transaction: a check before
-            // $transaction is a classic check-then-act race, and the losing
-            // request would still insert. Inside, the read and the insert are
-            // one atomic unit against the same snapshot.
+            // The read (findFirst below) and the insert (create below) being
+            // inside the SAME $transaction does NOT make them atomic against
+            // each other — Postgres's default (and Prisma's default)
+            // isolation is READ COMMITTED, not SERIALIZABLE. Two concurrent
+            // transactions both take their snapshot before either commits its
+            // insert, both see no clash, and both insert. A prior version of
+            // this comment claimed this was "one atomic unit against the same
+            // snapshot" -- it was not, and this class of bug (same slot, two
+            // customers, vendor finds out on the day) was still reachable.
             //
+            // pg_advisory_xact_lock serialises concurrent bookings for the
+            // SAME (vendor, date, time) key for the lifetime of this
+            // transaction: the second concurrent request blocks here until
+            // the first commits or rolls back, so its findFirst below is
+            // guaranteed to see the first request's insert (or its absence,
+            // if it rolled back). Different slots use different lock keys and
+            // never block each other. This is a code-only fix (no migration)
+            // -- see the audit's preferred fix (a real partial unique index)
+            // for the more robust alternative once the migration-history
+            // cutover in prisma/MIGRATION_CUTOVER.md is complete.
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${service.vendorId}:${bookingDateKey}:${canonicalTime}`}))`;
+
             // Both time representations are matched because legacy rows still
             // hold "2:00 PM" — comparing only the canonical form would let a
             // new booking land on top of every pre-existing one.
