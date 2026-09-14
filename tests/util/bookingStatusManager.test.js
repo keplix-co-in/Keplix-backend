@@ -86,8 +86,13 @@ describe('bookingStatusManager.parseBookingDateTime', () => {
   // made the activation cron fire at 3am, leaving a 3pm booking in in_progress
   // -- and therefore under the customer app's Ongoing tab -- for the whole day.
   describe('12-hour booking_time values (legacy rows)', () => {
+    // hourCycle: 'h23' (not hour12: false) -- ICU versions before 72 format
+    // midnight as "24" under hour12: false, not "00". Node 20's bundled ICU
+    // (used on CI) still does this, while a newer local Node doesn't, making
+    // the 12:00 AM assertion below flaky across environments. h23 is
+    // unambiguous 0-23 on every ICU version.
     const istHour = (d) =>
-      Number(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false }));
+      Number(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hourCycle: 'h23', hour: '2-digit' }));
 
     test('"3:00 PM" is 15:00 IST, not 03:00', () => {
       const result = bookingStatusManager.parseBookingDateTime('2026-08-22', '3:00 PM');
