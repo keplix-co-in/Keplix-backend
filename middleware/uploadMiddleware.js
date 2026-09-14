@@ -1,4 +1,5 @@
 import multer from "multer";
+import crypto from "crypto";
 import { fileTypeFromBuffer } from "file-type";
 import cloudinary from "../util/cloudinary.js";
 import streamifier from "streamifier";
@@ -35,7 +36,12 @@ const processFile = async (file, fieldName) => {
       {
         folder: "media_uploads",
         resource_type: "auto",
-        public_id: `${fieldName}-${Date.now()}`,
+        // A 13-digit millisecond timestamp with a known fieldName prefix
+        // (e.g. "id_proof_front-1731000000000") is enumerable, not
+        // unguessable -- identity documents and other private uploads sat
+        // at a predictable public delivery URL. crypto.randomUUID() is not
+        // retroactive for anything already uploaded under the old scheme.
+        public_id: `${fieldName}-${crypto.randomUUID()}`,
       },
       (error, result) => {
         if (error) return reject(error);

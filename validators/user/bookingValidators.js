@@ -15,7 +15,21 @@ export const updateBookingSchema = z.object({
   booking_date: z.string().optional(), // Allow flexible date formats
   booking_time: z.string().optional(),
   notes: z.string().optional(),
-  status: z.enum(['pending', 'confirmed', 'scheduled', 'in_progress', 'service_completed', 'completed', 'cancelled', 'disputed', 'refunded']).optional(),
+  // CUSTOMER-facing endpoint, so the only status a customer legitimately owns is
+  // cancellation. This used to accept the full lifecycle enum, which meant a
+  // customer could PUT {status:"service_completed"} on their own booking -- the
+  // exact precondition confirmBookingAndQueuePayout requires -- and then call
+  // /confirm to release the vendor payout with no vendor involvement and no check
+  // that the booking had been paid for. The escrow hold was bypassed with it,
+  // since payoutHoldUntil is enforced only on the admin settle path.
+  //
+  // Verified against the customer app before narrowing: CancelBooking.jsx is the
+  // only caller that sends a status, and it sends 'cancelled'. Reschedule sends
+  // booking_date/booking_time with no status at all, so it is unaffected.
+  //
+  // Vendor-owned transitions belong to the vendor endpoint
+  // (controllers/vendor/bookingController.js updateBookingStatus).
+  status: z.enum(['cancelled']).optional(),
 });
 
 export const confirmServiceSchema = z.object({

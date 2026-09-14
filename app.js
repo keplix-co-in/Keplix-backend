@@ -6,12 +6,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import helmet from "helmet";
 import compression from "compression";
-import rateLimit from "express-rate-limit";
 import swaggerUi from "swagger-ui-express";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import loggerMiddleware from "./middleware/loggerMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
+import { limiter, authLimiter, authedReadLimiter } from "./middleware/rateLimitMiddleware.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
 import swaggerSpec from "./config/swagger.js";
@@ -102,23 +102,10 @@ Logger.info("Environment variables validated successfully");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- RATE LIMITERS ---
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many requests, please try again later." }
-});
-
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: env.NODE_ENV === 'production' ? 20 : 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many authentication attempts, please try again in a few minutes." },
-  skip: (req) => req.path.includes('/logout') || req.path.includes('/token/refresh')
-});
+// Rate limiters live in middleware/rateLimitMiddleware.js. They used to be
+// defined here and exported, but routes/auth.js needs authedReadLimiter, and
+// importing it from app.js created a cycle (app -> routes/auth -> app) that
+// threw "Cannot access 'authedReadLimiter' before initialization" at boot.
 
 // --- BODY PARSER ---
 // verify callback stashes the raw bytes so webhook signature checks (e.g. Razorpay)
@@ -144,7 +131,19 @@ app.use(
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
       fontSrc: ["'self'", "data:"],
-      connectSrc: ["'self'", ...allowedOrigins],
+      // allowedOrigins is the CORS list and contains a RegExp plus three
+      // localhost entries. Spreading it straight in stringified the RegExp
+      // into the header ("/\.vercel\.app$/", not a valid source expression)
+      // and advertised localhost origins in production. Strings only, and no
+      // localhost outside development.
+      connectSrc: [
+        "'self'",
+        ...allowedOrigins.filter(
+          (o) =>
+            typeof o === "string" &&
+            (env.NODE_ENV === "development" || !o.startsWith("http://localhost")),
+        ),
+      ],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -192,8 +191,20 @@ app.get('/health', async (req, res) => {
   });
 });
 
-// Swagger
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Swagger.
+//
+// Not mounted in production. The spec is a complete map of every route, its
+// parameters and its auth requirements, and it was being served unauthenticated
+// at https://<service>/api-docs -- useful reconnaissance handed to anyone who
+// asks. Nothing about the docs needs to be public for the apps to work; they
+// are a development aid.
+//
+// Set EXPOSE_API_DOCS=true if you deliberately need them on a deployed
+// environment (a staging host, say). Leave it unset in production.
+if (env.NODE_ENV !== "production" || process.env.EXPOSE_API_DOCS === "true") {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  Logger.info(`API docs mounted at /api-docs (NODE_ENV=${env.NODE_ENV})`);
+}
 
 // Global rate limiter
 app.use(limiter);
@@ -242,6 +253,9 @@ app.use("/interactions/api/feedback", feedbackRoutes);
 app.use("/interactions/api", reviewRoutes);
 
 // Admin
+// NOTE: /admin/auth/login carries its own authLimiter (see routes/Admin/authAdmin.js)
+// applied only to that route, not the whole router -- /refresh is called
+// routinely by the SPA and must not share a login rate limit.
 app.use("/admin/auth", authAdminRoutes);
 app.use("/admin", dashBoardRoutes);
 app.use("/admin", adminBookingRoutes);

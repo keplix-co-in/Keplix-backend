@@ -35,6 +35,15 @@ const REQUIRED_IN_PRODUCTION = [
   "RAZORPAYX_ACCOUNT_NUMBER",
   "RAZORPAYX_KEY_ID",
   "RAZORPAYX_KEY_SECRET",
+  // Both of these have already caused a live incident from being unset in
+  // production while the rest of the app booted successfully: Google login
+  // 500ing (GOOGLE_ALLOWED_AUDIENCES) and password-reset links shipping
+  // "undefined/reset-password/..." (FRONTEND_URL). deploy.yml already
+  // interpolates both from GitHub secrets into --set-env-vars -- this only
+  // fails loudly at boot if that secret was never actually set, instead of
+  // failing deep inside a request handler the first time a user hits it.
+  "GOOGLE_ALLOWED_AUDIENCES",
+  "FRONTEND_URL",
 ];
 
 // Twilio/WhatsApp: every call site (util/communication.js,
@@ -63,6 +72,21 @@ const envSchema = z
 
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
+    // --- Rate limiting -----------------------------------------------------
+    // Previously hardcoded literals in app.js, which meant a load test could
+    // only ever measure the limiter (the global budget works out at roughly
+    // 1.1 req/sec) and staging could not be loosened without a code change.
+    //
+    // coerce.number() because every process.env value is a string; z.number()
+    // alone would reject "1000". Defaults reproduce the previous behaviour
+    // exactly, so an environment that sets none of these is unchanged -- except
+    // AUTH_MAX, which was 20 in production and is raised to 40 now that
+    // /profile and /push-token no longer share this budget.
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+    RATE_LIMIT_MAX: z.coerce.number().int().positive().default(1000),
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(40),
+    RATE_LIMIT_AUTHED_MAX: z.coerce.number().int().positive().default(600),
+
     JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
 
     // authController.js already falls back to JWT_SECRET when this is unset
@@ -70,7 +94,6 @@ const envSchema = z
     // it stays optional here to avoid duplicating/contradicting that
     // existing runtime check.
     JWT_REFRESH_SECRET: z.string().optional(),
-
     DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
 
     CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
@@ -101,14 +124,18 @@ const envSchema = z
 
     // Used directly in controllers/authController.js to build the
     // password-reset link with no fallback -- an unset value silently ships
-    // "undefined/reset-password/..." to a user's inbox. It is NOT declared
-    // required here even though that's a real gap: the existing .env has no
-    // FRONTEND_URL entry at all, so making it required would fail every
-    // boot (including the whole test suite, which loads real dotenv config)
-    // rather than the one broken email flow. Left optional to avoid that
-    // regression; flagged for follow-up instead.
+    // "undefined/reset-password/..." to a user's inbox. Required in
+    // production via REQUIRED_IN_PRODUCTION above; stays optional at the
+    // schema level (not required in dev/test) since local .env commonly
+    // omits it and that's a fine default outside production.
     FRONTEND_URL: z.string().optional(),
 
+    // Read directly via process.env in controllers/authController.js's
+    // Google-login handler (not through this `env` object), but declared
+    // here too so REQUIRED_IN_PRODUCTION's production check can see it and
+    // fail boot loudly instead of every Google login 500ing at request time
+    // -- the exact incident TODO.md records this var having caused already.
+    GOOGLE_ALLOWED_AUDIENCES: z.string().optional(),
     // services/walkInNotificationService.js already falls back to
     // 'https://keplix.co.in' when this is unset -- kept optional to match
     // that existing default.

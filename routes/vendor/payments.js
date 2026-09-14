@@ -6,6 +6,8 @@ import {
     verifyVendorPayment 
 } from '../../controllers/vendor/paymentController.js';
 import { protect } from '../../middleware/authMiddleware.js';
+import { validateRequest } from '../../middleware/validationMiddleware.js';
+import { createVendorPaymentOrderSchema, verifyVendorPaymentSchema } from '../../validators/vendor/paymentValidators.js';
 
 const router = express.Router();
 
@@ -75,7 +77,7 @@ router.get('/vendor/:vendor_id/earning', protect, getVendorEarnings);
  *       201:
  *         description: Order created successfully
  */
-router.post('/vendor/payments/order/create', protect, createVendorPaymentOrder);
+router.post('/vendor/payments/order/create', protect, validateRequest(createVendorPaymentOrderSchema), createVendorPaymentOrder);
 
 /**
  * @swagger
@@ -106,6 +108,6 @@ router.post('/vendor/payments/order/create', protect, createVendorPaymentOrder);
  *       200:
  *         description: Payment verified successfully
  */
-router.post('/vendor/payments/verify', protect, verifyVendorPayment);
+router.post('/vendor/payments/verify', protect, validateRequest(verifyVendorPaymentSchema), verifyVendorPayment);
 
 export default router;

@@ -23,6 +23,14 @@ export const createService = async (req, res) => {
   // console.log('BODY:', req.body);
   // console.log('FILE:', req.file);
 
+  // `protect` only confirms the caller has a valid user access token -- it
+  // does not check role. Without this, any customer account could publish
+  // a "service" into the public marketplace under vendorId: req.user.id,
+  // since the write below trusts the caller's own id with no role check.
+  if (req.user.role !== 'vendor') {
+    return res.status(403).json({ message: 'Only vendor accounts can create services' });
+  }
+
   const { name, description, price, duration, category, is_active, image_url: body_image_url, segment_prices, vehicle_note } = req.body;
   // uploadSingle uses multer.memoryStorage(), which gives the file a `buffer`
   // and NO `path` — the Cloudinary URL is attached at req.file.cloudinary by

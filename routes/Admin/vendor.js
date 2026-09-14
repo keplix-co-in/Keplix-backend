@@ -1,6 +1,8 @@
 import express from 'express';
 import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
-import { getVendorMetrics, getVendors } from '../../controllers/Admin/vendorController.js';
+import { getVendorMetrics, getVendors, setVendorStatus } from '../../controllers/Admin/vendorController.js';
+import { validateRequest } from '../../middleware/validationMiddleware.js';
+import { setVendorStatusSchema } from '../../validators/Admin/vendorValidator.js';
 const router = express.Router();
 
 /**
@@ -32,5 +34,22 @@ router.get("/vendors/metrics", authAdmin, authorizeAdmin, getVendorMetrics);
 router.get("/vendors", authAdmin, authorizeAdmin, getVendors);
 
 
+
+
+/**
+ * PATCH /admin/vendors/:id/status
+ *
+ * The vendor approval gate. Previously absent entirely -- VendorProfile.status
+ * defaulted to "pending" and no code path ever wrote it, so no vendor could be
+ * approved and the nearby-vendor search (which filters on status = 'approved')
+ * could never return a row.
+ */
+router.patch(
+  "/vendors/:id/status",
+  authAdmin,
+  authorizeAdmin,
+  validateRequest(setVendorStatusSchema),
+  setVendorStatus,
+);
 
 export default router;

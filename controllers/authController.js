@@ -12,6 +12,8 @@ import { sendEmail, sendSMS } from "../util/communication.js";
 import { normalizeIndianPhone } from "../util/phone.js";
 import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
+import { eraseUserPii } from "../services/accountErasureService.js";
+import { getUserDataExport } from "../services/accountExportService.js";
 
 const require = createRequire(import.meta.url);
 
@@ -1299,6 +1301,56 @@ export const updateUserProfileAuth = async (req, res) => {
   }
 };
 // Update push token for logged in user
+// @desc    Change password for the currently authenticated user, verifying
+//          the current password server-side before allowing the change.
+export const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const user = req.user; // set by `protect` middleware, includes password hash
+
+    // Same rule as login: an empty stored password means a social-only
+    // account, which has nothing to verify against.
+    if (!user.password || !oldPassword) {
+      return res.status(400).json({
+        message: "Current password is required. Social-login accounts cannot change a password this way.",
+      });
+    }
+
+    let isValid = false;
+    if (user.password.startsWith("pbkdf2_sha256$")) {
+      isValid = verifyDjangoPassword(oldPassword, user.password);
+    } else {
+      isValid = await bcrypt.compare(oldPassword, user.password);
+    }
+
+    if (!isValid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    // Force re-login on this device; the client discards its tokens after
+    // this call succeeds. (Other devices' tokens remain valid until they
+    // expire naturally — full multi-session revocation is out of scope here.)
+    const token = req.headers.authorization?.split(" ")[1];
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded?.exp) {
+        await blacklistToken(token, decoded.exp);
+      }
+    }
+
+    return res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 export const updatePushToken = async (req, res) => {
   try {
     const { pushToken } = req.body;
@@ -1319,3 +1371,48 @@ export const updatePushToken = async (req, res) => {
 // keplix-backend/authController.js
 // ======================
 
+
+// @desc    Erase the caller's own account (GDPR Art.17). Thin wrapper around
+//          services/accountErasureService.js's eraseUserPii -- the actual
+//          redaction logic lives there once, shared with
+//          controllers/user/profileController.js's equivalent
+//          :userId-scoped route. This one exists because the mobile app's
+//          own profile calls (getProfile/updateProfile above) go through
+//          /accounts/auth/profile, not /service_api/user/:userId/profile,
+//          so a delete/export button in the app needs an equivalent route
+//          in THIS family to actually be reachable from where the app
+//          already authenticates.
+// @route   DELETE /accounts/auth/account
+export const deleteAccount = async (req, res) => {
+  try {
+    const result = await eraseUserPii(req.user.id);
+    res.json({
+      message: "Account deactivated and personal data erased.",
+      erasure: result,
+    });
+  } catch (error) {
+    if (error.statusCode === 404) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.error('[Auth] Account erasure error:', error.message);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Export the caller's own data (GDPR Art.15/Art.20). Thin wrapper
+//          around services/accountExportService.js's getUserDataExport --
+//          see deleteAccount above for why this route exists alongside the
+//          :userId-scoped one in controllers/user/profileController.js.
+// @route   GET /accounts/auth/export
+export const exportAccountData = async (req, res) => {
+  try {
+    const bundle = await getUserDataExport(req.user.id);
+    if (!bundle) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(bundle);
+  } catch (error) {
+    console.error('[Auth] Data export error:', error.message);
+    res.status(500).json({ message: "Server Error" });
+  }
+};

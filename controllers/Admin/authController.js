@@ -2,6 +2,7 @@ import prisma from '../../util/prisma.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { blacklistToken } from '../../middleware/authMiddleware.js';
 
 /**
  * Hash a refresh token for storage.
@@ -34,6 +35,13 @@ const refreshTokenMatches = (token, stored) => {
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
+// A precomputed bcrypt hash with no known plaintext, compared against on the
+// admin-not-found branch of login() below so that branch takes the same time
+// as a real password check -- otherwise "no such admin" resolves faster than
+// "wrong password" and an attacker can enumerate valid admin emails purely
+// from response timing, even with the response body itself unified.
+const DUMMY_PASSWORD_HASH = '$2a$10$CwTycUXWue0Thq9StjUM0uJ8Z2vRuAV9AGqzu27Bg9G/uc7Q8jVIm';
+
 /**
  * generateAccessToken
  * Creates a short-lived JWT used to authenticate protected API requests.
@@ -42,7 +50,14 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
  * @returns {string} Signed JWT valid for 15 minutes.
  */
 const generateAccessToken = (user) => {
-  return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
+  // `type: 'admin_access'` is load-bearing, not decorative: User and Admin are
+  // separate tables with overlapping autoincrement ids, and both token
+  // families are signed with the same JWT_SECRET. Without this claim,
+  // authAdminMiddleware verifies the signature, looks decoded.id up in
+  // Admin, and finds a match whenever a customer's User.id happens to equal
+  // an existing Admin.id — full admin takeover with an ordinary login token.
+  // authMiddleware.protect checks the mirror-image `type !== 'access'` guard.
+  return jwt.sign({ id: user.id, role: user.role, type: 'admin_access' }, JWT_SECRET, {
     expiresIn: '15m',
   });
 };
@@ -82,17 +97,26 @@ export const login = async (req, res) => {
   try {
     const user = await prisma.admin.findUnique({ where: { email } });
 
-    if (!user) {
-      return res.status(404).json({ message: 'Admin not found' });
+    // Enumeration fix: unknown-email, wrong-password and suspended-account
+    // used to return distinct 404/401/403 responses, letting an attacker
+    // enumerate valid admin emails (and which are disabled) before spending
+    // any password guesses. Unknown email and wrong password now collapse
+    // into one generic response; the dummy-hash compare below keeps their
+    // timing indistinguishable too. Account status is checked only AFTER a
+    // correct password is confirmed, since revealing "this account exists
+    // and is suspended" is safe once the caller has proven they know the
+    // password -- it is the pre-auth branches that must not leak.
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user ? user.password : DUMMY_PASSWORD_HASH
+    );
+
+    if (!user || !isPasswordValid) {
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     if (user.status !== 'ACTIVE') {
       return res.status(403).json({ message: 'Account is not active' });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid password' });
     }
 
     const accessToken = generateAccessToken(user);
@@ -216,6 +240,19 @@ export const logout = async (req, res) => {
       where: { id: payload.id },
       data: { refreshToken: null },
     });
+
+    // Clearing the refresh token stops future rotations, but the admin's
+    // current access token stayed valid until it expired on its own -- up to
+    // JWT_EXPIRES_IN worth of continued access after "logout". Blacklist it too.
+    const accessToken = req.headers?.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.split(' ')[1]
+      : null;
+    if (accessToken) {
+      const decodedAccess = jwt.decode(accessToken);
+      if (decodedAccess?.exp) {
+        await blacklistToken(accessToken, decodedAccess.exp);
+      }
+    }
 
     return res.json({ message: 'Logged out successfully' });
   } catch (error) {
