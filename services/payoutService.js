@@ -131,6 +131,20 @@ export const claimAndQueuePayout = async (paymentId) => {
         data: { vendorPayoutStatus: "processing" }
       });
 
+      // Enqueued INSIDE this transaction, using `tx` -- this used to run
+      // after the transaction committed, with no retry. If that insert
+      // failed, or the process died in the gap, the payment was left
+      // permanently "processing" with no job to ever move it: every
+      // recovery path is closed by design (this function's own checks above
+      // reject re-claiming a "processing" payment). BackgroundJob is a
+      // Postgres table, so this insert now commits or rolls back atomically
+      // with the status flip -- an enqueue failure rolls the status flip
+      // back too, instead of stranding it.
+      await addPayoutJob(
+        { paymentId: p.id, vendorId: vId, bookingId: p.bookingId },
+        tx
+      );
+
       return { payment: p, vendorId: vId };
     });
 
@@ -145,13 +159,6 @@ export const claimAndQueuePayout = async (paymentId) => {
     console.error("Settle payout transaction error:", error);
     throw new PayoutError("Failed to settle payout entirely", 500);
   }
-
-  // Gateway call happens off the request thread, inside the payout worker.
-  await addPayoutJob({
-    paymentId: payment.id,
-    vendorId,
-    bookingId: payment.bookingId
-  });
 
   return { payment: { ...payment, vendorPayoutStatus: "processing" } };
 };

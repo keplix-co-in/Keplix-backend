@@ -25,10 +25,14 @@ import { enqueueJob, JOB_TYPES } from "../util/jobQueue.js";
  *   data.bookingId - Booking.id the payment is tied to (used for notifications/logging)
  *
  * @param {{paymentId: number, vendorId: number, bookingId?: number}} data
+ * @param {import('@prisma/client').Prisma.TransactionClient} [tx] - Pass a
+ *   transaction client to enqueue atomically with the status flip that
+ *   claimed this payout, so an enqueue failure can no longer leave the
+ *   payment stranded in "processing" with no job to move it.
  * @returns {Promise<{id: number}>}
  */
-export const addPayoutJob = async (data) => {
-  return enqueueJob(JOB_TYPES.VENDOR_PAYOUT, data, { maxAttempts: 5 });
+export const addPayoutJob = async (data, tx) => {
+  return enqueueJob(JOB_TYPES.VENDOR_PAYOUT, data, { maxAttempts: 5, client: tx });
 };
 
 export default addPayoutJob;

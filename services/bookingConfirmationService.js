@@ -165,6 +165,22 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
         data: { vendorPayoutStatus: "processing" }
       });
 
+      // Enqueued INSIDE this transaction, using `tx` -- same fix as
+      // services/payoutService.js's claimAndQueuePayout. This used to run
+      // after the transaction committed with no retry; if that insert
+      // failed, or the process died in the gap, the payment was left
+      // permanently "processing" with no job to ever move it. BackgroundJob
+      // is a Postgres table, so this now commits or rolls back atomically
+      // with the status flip.
+      await addPayoutJob(
+        {
+          paymentId: payment.id,
+          vendorId: currentBooking.service.vendorId,
+          bookingId: bookingId
+        },
+        tx
+      );
+
       return {
         paymentId: payment.id,
         vendorId: currentBooking.service.vendorId,
@@ -179,11 +195,4 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
     }
     throw error;
   }
-
-  // Gateway call happens off the request thread, inside the payout worker.
-  await addPayoutJob({
-    paymentId: result.paymentId,
-    vendorId: result.vendorId,
-    bookingId: result.bookingId
-  });
 };

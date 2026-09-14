@@ -203,11 +203,16 @@ describe('settlePayout', () => {
 
     await settlePayout(mockReq('1'), res);
 
-    expect(mockAddPayoutJob).toHaveBeenCalledWith({
-      paymentId: 1,
-      vendorId: 42,
-      bookingId: 10,
-    });
+    // addPayoutJob now also receives `tx` (F42 fix: enqueued INSIDE the
+    // transaction) -- second arg not asserted here.
+    expect(mockAddPayoutJob).toHaveBeenCalledWith(
+      {
+        paymentId: 1,
+        vendorId: 42,
+        bookingId: 10,
+      },
+      expect.anything()
+    );
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
