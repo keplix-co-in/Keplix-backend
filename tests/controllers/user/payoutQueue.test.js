@@ -38,7 +38,12 @@ const mockPrisma = {
       review: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
-      }
+      },
+      // addPayoutJob is enqueued INSIDE the transaction now (F42 fix) via
+      // `tx`, so the default tx needs a backgroundJob.create too.
+      backgroundJob: {
+        create: jest.fn().mockResolvedValue({ id: 1 }),
+      },
     };
     return callback(tx);
   }),
@@ -113,7 +118,13 @@ describe('Vendor Payout Queueing & Worker', () => {
             review: {
                 findUnique: jest.fn().mockResolvedValue(null),
                 create: jest.fn().mockResolvedValue({}),
-            }
+            },
+            // The real addPayoutJob (not mocked in this file) is now
+            // enqueued INSIDE the transaction (F42 fix) via `tx`, so `tx`
+            // needs a backgroundJob.create the same as the real client.
+            backgroundJob: {
+                create: jest.fn().mockResolvedValue({ id: 1 }),
+            },
         };
         const res = await callback(tx);
         prisma.lastTx = tx; 

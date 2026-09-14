@@ -80,7 +80,7 @@ const INFRA_ERROR_CODES = new Set(["P2021", "P1001", "P1002", "P1017"]);
  *   query should allow the request through.
  * @returns {Promise<boolean>} True if blacklisted.
  */
-const isTokenBlacklisted = async (token, { failOpenOnInfraError = true } = {}) => {
+export const isTokenBlacklisted = async (token, { failOpenOnInfraError = true } = {}) => {
   try {
     const row = await prisma.blacklistedToken.findUnique({
       where: { token },
@@ -164,6 +164,15 @@ export const protect = async (req, res, next) => {
       }
 
       const decoded = jwt.verify(token, JWT_SECRET);
+
+      // Mirror of the admin_access check in authAdminMiddleware.js: an admin
+      // access token, or a 30-day refresh token (JWT_REFRESH_SECRET falls
+      // back to JWT_SECRET when unset), is otherwise accepted here as a
+      // 1-day user access token — silent impersonation of the user whose id
+      // happens to collide with the token's `id` claim.
+      if (decoded.type !== "access") {
+        return res.status(401).json({ message: "Not authorized, token failed" });
+      }
 
       // Straight to Postgres. The 60s Redis cache that used to sit in front of
       // this is gone; this is the same query that ran on every cache miss.

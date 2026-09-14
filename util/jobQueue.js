@@ -52,19 +52,37 @@ export const registerJobHandler = (type, handler) => {
 /**
  * Adds a job to the queue.
  *
- * Note there is no transaction here on purpose: callers enqueue AFTER their own
- * transaction has committed (see claimAndQueuePayout in services/payoutService.js),
- * so the job must not be tied to a transaction that may still roll back.
+ * `options.client` defaults to the module-level `prisma`, but a caller can
+ * pass a transaction client (`tx`) to enqueue the job as part of its own
+ * transaction. This used to be impossible on purpose -- a prior version of
+ * this doc said "callers enqueue AFTER their own transaction has committed
+ * ... the job must not be tied to a transaction that may still roll back" --
+ * but that reasoning did not account for the enqueue INSERT itself failing,
+ * or the process dying between commit and enqueue: both payout entry points
+ * (services/payoutService.js, services/bookingConfirmationService.js) flip
+ * vendorPayoutStatus to 'processing' inside a transaction that commits, then
+ * call this AFTER, with no transaction and no retry. If the insert fails,
+ * the payment is permanently 'processing' with no job to ever move it --
+ * every recovery path is closed by design (both entry points reject
+ * re-claiming a 'processing' payment), and there is no sweeper.
+ *
+ * BackgroundJob is a Postgres table (this queue exists specifically because
+ * Redis was removed), so the concern above does not actually apply: passing
+ * `tx` here means the job row commits or rolls back atomically with the
+ * status flip. The dispatcher only ever polls `status='pending' AND runAt <=
+ * NOW()`, so a job row that rolls back with its transaction is simply never
+ * seen -- there is no way for a rolled-back job to be dispatched.
  *
  * @param {string} type - One of JOB_TYPES.
  * @param {object} payload - Serialisable job data; reaches the handler as job.data.
  * @param {object} [options]
  * @param {number} [options.maxAttempts=3] - Total tries before the job is marked failed.
  * @param {Date} [options.runAt] - Earliest run time; defaults to now.
+ * @param {import('@prisma/client').Prisma.TransactionClient} [options.client] - Defaults to the module prisma client; pass `tx` to enqueue atomically with a caller's transaction.
  * @returns {Promise<{id: number}>} The created job row.
  */
-export const enqueueJob = async (type, payload, { maxAttempts = 3, runAt } = {}) => {
-  const job = await prisma.backgroundJob.create({
+export const enqueueJob = async (type, payload, { maxAttempts = 3, runAt, client = prisma } = {}) => {
+  const job = await client.backgroundJob.create({
     data: {
       type,
       payload,

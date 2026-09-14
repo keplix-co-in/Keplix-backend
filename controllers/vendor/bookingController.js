@@ -117,18 +117,45 @@ export const respondToServiceRequest = async (req, res) => {
     }
 
     if (booking.vendor_status !== 'pending') {
-      return res.status(400).json({ 
-        message: `Request already ${booking.vendor_status}` 
+      return res.status(400).json({
+        message: `Request already ${booking.vendor_status}`
       });
     }
 
-    // Update vendor_status
-    const updatedBooking = await prisma.booking.update({
-      where: { id: bookingId },
-      data: { 
+    // The check above and this write used to be a classic check-then-act: if
+    // the auto-decline cron's updateMany (util/bookingStatusManager.js)
+    // committed in the gap between them, this write would revert a booking
+    // the system already told the customer was auto-declined back to
+    // accepted/confirmed -- after the customer has already been notified of
+    // a cancellation. updateMany with vendor_status/status repeated in the
+    // WHERE makes the guard and the write one statement: if the cron won the
+    // race, `count` is 0 and this vendor sees the same "already X" response
+    // the check above would have given, instead of silently overwriting it.
+    const { count } = await prisma.booking.updateMany({
+      where: {
+        id: bookingId,
+        service: { vendorId: req.user.id },
+        vendor_status: 'pending',
+        status: 'pending',
+      },
+      data: {
         vendor_status,
         status: vendor_status === 'accepted' ? 'confirmed' : 'cancelled'
       },
+    });
+
+    if (count === 0) {
+      const current = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { vendor_status: true },
+      });
+      return res.status(400).json({
+        message: `Request already ${current?.vendor_status ?? 'processed'}`
+      });
+    }
+
+    const updatedBooking = await prisma.booking.findUnique({
+      where: { id: bookingId },
       include: {
         service: true,
         user: {
@@ -233,24 +260,54 @@ export const updateBookingStatus = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
+    // Populated by whichever branch below applies to the requested `status`,
+    // then enforced again in the write's WHERE clause further down (see
+    // F41's fix note there). null means "no transition restriction for this
+    // status" -- preserved as-is for pending/user_confirmed/cancelled/disputed,
+    // which never had a guard here.
+    let allowedFrom = null;
+
     if (status) {
         // 1. Start Service: confirmed -> in_progress
-        if (status === 'in_progress' && currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
-            return res.status(400).json({
-                message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
-            });
+        if (status === 'in_progress') {
+            allowedFrom = ['confirmed', 'scheduled'];
+            if (!allowedFrom.includes(currentBooking.status)) {
+                return res.status(400).json({
+                    message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
+                });
+            }
         }
 
         // 2. Complete Service: in_progress -> service_completed
-        if (status === 'service_completed' && currentBooking.status !== 'in_progress') {
+        if (status === 'service_completed') {
              // Allow skipping in_progress check if it was just confirmed (for quick jobs), but typically we want the flow.
              // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
              // User prompt: "in_progress -> service_completed" logic implies flow.
-             if (currentBooking.status !== 'confirmed' && currentBooking.status !== 'scheduled') {
+             allowedFrom = ['in_progress', 'confirmed', 'scheduled'];
+             if (!allowedFrom.includes(currentBooking.status)) {
                 return res.status(400).json({
                     message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`
                 });
              }
+        }
+
+        // 3. Finish: the partner app sends 'completed' directly (not
+        //    'service_completed'), so this value has to keep working -- verified
+        //    against keplix-frontend/components/Vendor/Bookings/Bookings.jsx,
+        //    which sends 'in_progress' and 'completed' and nothing else.
+        //
+        //    It previously had NO branch here at all, so it was reachable from
+        //    any state: a vendor could mark a booking completed that they had
+        //    never accepted and that had never been paid for. Same precondition
+        //    as service_completed, plus service_completed itself so the natural
+        //    two-step finish still works.
+        if (status === 'completed') {
+            allowedFrom = ['in_progress', 'confirmed', 'scheduled', 'service_completed'];
+            if (!allowedFrom.includes(currentBooking.status)) {
+                return res.status(400).json({
+                    message: `Cannot mark completed. Service must be in progress, confirmed or already marked service-complete. Current status: ${currentBooking.status}`
+                });
+            }
         }
 
         // Mandatory-inspection gate. Same rule, same rollout anchoring as
@@ -304,9 +361,39 @@ export const updateBookingStatus = async (req, res) => {
         updateData.completion_images = imageUrls.join(',');
     }
 
-    const booking = await prisma.booking.update({
-      where: { id: parseInt(req.params.id) },
+    // The guards above (and assertHealthSheetPresent, an async call that
+    // widens the read-to-write window by a full round trip) were validated
+    // against `currentBooking.status`, read well before this write -- a
+    // classic check-then-act. A customer cancellation
+    // (user/bookingController.js) committing in the gap was silently
+    // overwritten: the booking could end up 'completed' while
+    // executeCancellationRefund had already issued a refund, and the escrow
+    // hold below then puts it on the payout path -- vendor paid AND customer
+    // refunded for the same booking. `allowedFrom` (computed above, per
+    // target status) repeated in the WHERE makes the guard and the write one
+    // statement, closing that window entirely, not just narrowing it.
+    const bookingId = parseInt(req.params.id);
+    const { count } = await prisma.booking.updateMany({
+      where: {
+        id: bookingId,
+        service: { vendorId: req.user.id },
+        ...(allowedFrom ? { status: { in: allowedFrom } } : {}),
+      },
       data: updateData,
+    });
+
+    if (count === 0) {
+      const current = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { status: true },
+      });
+      return res.status(400).json({
+        message: `Booking status changed before this update could be applied. Current status: ${current?.status ?? 'unknown'}`
+      });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
       // Include service relation so we can find vendor for payout
       include: {
         service: true

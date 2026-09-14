@@ -1,4 +1,5 @@
 import prisma from "../../util/prisma.js";
+import { eraseUserPii } from "../../services/accountErasureService.js";
 
 export const getUserMetrics = async (req, res) => {
   try {
@@ -164,16 +165,25 @@ export const deleteUser = async (req, res) => {
 
     // Has booking history: Booking.user is now onDelete: Restrict, so a
     // hard delete would fail (correctly) rather than silently wiping the
-    // payment/payout audit trail. Soft-delete instead.
-    await prisma.user.update({
-      where: { id: userId },
-      data: { is_active: false },
-    });
+    // payment/payout audit trail. `is_active: false` alone used to be the
+    // entire "delete" here -- UserProfile (name, phone, address,
+    // id_proof_*), the User's own fcmToken/pushToken, PhoneIdentity,
+    // claimed WalkInJob customer fields, and any uploaded Cloudinary
+    // documents all stayed exactly as they were, with no erasure path
+    // reachable from this admin action at all (2026-09-12 audit, F11).
+    // eraseUserPii deactivates AND redacts those fields.
+    const result = await eraseUserPii(userId);
 
-    res.json({ message: "User deactivated (has existing booking history, so the account was deactivated rather than deleted)" });
+    res.json({
+      message: "User deactivated and personal data erased (has existing booking history, so the account record itself was retained rather than deleted)",
+      erasure: result,
+    });
 
   } catch (error) {
     console.error(error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({ message: "User not found" });
+    }
     res.status(500).json({
       message: "Failed to delete user"
     });

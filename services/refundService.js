@@ -24,7 +24,10 @@ export class RefundError extends Error {
 // not yet resolved) can be in — mirrors PayoutSettlement's design. Reaching
 // one of these means the caller must not re-issue: the money either moved or
 // its fate is unknown.
-const GATEWAY_REACHED_STATUSES = ['gateway_confirmed', 'processed', 'reconciliation_needed'];
+// Exported so financeController's refunds KPI can source from this table
+// with the same definition of "actually reached the gateway" used here --
+// re-listing these statuses in a second file is exactly how they'd drift.
+export const GATEWAY_REACHED_STATUSES = ['gateway_confirmed', 'processed', 'reconciliation_needed'];
 
 // Statuses whose amounts are RESERVED against the payment's refundable
 // balance. This deliberately includes 'initiated' — a row that has been

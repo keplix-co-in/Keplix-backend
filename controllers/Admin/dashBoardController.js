@@ -12,7 +12,9 @@ export const getDashboardMetrics = async (req, res) => {
       bookingsToday,
       activeVendors,
       newUsersToday,
-      pendingPayouts
+      pendingPayouts,
+      todayWalkInGMV,
+      walkInCommissionRevenue
     ] = await Promise.all([
 
       // GMV (total booking value today)
@@ -65,17 +67,49 @@ export const getDashboardMetrics = async (req, res) => {
           vendorPayoutStatus: "pending",
           status: "success"
         }
+      }),
+
+      // Walk-in GMV today. Walk-in jobs are a second, parallel revenue
+      // channel (in-person garage visits, no app booking/Payment row) that
+      // was previously invisible to this dashboard entirely -- a vendor
+      // routing volume through walk-ins rather than app bookings paid zero
+      // platform fee AND showed up nowhere here, with no way to tell the two
+      // apart. `status: 'completed'` mirrors Payment's `status: 'success'`.
+      prisma.walkInJob.aggregate({
+        _sum: { amount_collected: true },
+        where: {
+          status: "completed",
+          createdAt: { gte: todayStart }
+        }
+      }),
+
+      // Walk-in commission revenue, all-time. `commission_rate`/`commission_amount`
+      // default to null for every row today (v1: no commission applied to
+      // walk-ins yet, per schema.prisma's own comment) -- this will correctly
+      // read as 0 until that's turned on, which is honest, not a bug. Once it
+      // is, this line needs no further change.
+      prisma.walkInJob.aggregate({
+        _sum: { commission_amount: true },
+        where: { status: "completed" }
       })
 
     ]);
 
+    const todayGMVTotal =
+      Number(todayGMV._sum.amount || 0) + Number(todayWalkInGMV._sum.amount_collected || 0);
+    const platformRevenueTotal =
+      Number(platformRevenue._sum.platformFee || 0) + Number(walkInCommissionRevenue._sum.commission_amount || 0);
+
     res.json({
-      todayGMV: todayGMV._sum.amount || 0,
-      platformRevenue: platformRevenue._sum.platformFee || 0,
+      todayGMV: todayGMVTotal,
+      platformRevenue: platformRevenueTotal,
       bookingsToday,
       activeVendors,
       newUsersToday,
-      pendingPayouts: pendingPayouts._sum.vendorAmount || 0
+      pendingPayouts: pendingPayouts._sum.vendorAmount || 0,
+      // Broken out separately too, so a sudden GMV jump can be traced to
+      // which channel actually drove it instead of one opaque total.
+      walkInGMVToday: Number(todayWalkInGMV._sum.amount_collected || 0)
     });
 
   } catch (error) {

@@ -23,13 +23,30 @@ export const createVendorPaymentOrder = async (req, res) => {
       return res.status(400).json({ message: "Amount is required" });
     }
 
+    // Partial mitigation, not a fix -- see keplix-backend/prisma's audit note
+    // and TODO.md. There is no Subscription/Plan/Invoice model anywhere in
+    // schema.prisma for this endpoint to derive a price FROM, and the vendor
+    // app's own call site (Payment4.jsx) sends a hardcoded placeholder amount
+    // with a comment admitting the real pricing concept was never wired up.
+    // A vendor can therefore still set their own price for whatever this
+    // endpoint is charging them for -- that requires a product decision
+    // (real subscription/ad-rate pricing data) this fix cannot invent. What
+    // IS safe to add without guessing at business data: reject amounts
+    // outside a sane range, so a typo or a trivially scripted request can't
+    // create a ₹0.01 "payment" or a wildly oversized one against a live
+    // payment gateway.
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount < 1 || numericAmount > 100000) {
+      return res.status(400).json({ message: "Amount must be between ₹1 and ₹1,00,000" });
+    }
+
     if (gateway === "stripe") {
       return res.status(400).json({ message: "Stripe is not supported. Use gateway: 'razorpay'." });
     }
 
     // RAZORPAY (default)
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
+      amount: Math.round(numericAmount * 100),
       currency,
       receipt: `vendor_order_${Date.now()}`,
       notes: {

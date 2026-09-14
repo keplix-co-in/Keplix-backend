@@ -2,6 +2,7 @@ import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
+import { PUBLIC_VENDOR_INCLUDE, stripVendorSecrets } from "../../util/publicVendor.js";
 
 
 
@@ -102,10 +103,19 @@ export const getConversations = async (req, res) => {
       include: {
         booking: {
           include: {
+            // Prisma `include` on a relation returns every scalar column of
+            // that row, including User.password -- these are the caller's
+            // own conversations (filtered by userId above), but the hash
+            // still has no business leaving the server in a JSON response.
             user: { include: { userProfile: true } },
             service: {
               include: {
-                vendor: { include: { vendorProfile: true } },
+                // Was `vendor: { include: { vendorProfile: true } } }`, which
+                // shipped every vendor's bank_account_number, ifsc_code,
+                // upi_id and password hash to whichever customer they'd
+                // messaged. PUBLIC_VENDOR_INCLUDE is the same allow-list
+                // already used on the public service-listing endpoints.
+                vendor: PUBLIC_VENDOR_INCLUDE,
               },
             },
           },
@@ -128,10 +138,16 @@ export const getConversations = async (req, res) => {
       }),
     });
 
+    // Belt-and-braces per util/publicVendor.js's documented convention: the
+    // select above should already keep secrets out, but stripping again on
+    // the way out means a future `include` regression here can't reopen
+    // this leak silently.
+    const safeConversations = stripVendorSecrets(conversations);
+
     res.json({
       success: true,
-      count: conversations.length,
-      data: conversations,
+      count: safeConversations.length,
+      data: safeConversations,
       nextCursor:
         conversations.length > 0
           ? conversations[conversations.length - 1].id

@@ -39,8 +39,8 @@ const jwt = (await import('jsonwebtoken')).default;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function mockReq(body = {}) {
-  return { body };
+function mockReq(body = {}, headers = {}) {
+  return { body, headers };
 }
 
 function mockRes() {
@@ -74,20 +74,32 @@ beforeEach(() => {
 
 describe('login', () => {
 
-  it('returns 404 when admin email does not exist', async () => {
+  it('returns a generic 401 (not 404) when admin email does not exist, closing the enumeration hole', async () => {
     prisma.admin.findUnique.mockResolvedValue(null);
+    bcrypt.compare.mockResolvedValue(false);
     const req = mockReq({ email: 'unknown@keplix.com', password: 'pass' });
     const res = mockRes();
 
     await login(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith({ message: 'Admin not found' });
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ message: 'Invalid email or password' });
   });
 
-  it('returns 403 when admin account is not ACTIVE', async () => {
+  it('still runs a bcrypt.compare on unknown-email so the response timing matches a real wrong-password check', async () => {
+    prisma.admin.findUnique.mockResolvedValue(null);
+    bcrypt.compare.mockResolvedValue(false);
+    const req = mockReq({ email: 'unknown@keplix.com', password: 'pass' });
+
+    await login(req, mockRes());
+
+    expect(bcrypt.compare).toHaveBeenCalledWith('pass', expect.any(String));
+  });
+
+  it('returns 403 when admin account is not ACTIVE, but only after the password is confirmed correct', async () => {
     prisma.admin.findUnique.mockResolvedValue({ ...ACTIVE_ADMIN, status: 'SUSPENDED' });
-    const req = mockReq({ email: 'admin@keplix.com', password: 'pass' });
+    bcrypt.compare.mockResolvedValue(true);
+    const req = mockReq({ email: 'admin@keplix.com', password: 'correct' });
     const res = mockRes();
 
     await login(req, res);
@@ -96,7 +108,19 @@ describe('login', () => {
     expect(res.json).toHaveBeenCalledWith({ message: 'Account is not active' });
   });
 
-  it('returns 401 when password is wrong', async () => {
+  it('a suspended account with the WRONG password still gets the generic 401, not 403 -- status is never checked pre-auth', async () => {
+    prisma.admin.findUnique.mockResolvedValue({ ...ACTIVE_ADMIN, status: 'SUSPENDED' });
+    bcrypt.compare.mockResolvedValue(false);
+    const req = mockReq({ email: 'admin@keplix.com', password: 'wrong' });
+    const res = mockRes();
+
+    await login(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ message: 'Invalid email or password' });
+  });
+
+  it('returns a generic 401 (not a specific "Invalid password") when password is wrong', async () => {
     prisma.admin.findUnique.mockResolvedValue(ACTIVE_ADMIN);
     bcrypt.compare.mockResolvedValue(false);
     const req = mockReq({ email: 'admin@keplix.com', password: 'wrong' });
@@ -105,7 +129,7 @@ describe('login', () => {
     await login(req, res);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ message: 'Invalid password' });
+    expect(res.json).toHaveBeenCalledWith({ message: 'Invalid email or password' });
   });
 
   it('returns accessToken and refreshToken on valid credentials', async () => {

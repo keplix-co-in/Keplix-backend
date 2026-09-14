@@ -15,11 +15,17 @@ import {
   sendEmailOTP,
   verifyEmailOTP,
   googleLogin,
-  updatePushToken
+  updatePushToken,
+  changePassword,
+  deleteAccount,
+  exportAccountData
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
+// Mounted AFTER protect on the routes below, so the limiter keys on the user id
+// rather than the shared carrier NAT address. See app.js for the full reasoning.
+import { authedReadLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
-import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
+import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema, updatePasswordSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
@@ -365,8 +371,12 @@ router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOT
  *       200:
  *         description: Profile updated
  */
-router.get('/profile', protect, getUserProfile);
-router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
+// authedReadLimiter, not the surrounding authLimiter: these are ordinary
+// authenticated endpoints that both apps call on every screen focus. Sharing the
+// 40-per-15-min credential budget meant ~20 profile views locked every user on
+// that IP out of logging in.
+router.get('/profile', protect, authedReadLimiter, getUserProfile);
+router.put('/profile', protect, authedReadLimiter, uploadProfileFields, updateUserProfileAuth);
 
 /**
  * @swagger
@@ -389,7 +399,63 @@ router.put('/profile', protect, uploadProfileFields, updateUserProfileAuth);
  *       200:
  *         description: Push token updated
  */
-router.put('/push-token', protect, updatePushToken);
+// Re-sent on every app launch -- same reasoning as /profile above.
+router.put('/push-token', protect, authedReadLimiter, updatePushToken);
+
+/**
+ * @swagger
+ * /accounts/auth/password/change:
+ *   put:
+ *     summary: Change the current user's password (verifies the current password server-side)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               oldPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *       401:
+ *         description: Current password is incorrect
+ */
+router.put('/password/change', protect, authedReadLimiter, validateRequest(updatePasswordSchema), changePassword);
+
+/**
+ * @swagger
+ * /accounts/auth/account:
+ *   delete:
+ *     summary: Erase the caller's own account (GDPR Art.17) — deactivates and redacts personal data
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account deactivated and personal data erased
+ */
+router.delete('/account', protect, authedReadLimiter, deleteAccount);
+
+/**
+ * @swagger
+ * /accounts/auth/export:
+ *   get:
+ *     summary: Export all of the caller's own data (GDPR Art.15/Art.20 access and portability)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: JSON bundle of the caller's account, bookings, payments, reviews, messages, notifications, feedback, vehicles and walk-in history
+ */
+router.get('/export', protect, authedReadLimiter, exportAccountData);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
 router.post('/signup/', validateRequest(registerSchema), registerUser);

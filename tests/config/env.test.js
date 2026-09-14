@@ -63,4 +63,29 @@ describe('config/env.js', () => {
     const { env } = await import('../../config/env.js');
     expect(env.BOOKING_PENDING_TIMEOUT_MINUTES).toBeUndefined();
   });
+
+  // Regression guard for the 2026-09-12 audit finding: both of these were
+  // previously unset in production while the app booted fine, and only
+  // failed deep inside a request handler (Google login 500ing; password
+  // reset links shipping "undefined/..."). Now required in production so
+  // boot fails loudly instead, naming exactly which secret was never set.
+  test('requires GOOGLE_ALLOWED_AUDIENCES only in production', async () => {
+    Object.assign(process.env, REQUIRED_BASE, { NODE_ENV: 'production' });
+    delete process.env.GOOGLE_ALLOWED_AUDIENCES;
+    await expect(import('../../config/env.js')).rejects.toThrow(/GOOGLE_ALLOWED_AUDIENCES/);
+  });
+
+  test('requires FRONTEND_URL only in production', async () => {
+    Object.assign(process.env, REQUIRED_BASE, { NODE_ENV: 'production' });
+    delete process.env.FRONTEND_URL;
+    await expect(import('../../config/env.js')).rejects.toThrow(/FRONTEND_URL/);
+  });
+
+  test('does not require GOOGLE_ALLOWED_AUDIENCES or FRONTEND_URL outside production', async () => {
+    Object.assign(process.env, REQUIRED_BASE, { NODE_ENV: 'development' });
+    delete process.env.GOOGLE_ALLOWED_AUDIENCES;
+    delete process.env.FRONTEND_URL;
+    const { env } = await import('../../config/env.js');
+    expect(env.NODE_ENV).toBe('development');
+  });
 });

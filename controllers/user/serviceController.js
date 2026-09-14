@@ -1,5 +1,6 @@
 import prisma from "../../util/prisma.js";
 import { Prisma } from "@prisma/client";
+import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
 
 /**
  * Get All Services (Public)
@@ -108,7 +109,7 @@ export const getAllServices = async (req, res) => {
         where,
         skip: Number(skip),
         take: Number(limit),
-        include: { vendor: { include: { vendorProfile: true } } },
+        include: { vendor: PUBLIC_VENDOR_INCLUDE },
         orderBy: { id: "desc" },
       });
 
@@ -204,7 +205,7 @@ export const getServiceById = async (req, res) => {
   try {
     const service = await prisma.service.findUnique({
       where: { id: parseInt(req.params.id) },
-      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
     });
 
     if (service) {
@@ -229,7 +230,9 @@ export const getServiceById = async (req, res) => {
           price: parseFloat(sp.price.toString()),
         })),
       };
-      res.json(enrichedService);
+      // Strip vendor bank/contact/password before returning: this endpoint is
+      // PUBLIC, and the include above pulls the full vendor + vendorProfile.
+      res.json(stripVendorSecrets(enrichedService));
     } else {
       res.status(404).json({ message: "Service not found" });
     }
@@ -297,7 +300,7 @@ export const getFeaturedServices = async (req, res) => {
       where,
       skip,
       take: limit,
-      include: { vendor: { include: { vendorProfile: true } } },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE },
       orderBy: { id: "desc" },
     });
 
@@ -353,7 +356,9 @@ export const getFeaturedServices = async (req, res) => {
     });
 
     res.json({
-      data: enrichedServices,
+      // stripVendorSecrets: each enriched item spreads ...service, which carries
+      // the full included vendor + vendorProfile (bank details, password).
+      data: enrichedServices.map(stripVendorSecrets),
       pagination: {
         total,
         page,
@@ -404,7 +409,8 @@ export const searchVendorsByLocation = async (req, res) => {
     `;
 
     const nearbyVendors = await prisma.$queryRaw`
-      SELECT *, ${distanceSql} as distance
+      SELECT "userId", business_name, address, latitude, longitude,
+             ${distanceSql} as distance
       FROM "VendorProfile"
       WHERE status = 'approved' 
         AND is_online = true
@@ -459,7 +465,7 @@ export const getServicesByVendor = async (req, res) => {
 
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true },
-      include: { vendor: { include: { vendorProfile: true } }, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
       take: Number(limit),
@@ -493,7 +499,8 @@ export const getServicesByVendor = async (req, res) => {
       };
     });
 
-    res.json(enrichedServices);
+    // stripVendorSecrets: enrichedServices spreads ...service (full vendor).
+    res.json(enrichedServices.map(stripVendorSecrets));
   } catch (error) {
     console.error("Error in getServicesByVendor:", error);
     res.status(500).json({ message: "Server Error" });

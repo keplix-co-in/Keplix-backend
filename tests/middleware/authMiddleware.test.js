@@ -131,7 +131,7 @@ describe('protect - blacklisted token', () => {
 
   test('looks the token up by its exact value', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     await protect(mockReq('some.jwt.value'), mockRes(), jest.fn());
@@ -146,7 +146,7 @@ describe('protect - blacklisted token', () => {
   // must not slip through on ambiguity.
   test('fails closed when the blacklist lookup errors for an unknown reason', async () => {
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(new Error('db down'));
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
 
     const req = mockReq('some.jwt.value');
     const res = mockRes();
@@ -173,7 +173,7 @@ describe('protect - blacklisted token', () => {
     const err = new Error('infra');
     err.code = code;
     mockPrisma.blacklistedToken.findUnique.mockRejectedValue(err);
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     const req = mockReq('valid.token');
@@ -193,7 +193,7 @@ describe('protect - blacklisted token', () => {
 describe('protect - user lookup', () => {
   test('reads the user from the database and attaches it to the request', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     const req = mockReq('valid.token');
@@ -211,7 +211,7 @@ describe('protect - user lookup', () => {
 
   test('queries the database on every request, since there is no cache to hit', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue(USER_ROW);
 
     await protect(mockReq('valid.token'), mockRes(), jest.fn());
@@ -240,7 +240,7 @@ describe('protect - user lookup', () => {
 describe('protect - account state checks', () => {
   test('rejects an inactive account', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, is_active: false });
 
     const res = mockRes();
@@ -255,7 +255,7 @@ describe('protect - account state checks', () => {
 
   test('rejects an unverified account with no profile', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue({
       ...USER_ROW,
       is_verified: false,
@@ -275,7 +275,7 @@ describe('protect - account state checks', () => {
 
   test('auto-verifies a legacy unverified account that already has a profile', async () => {
     notBlacklisted();
-    mockVerify.mockReturnValue({ id: 1 });
+    mockVerify.mockReturnValue({ id: 1, type: 'access' });
     mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, is_verified: false });
     mockPrisma.user.update.mockResolvedValue({});
 

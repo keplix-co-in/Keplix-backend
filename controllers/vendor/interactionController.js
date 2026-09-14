@@ -1,5 +1,6 @@
 ﻿import prisma from "../../util/prisma.js";
 import { getIO } from '../../socket.js';
+import { PUBLIC_VENDOR_INCLUDE, stripVendorSecrets } from "../../util/publicVendor.js";
 
 
 
@@ -84,8 +85,17 @@ export const getVendorConversations = async (req, res) => {
                 include: {
                     booking: {
                         include: {
+                            // Prisma `include` returns the customer's full User row,
+                            // password hash included -- that's a different account's
+                            // credential exposed to whichever vendor they messaged.
                             user: { include: { userProfile: true } }, // Customer details
-                            service: { include: { vendor: { include: { vendorProfile: true } } } }
+                            // Was `vendor: { include: { vendorProfile: true } } }`.
+                            // Scoped to the caller's own services above, so this is
+                            // a vendor viewing their own bank details -- lower risk
+                            // than the cross-user case, but there's no reason a chat
+                            // list needs to carry them, and the allow-list keeps this
+                            // endpoint safe if that scoping ever changes.
+                            service: { include: { vendor: PUBLIC_VENDOR_INCLUDE } }
                         }
                     },
                     messages: {
@@ -101,7 +111,7 @@ export const getVendorConversations = async (req, res) => {
         ]);
 
         res.json({
-            data: conversations,
+            data: stripVendorSecrets(conversations),
             pagination: {
                 total,
                 page: Number(page),

@@ -113,11 +113,17 @@ describe('confirmServiceCompletion', () => {
     await confirmServiceCompletion(req, res);
 
     expect(prisma.$transaction).toHaveBeenCalled();
-    expect(addPayoutJob).toHaveBeenCalledWith(expect.objectContaining({
-      paymentId: mockBooking.payment.id,
-      vendorId: mockBooking.service.vendorId,
-      bookingId: mockBooking.id,
-    }));
+    // addPayoutJob now also receives `tx` (F42 fix: enqueued INSIDE the
+    // transaction so an enqueue failure can't strand the payment in
+    // "processing" with no job to move it) -- second arg not asserted here.
+    expect(addPayoutJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentId: mockBooking.payment.id,
+        vendorId: mockBooking.service.vendorId,
+        bookingId: mockBooking.id,
+      }),
+      expect.anything()
+    );
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       message: expect.stringContaining('Service confirmed')

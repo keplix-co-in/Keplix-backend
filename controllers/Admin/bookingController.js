@@ -193,6 +193,19 @@ export const forceCompleteBooking = async (req, res) => {
     const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
+    // This wrote service_completed from ANY state, with no guard. That let an
+    // already-resolved booking be resurrected: force-completing a CANCELLED
+    // booking put it back into a state the customer could then confirm, which
+    // queues a vendor payout for a booking that was cancelled (and possibly
+    // refunded). 'disputed' is deliberately still allowed -- resolving a dispute
+    // in the vendor's favour is a legitimate use of this endpoint.
+    const ALREADY_RESOLVED = ["cancelled", "user_confirmed", "completed"];
+    if (ALREADY_RESOLVED.includes(booking.status)) {
+      return res.status(400).json({
+        message: `Cannot force-complete a booking that is already ${booking.status}.`,
+      });
+    }
+
     const updated = await prisma.booking.update({
       where: { id: bookingId },
       data: {
