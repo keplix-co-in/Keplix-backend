@@ -15,7 +15,20 @@ export const getReviews = async (req, res) => {
         let where = {};
 
         if (user_id) {
-            where.userId = parseInt(user_id);
+            // A caller's own review history is the only "by user" scope this
+            // endpoint may return -- vendor_id below is public (a vendor's
+            // reviews are visible to anyone), but another user's reviews
+            // include their profile name/photo and are not. Without this
+            // check any authenticated account could pass ?user_id=<anyone>
+            // and read their full review + booking history (audit #106).
+            if (parseInt(user_id) !== req.user.id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You can only view your own reviews.',
+                    code: 'FORBIDDEN',
+                });
+            }
+            where.userId = req.user.id;
         } else if (vendor_id) {
             where.vendorId = parseInt(vendor_id);
         } else {
@@ -208,6 +221,63 @@ export const createReview = async (req, res) => {
     });
   } catch (error) {
     console.error('Create Review Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+  }
+};
+
+// @desc    Edit a review's own rating/comment (audit #78: this endpoint did
+//          not exist at all -- the customer app's updateReview call was a
+//          stub with no backend route to call).
+// @route   PUT /interactions/api/reviews/:id
+// @access  Private (User — own reviews only)
+export const updateReview = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const reviewId = parseInt(req.params.id);
+    const { rating: rawRating, comment } = req.body;
+
+    if (rawRating === undefined && comment === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide a rating and/or a comment to update.',
+        code: 'NOTHING_TO_UPDATE',
+      });
+    }
+
+    const review = await prisma.review.findUnique({ where: { id: reviewId } });
+
+    if (!review) {
+      return res.status(404).json({ success: false, message: 'Review not found.' });
+    }
+    if (review.userId !== userId) {
+      return res.status(403).json({ success: false, message: 'Not authorised to edit this review.' });
+    }
+
+    const data = {};
+    // Same Int-column guard as createReview: rating is validated as an
+    // integer by updateReviewSchema already, but re-rounding here costs
+    // nothing and keeps this function safe if ever called without going
+    // through that validator.
+    if (rawRating !== undefined) data.rating = Math.round(rawRating);
+    if (comment !== undefined) data.comment = comment;
+
+    const vendorId = review.vendorId;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.review.update({ where: { id: reviewId }, data });
+
+      // Only worth recomputing if the rating actually changed -- a
+      // comment-only edit doesn't move the vendor's average.
+      if (data.rating !== undefined && vendorId) {
+        await updateVendorRatingStats(tx, vendorId);
+      }
+
+      return row;
+    });
+
+    res.json({ success: true, data: updated, message: 'Review updated.' });
+  } catch (error) {
+    console.error('Update Review Error:', error);
     res.status(500).json({ success: false, message: 'Server Error', error: error.message });
   }
 };

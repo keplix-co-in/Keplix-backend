@@ -121,7 +121,13 @@ describe('respondToEarlyStart', () => {
     prisma.$transaction.mockImplementation(async (cb) =>
       cb({
         bookingEarlyStart: { update: jest.fn() },
-        booking: { update: jest.fn().mockResolvedValue({ id: 100, status: 'in_progress', booking_time: '11:00' }) },
+        // findFirst: no clash by default -- audit #110 added a re-check of
+        // slot availability inside this same transaction before accepting.
+        booking: {
+          update: jest.fn().mockResolvedValue({ id: 100, status: 'in_progress', booking_time: '11:00' }),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        $queryRaw: jest.fn(),
       })
     );
   });
@@ -131,6 +137,7 @@ describe('respondToEarlyStart', () => {
     userId: 1,
     status: 'confirmed',
     booking_time: '14:00',
+    booking_date: new Date('2026-08-26'),
     service: { id: 7, vendorId: 42, name: 'Detailing' },
     earlyStart: { status: 'pending', requested_time: '11:00' },
   };
@@ -161,6 +168,31 @@ describe('respondToEarlyStart', () => {
     expect(addNotificationJob).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'EARLY_START_ACCEPTED', recipientId: 42 })
     );
+  });
+
+  /**
+   * Audit #110: the requested earlier slot was checked for availability once,
+   * when the vendor made the request -- accepting minutes or hours later
+   * moved booking_time into it with no re-check, so a booking that landed on
+   * that slot in the meantime got silently double-booked. Now re-checked
+   * inside the same locked transaction as the accept write.
+   */
+  test('rejects accept with 409 when the earlier slot has since been taken', async () => {
+    prisma.$transaction.mockImplementation(async (cb) =>
+      cb({
+        bookingEarlyStart: { update: jest.fn() },
+        booking: {
+          update: jest.fn(),
+          findFirst: jest.fn().mockResolvedValue({ id: 555 }), // a clashing booking
+        },
+        $queryRaw: jest.fn(),
+      })
+    );
+    prisma.booking.findUnique.mockResolvedValue(pendingBooking);
+
+    await respondToEarlyStart(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
   });
 
   test('declining leaves the booking untouched', async () => {

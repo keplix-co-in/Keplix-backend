@@ -26,8 +26,11 @@ try {
             Logger.info('Firebase Admin Initialized (from env variable)');
         }
     } 
-    // Fallback to local file
-    else if (fs.existsSync(path.join(__dirname, '../serviceAccountKey.json'))) {
+    // Fallback to local file -- dev/local convenience only (audit #20). In
+    // production this must come from FIREBASE_SERVICE_ACCOUNT_BASE64; a
+    // deploy that silently picked up a leftover local key file instead of a
+    // properly configured env var would be an unnoticed misconfiguration.
+    else if (process.env.NODE_ENV !== 'production' && fs.existsSync(path.join(__dirname, '../serviceAccountKey.json'))) {
         const serviceAccount = require('../serviceAccountKey.json');
         if (!admin.apps.length) {
             admin.initializeApp({

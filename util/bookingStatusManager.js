@@ -37,7 +37,7 @@ const EXPIRY_AFTER_MINUTES = 30;
  * is tuned.
  */
 const PENDING_TIMEOUT_MINUTES = Number(
-  process.env.BOOKING_PENDING_TIMEOUT_MINUTES || 5
+  process.env.BOOKING_PENDING_TIMEOUT_MINUTES || 30
 );
 
 /**
@@ -117,7 +117,8 @@ class BookingStatusManager {
           },
           vendor_status: 'accepted',
           booking_date: { gte: this.getActivationLowerBound(now) },
-        }
+        },
+        include: { service: true },
       });
 
       let activatedCount = 0;
@@ -189,7 +190,8 @@ class BookingStatusManager {
           },
           vendor_status: 'accepted',
           booking_date: { gte: this.getActivationLowerBound(now) },
-        }
+        },
+        include: { service: true },
       });
 
       let expiredCount = 0;
@@ -241,7 +243,8 @@ class BookingStatusManager {
           vendor_status: 'pending',
           status: 'pending',
           createdAt: { lte: cutoff },
-        }
+        },
+        include: { service: true },
       });
 
       let declinedCount = 0;
@@ -251,10 +254,10 @@ class BookingStatusManager {
           {
             // The query above already restricted this to rows past the
             // deadline, so there is no per-row time check left to do.
-            // Fetch service to get name
-            const service = await prisma.service.findUnique({
-              where: { id: booking.serviceId }
-            });
+            // service comes from the findMany's include -- a per-row
+            // findUnique here ran once per booking on every minute-tick
+            // (audit #53/#133); one join up front does the same work once.
+            const service = booking.service;
 
             // updateMany with the precondition repeated in the WHERE, not
             // update({ where: { id } }).
@@ -330,10 +333,10 @@ class BookingStatusManager {
    */
   async activateBooking(booking) {
     try {
-      // Fetch service to get details for notifications
-      const service = await prisma.service.findUnique({
-        where: { id: booking.serviceId }
-      });
+      // booking.service comes from the caller's findMany include -- see the
+      // note there (audit #53/#133) for why this is no longer a fresh
+      // per-booking lookup.
+      const service = booking.service;
 
       // Update booking status
       await prisma.booking.update({
@@ -377,10 +380,10 @@ class BookingStatusManager {
    */
   async expireBooking(booking) {
     try {
-      // Fetch service to get details for notifications
-      const service = await prisma.service.findUnique({
-        where: { id: booking.serviceId }
-      });
+      // booking.service comes from the caller's findMany include -- see the
+      // note there (audit #53/#133) for why this is no longer a fresh
+      // per-booking lookup.
+      const service = booking.service;
 
       // Update booking status to cancelled or expired
       await prisma.booking.update({

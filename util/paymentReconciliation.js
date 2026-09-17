@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import Razorpay from 'razorpay';
 import prisma from './prisma.js';
 import Logger from './logger.js';
+import { resolveBookingAmount } from './servicePricing.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -37,7 +38,11 @@ export const reconcileStalePayments = async () => {
       createdAt: { lte: cutoff },
       payment: null,
     },
-    include: { service: true },
+    // bookingVehicle for resolveBookingAmount below (audit #148: this used to
+    // recompute from Service.price directly, ignoring both segment pricing
+    // and price_snapshot -- the same duplicated-pricing-logic bug
+    // resolveBookingAmount's own docstring says this file was guilty of).
+    include: { service: true, bookingVehicle: true },
     take: 200, // bounded per run — this is a periodic sweep, not a batch backfill
   });
 
@@ -60,7 +65,7 @@ export const reconcileStalePayments = async () => {
       const captured = payments?.items?.find((p) => p.status === 'captured');
       if (!captured) continue;
 
-      const totalAmount = parseFloat(booking.service.price.toString());
+      const totalAmount = resolveBookingAmount(booking);
       const expectedPaise = Math.round(totalAmount * 100);
       if (captured.amount !== expectedPaise) {
         Logger.error(
@@ -102,6 +107,12 @@ export const reconcileStalePayments = async () => {
 };
 
 let scheduled = false;
+// Was discarded entirely (audit #181): cron.schedule's return value is the
+// only handle that can stop this task, so with nothing captured here
+// gracefulShutdown in server.js had no way to stop it -- the process could
+// exit mid-run, or (on a platform that keeps the event loop alive for
+// pending timers) never exit at all.
+let reconciliationTask = null;
 
 export const startPaymentReconciliation = () => {
   if (scheduled) return;
@@ -110,7 +121,7 @@ export const startPaymentReconciliation = () => {
   // Every 10 minutes — frequent enough to catch an orphaned payment within
   // roughly STALE_THRESHOLD_MINUTES + 10 of it happening, without hammering
   // Razorpay's API.
-  cron.schedule('*/10 * * * *', async () => {
+  reconciliationTask = cron.schedule('*/10 * * * *', async () => {
     try {
       const result = await reconcileStalePayments();
       if (result.recovered > 0) {
@@ -122,4 +133,9 @@ export const startPaymentReconciliation = () => {
   });
 
   Logger.info('[Reconciliation] Payment reconciliation job scheduled (every 10 minutes)');
+};
+
+export const stopPaymentReconciliation = () => {
+  reconciliationTask?.stop();
+  scheduled = false;
 };

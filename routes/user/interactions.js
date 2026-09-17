@@ -1,6 +1,8 @@
 import express from 'express';
 import { createConversationId, getConversationByBooking, getConversations, getMessages, sendMessage } from '../../controllers/user/interactionController.js';
 import { protect } from '../../middleware/authMiddleware.js';
+import { validateRequest } from '../../middleware/validationMiddleware.js';
+import { sendMessageSchema, createConversationSchema } from '../../validators/user/interactionValidators.js';
 
 const router = express.Router();
 
@@ -103,7 +105,7 @@ router.get('/chat/:conversationId', protect, getMessages);
  *       500:
  *         description: Server Error
  */
-router.post('/conversations/create', protect, createConversationId);
+router.post('/conversations/create', protect, validateRequest(createConversationSchema), createConversationId);
 
 /**
  * @swagger
@@ -130,7 +132,7 @@ router.post('/conversations/create', protect, createConversationId);
  *       500:
  *         description: Server Error
  */
-router.post('/chat/conversation/create', protect, createConversationId); // Alias for backward compatibility
+router.post('/chat/conversation/create', protect, validateRequest(createConversationSchema), createConversationId); // Alias for backward compatibility
 
 /**
  * @swagger
@@ -162,7 +164,7 @@ router.post('/chat/conversation/create', protect, createConversationId); // Alia
  *       500:
  *         description: Server Error
  */
-router.post('/chat/send', protect, sendMessage);
+router.post('/chat/send', protect, validateRequest(sendMessageSchema), sendMessage);
 
 // Aliases
 router.get('/conversations/', protect, getConversations);

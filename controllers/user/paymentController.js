@@ -441,6 +441,32 @@ async function handleRefundFailed(refundEntity) {
     });
 
     Logger.error(`[MANUAL ACTION] Refund ${id} failed at the gateway — customer has NOT been refunded.`);
+
+    // Before this, that "MANUAL ACTION" was a server log only -- the
+    // customer had no way to know their refund hadn't gone through
+    // (audit #87). Best-effort: the refund is already recorded as failed
+    // above regardless of whether this notification succeeds.
+    try {
+      const bookingWithService = await prisma.payment.findUnique({
+        where: { id: refund.paymentId },
+        select: { booking: { select: { id: true, userId: true, service: { select: { name: true } } } } },
+      });
+      const booking = bookingWithService?.booking;
+      if (booking?.userId) {
+        const failedNotification = renderNotification(NOTIFICATION_TYPES.REFUND_FAILED, {
+          serviceName: booking.service?.name,
+          bookingId: booking.id,
+        });
+        await createNotification(
+          booking.userId,
+          failedNotification.title,
+          failedNotification.body,
+          { type: failedNotification.type, data: failedNotification.data, bookingId: booking.id },
+        );
+      }
+    } catch (notifyError) {
+      Logger.error(`[Webhook] Failed to notify customer of refund failure for refund ${id}: ${notifyError.message}`);
+    }
   } catch (error) {
     Logger.error(`[Webhook] handleRefundFailed error: ${error.message}`);
     // Same rationale as handlePaymentCaptured above.

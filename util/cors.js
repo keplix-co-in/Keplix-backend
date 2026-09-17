@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import Logger from "./logger.js";
 dotenv.config();
 
 // Fail closed: only relax CORS when explicitly running in development, not
@@ -45,11 +46,16 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    //Block everything else
-    return callback(
-      new Error(`CORS blocked for origin: ${origin}`),
-      false
-    );
+    // Block everything else. The origin goes to the server log only -- it
+    // used to ride in err.message, which the error handler echoed straight
+    // back to the caller as a 500 (audit #173). A blocked CORS request is a
+    // client mistake, not a server failure, so this is a 403 with a fixed,
+    // generic message instead.
+    Logger.warn(`CORS blocked for origin: ${origin}`);
+    const err = new Error('Not allowed by CORS');
+    err.statusCode = 403;
+    err.code = 'CORS_BLOCKED';
+    return callback(err, false);
   },
 
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],

@@ -185,6 +185,16 @@ export const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
             }
 
+            // A password change invalidates every token issued before it
+            // (audit #175) -- decoded.iat is seconds, passwordChangedAt is a
+            // Date, so compare in the same unit.
+            if (
+                req.user.passwordChangedAt &&
+                decoded.iat * 1000 < req.user.passwordChangedAt.getTime()
+            ) {
+                return res.status(401).json({ message: 'Not authorized, password changed' });
+            }
+
             // Check for activity if needed (can be separate middleware but good safety net)
             if (req.user.is_active === false) {
                  return res.status(403).json({ message: 'Account is inactive' });

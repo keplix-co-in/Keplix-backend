@@ -168,6 +168,28 @@ jobs:
       # Before editing this line, diff it. To check for drift:
       #   grep -rhoE 'process\.env\.[A-Z0-9_]+' --include=*.js . | sed 's/process\.env\.//' | sort -u
       # and compare against the names set here.
+      # Non-blocking (audit #17): the --set-env-vars line above has drifted
+      # silently before (see the WARNING comment above this step) with no
+      # deploy failure and no alert -- googleLogin, push notifications and
+      # password-reset links each broke in production while local dev worked
+      # fine. This surfaces the same drift as a build warning instead of
+      # requiring someone to remember to diff it by hand. Not a hard fail:
+      # several vars used in code are legitimately optional with defaults
+      # (see config/env.js), so a mismatch here is a prompt to check, not
+      # proof of a bug.
+      - name: Check for env var drift against Cloud Run deploy step
+        run: |
+          USED=$(grep -rhoE 'process\.env\.[A-Z0-9_]+' --include=*.js \
+            --exclude-dir=node_modules --exclude-dir=tests . \
+            | sed 's/process\.env\.//' | sort -u)
+          DEPLOYED=$(grep -oE '[A-Z0-9_]+=\$\{\{ secrets\.[A-Z0-9_]+ \}\}' \
+            .github/workflows/deploy.yml | sed 's/=.*//' | sort -u)
+          MISSING=$(comm -23 <(echo "$USED") <(echo "$DEPLOYED"))
+          if [ -n "$MISSING" ]; then
+            echo "::warning::These env vars are read by the code but not set in the Cloud Run --set-env-vars line (may be intentionally optional -- check config/env.js):"
+            echo "$MISSING"
+          fi
+
       - name: Deploy to Cloud Run
         run: |
           # Single-instance topology, on purpose (min=max=1). The app holds

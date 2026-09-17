@@ -1,6 +1,6 @@
 import express from 'express';
 import { getPendingPayouts, settlePayout, getFinanceKpis, refundPayment } from '../../controllers/Admin/financeController.js';
-import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
+import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
 
 const router = express.Router();
 
@@ -50,7 +50,9 @@ router.get("/finance/payouts", authAdmin, authorizeAdmin, getPendingPayouts);
  *       200:
  *         description: Payout settled successfully
  */
-router.post("/finance/payouts/:id/settle", authAdmin, authorizeAdmin, settlePayout);
+// Money actually leaves Keplix's account here -- restricted to super_admin
+// (audit #108). Ordinary admin still sees the pending-payouts list above.
+router.post("/finance/payouts/:id/settle", authAdmin, authorizeAdmin, authorizeSuperAdmin, settlePayout);
 
 /**
  * @swagger
@@ -87,6 +89,7 @@ router.post("/finance/payouts/:id/settle", authAdmin, authorizeAdmin, settlePayo
  *       200:
  *         description: Refund processed
  */
-router.post("/finance/payments/:id/refund", authAdmin, authorizeAdmin, refundPayment);
+// Same reasoning as settle above: an actual gateway refund, super_admin only.
+router.post("/finance/payments/:id/refund", authAdmin, authorizeAdmin, authorizeSuperAdmin, refundPayment);
 
 export default router;

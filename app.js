@@ -242,6 +242,17 @@ app.use("/service_api/user", userProfileRoutes);
 app.use("/service_api/user", userGarageRoutes);
 
 // Shared
+//
+// userServiceRoutes is mounted here AND at /service_api/user above (audit
+// #28/#51/#75 flagged this as an ambiguous duplicate) -- it is not
+// accidental or dead. Verified against the shipped client source: both
+// user_keplix and keplix-frontend call /service_api/user/services for most
+// reads, but user_keplix/services/api.js also calls the bare
+// /service_api/services (and /service_api/services/search) directly.
+// Removing either mount 404s a real, currently-shipped code path. Collapsing
+// this to one canonical prefix needs the mobile apps migrated to it first
+// (and both app stores' installed base to catch up, since RN apps don't
+// auto-update client code), then this second mount can go.
 app.use("/service_api", userServiceRoutes);
 app.use("/service_api", userPaymentRoutes);
 app.use("/service_api", vendorPaymentRoutes);

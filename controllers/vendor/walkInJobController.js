@@ -96,6 +96,12 @@ export const createWalkInJob = async (req, res) => {
           amount_collected,
           payment_mode,
           public_token: generatePublicToken(),
+          // The column existed but nothing ever set or checked it, so the
+          // tracking link was permanent (audit #115) despite living forever
+          // in SMS/WhatsApp history. 90 days covers any realistic follow-up
+          // window (warranty questions, a repeat visit referencing the same
+          // job) without leaving it open indefinitely.
+          token_expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
           ...(serviceRows.length ? { services: { create: serviceRows } } : {}),
         },
         include: { services: true },

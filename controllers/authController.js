@@ -59,7 +59,20 @@ const generateRefreshToken = (id) => {
 // Alias for backward-compat usage (e.g. token refresh endpoint)
 const generateToken = generateAccessToken;
 
-const verifyDjangoPassword = (password, hash) => {
+// pbkdf2Sync blocked the event loop for the duration of the derivation on
+// every legacy-hash login (audit #124) -- on a single-instance deployment
+// (server.js/deploy.yml), that stalls every other in-flight request, not
+// just the slow one. crypto.pbkdf2's callback form runs on libuv's threadpool
+// instead, promisified here so call sites just `await` it same as before.
+const pbkdf2Async = (password, salt, iterations, keyLen, digest) =>
+  new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, iterations, keyLen, digest, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+
+const verifyDjangoPassword = async (password, hash) => {
   try {
     const parts = hash.split("$");
     if (parts.length !== 4) return false;
@@ -68,13 +81,7 @@ const verifyDjangoPassword = (password, hash) => {
     if (algorithm !== "pbkdf2_sha256") return false;
 
     const keyLen = 32; // SHA256 produces 32 bytes
-    const derivedKey = crypto.pbkdf2Sync(
-      password,
-      salt,
-      parseInt(iterations),
-      keyLen,
-      "sha256",
-    );
+    const derivedKey = await pbkdf2Async(password, salt, parseInt(iterations), keyLen, "sha256");
     const derivedHash = derivedKey.toString("base64");
 
     // timingSafeEqual, not === : a plain string compare short-circuits on the
@@ -169,7 +176,7 @@ export const authUser = async (req, res) => {
 
       // Check if it's a Django PBKDF2 hash
       if (user.password.startsWith("pbkdf2_sha256$")) {
-        isValid = verifyDjangoPassword(password, user.password);
+        isValid = await verifyDjangoPassword(password, user.password);
       } else {
         // Otherwise assume bcrypt (new users or dummy data)
         isValid = await bcrypt.compare(password, user.password);
@@ -324,6 +331,15 @@ export const refreshToken = async (req, res) => {
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
+    // Same check as `protect` (audit #175): a refresh token issued before a
+    // password change must not be redeemable for a new access token.
+    if (
+      user.passwordChangedAt &&
+      decoded.iat * 1000 < user.passwordChangedAt.getTime()
+    ) {
+      return res.status(401).json({ message: "Refresh token has been revoked" });
+    }
+
     // Rotate: the presented refresh token is single-use — blacklist it and
     // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
     // limited window before it's replaced, and reuse of an old token after
@@ -444,6 +460,7 @@ export const resetPassword = async (req, res) => {
         password: hashedPassword,
         resetPasswordToken: null,
         resetPasswordExpires: null,
+        passwordChangedAt: new Date(),
       },
     });
 
@@ -551,7 +568,7 @@ export const resetPasswordWithOTP = async (req, res) => {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { password: hashedPassword },
+        data: { password: hashedPassword, passwordChangedAt: new Date() },
       }),
       prisma.emailOTP.update({
         where: { id: record.id },
@@ -1318,7 +1335,7 @@ export const changePassword = async (req, res) => {
 
     let isValid = false;
     if (user.password.startsWith("pbkdf2_sha256$")) {
-      isValid = verifyDjangoPassword(oldPassword, user.password);
+      isValid = await verifyDjangoPassword(oldPassword, user.password);
     } else {
       isValid = await bcrypt.compare(oldPassword, user.password);
     }
@@ -1330,12 +1347,12 @@ export const changePassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, passwordChangedAt: new Date() },
     });
 
-    // Force re-login on this device; the client discards its tokens after
-    // this call succeeds. (Other devices' tokens remain valid until they
-    // expire naturally — full multi-session revocation is out of scope here.)
+    // Blacklist this device's current token immediately (belt-and-braces);
+    // every other device's access/refresh token is now also rejected by
+    // `protect` and the refresh-token flow via passwordChangedAt (audit #175).
     const token = req.headers.authorization?.split(" ")[1];
     if (token) {
       const decoded = jwt.decode(token);

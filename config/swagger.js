@@ -1,5 +1,13 @@
 import swaggerJsdoc from "swagger-jsdoc";
 
+// Was hardcoded to "http://0.0.0.0:8080" (audit #135/#167) -- "Try it out" in
+// the Swagger UI sent every request there regardless of where the server was
+// actually running, including in production on Cloud Run. PUBLIC_WEB_BASE_URL
+// isn't right here either (that's the website's origin, not the API's); this
+// falls back to the local dev port when nothing else is set.
+const serverUrl =
+  process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 8000}`;
+
 const options = {
   definition: {
     openapi: "3.0.0",
@@ -10,7 +18,7 @@ const options = {
     },
     servers: [
       {
-        url: "http://0.0.0.0:8080",
+        url: serverUrl,
       },
     ],
 

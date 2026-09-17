@@ -17,7 +17,7 @@ import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
-    booking: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+    booking: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
     service: { findUnique: jest.fn() },
     payment: { update: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
@@ -176,5 +176,54 @@ describe('D6 — reschedule conflict and past-date guards', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Audit #109: the conflict check above ran as a plain query, then a
+   * separate `prisma.booking.update` outside any transaction or lock -- the
+   * same check-then-act race createBooking already guards against with
+   * pg_advisory_xact_lock. Reschedule now takes the identical lock, inside a
+   * $transaction, before checking for a clash.
+   */
+  test('takes the advisory lock and rejects a reschedule onto an occupied slot', async () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ booking_date: future }));
+    prisma.$queryRaw.mockResolvedValue(undefined);
+    prisma.booking.findFirst.mockResolvedValue({ id: 99999 }); // a clashing booking
+    prisma.$transaction.mockImplementation((cb) => cb(prisma));
+
+    const req = mockReq({
+      booking_date: future.toISOString().slice(0, 10),
+      booking_time: '11:00',
+    });
+    const res = mockRes();
+
+    await updateBooking(req, res);
+
+    expect(prisma.$queryRaw).toHaveBeenCalled(); // the advisory lock was taken
+    expect(prisma.booking.findFirst).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(prisma.booking.update).not.toHaveBeenCalled();
+  });
+
+  test('reschedules onto a free slot inside the same locked transaction', async () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ booking_date: future }));
+    prisma.$queryRaw.mockResolvedValue(undefined);
+    prisma.booking.findFirst.mockResolvedValue(null); // no clash
+    prisma.$transaction.mockImplementation((cb) => cb(prisma));
+
+    const req = mockReq({
+      booking_date: future.toISOString().slice(0, 10),
+      booking_time: '11:00',
+    });
+    const res = mockRes();
+
+    await updateBooking(req, res);
+
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.booking.update).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalledWith(409);
+    expect(res.status).not.toHaveBeenCalledWith(500);
   });
 });

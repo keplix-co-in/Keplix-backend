@@ -5,7 +5,7 @@ The robust Node.js backend for the Keplix Service Marketplace application. This 
 
 *   **Runtime:** Node.js
 *   **Framework:** Express.js
-*   **Database:** SQLite (Development) / PostgreSQL (Production ready)
+*   **Database:** PostgreSQL (same in dev and production — see `docker-compose.yml`; there is no SQLite path)
 *   **ORM:** Prisma
 *   **Validation:** Zod
 *   **Authentication:** JWT (JSON Web Tokens)

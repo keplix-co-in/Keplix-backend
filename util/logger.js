@@ -45,14 +45,22 @@ const Logger = winston.createLogger({
  transports : [
   new winston.transports.Console({ format: consoleFormat }),
   // Add file transports for production
+  // maxsize/maxFiles were unset (audit #94): these files grow forever inside
+  // the container's writable layer with nothing rotating or capping them.
+  // 20MB x 5 rotated files each is enough to keep useful recent history
+  // without an unbounded log eventually filling the instance's disk.
   new winston.transports.File({
     filename: 'logs/error.log',
     level: 'error',
-    format: fileFormat
+    format: fileFormat,
+    maxsize: 20 * 1024 * 1024,
+    maxFiles: 5,
   }),
   new winston.transports.File({
      filename: 'logs/all.log',
-     format: fileFormat
+     format: fileFormat,
+     maxsize: 20 * 1024 * 1024,
+     maxFiles: 5,
     }),
 ],
 });

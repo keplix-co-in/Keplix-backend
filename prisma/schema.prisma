@@ -18,6 +18,13 @@ model User {
   device_type         String?
   pushToken           String?
   is_verified         Boolean              @default(false)
+  // Set whenever the account's password changes (changePassword,
+  // resetPassword*). `protect` and the refresh-token flow reject any token
+  // whose `iat` predates this, so changing a password invalidates every
+  // access/refresh token already issued -- not just the one the caller sent
+  // in for changePassword (audit #175). Null means "never changed"; no token
+  // predates account creation, so nothing is rejected for a new account.
+  passwordChangedAt   DateTime?
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]

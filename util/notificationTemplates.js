@@ -53,6 +53,7 @@ export const NOTIFICATION_TYPES = {
   PAYOUT_SETTLED: 'PAYOUT_SETTLED',
   REFUND_ISSUED: 'REFUND_ISSUED',
   REFUND_UNDER_REVIEW: 'REFUND_UNDER_REVIEW',
+  REFUND_FAILED: 'REFUND_FAILED',
 
   // Early start
   EARLY_START_REQUEST: 'EARLY_START_REQUEST',
@@ -64,6 +65,8 @@ export const NOTIFICATION_TYPES = {
 
   // Dispute
   SERVICE_DISPUTED: 'SERVICE_DISPUTED',
+  DISPUTE_RESOLVED_CUSTOMER: 'DISPUTE_RESOLVED_CUSTOMER',
+  DISPUTE_RESOLVED_VENDOR_NOTICE: 'DISPUTE_RESOLVED_VENDOR_NOTICE',
 };
 
 // ---------------------------------------------------------------------------
@@ -354,6 +357,21 @@ export const notificationTemplates = {
     }),
   }),
 
+  // The gateway rejected the refund attempt itself (audit #87) -- before
+  // this, that outcome produced only a server log ("[MANUAL ACTION] ...")
+  // and the customer had no idea their money hadn't moved. No amount quoted,
+  // same reasoning as REFUND_UNDER_REVIEW: this isn't a promise of what
+  // happens next, support has to look at it first.
+  [T.REFUND_FAILED]: (v = {}) => ({
+    type: T.REFUND_FAILED,
+    title: "We couldn't process your refund",
+    body: "There was a problem processing the refund for your cancelled booking. Our team has been notified and will follow up.",
+    data: bookingData(T.REFUND_FAILED, v, {
+      screen: 'BookingList',
+      params: { initialTab: 'cancelled' },
+    }),
+  }),
+
   // --- Early start ---------------------------------------------------------
 
   [T.EARLY_START_REQUEST]: (v = {}) => {
@@ -410,6 +428,29 @@ export const notificationTemplates = {
     title: 'Service disputed',
     body: `A customer has raised a dispute for ${serviceName(v.serviceName)}. Our team will review it.`,
     data: bookingData(T.SERVICE_DISPUTED, v),
+  }),
+
+  // A dispute could previously be resolved in the vendor's favour
+  // (forceCompleteBooking) but had no equivalent path the other way (audit
+  // #76) -- resolveDisputeForCustomer in Admin/bookingController.js is that
+  // path. No refund amount is quoted here: the refund itself is a separate
+  // admin action against the existing /admin/finance/payments/:id/refund
+  // endpoint, not something this status change triggers automatically.
+  [T.DISPUTE_RESOLVED_CUSTOMER]: (v = {}) => ({
+    type: T.DISPUTE_RESOLVED_CUSTOMER,
+    title: 'Dispute resolved in your favour',
+    body: `Your dispute for ${serviceName(v.serviceName)} has been resolved. Your booking is cancelled and a refund will be processed.`,
+    data: bookingData(T.DISPUTE_RESOLVED_CUSTOMER, v, {
+      screen: 'BookingList',
+      params: { initialTab: 'cancelled' },
+    }),
+  }),
+
+  [T.DISPUTE_RESOLVED_VENDOR_NOTICE]: (v = {}) => ({
+    type: T.DISPUTE_RESOLVED_VENDOR_NOTICE,
+    title: 'Dispute resolved',
+    body: `The dispute for ${serviceName(v.serviceName)} has been resolved in the customer's favour. The booking is cancelled.`,
+    data: bookingData(T.DISPUTE_RESOLVED_VENDOR_NOTICE, v),
   }),
 };
 

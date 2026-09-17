@@ -41,10 +41,19 @@ export const errorHandler = (err, req, res, next) => {
         Logger.error(err.stack);
     }
 
+    // Fail closed in production: Prisma (and other libraries) throw errors
+    // whose `.message` and `.code` carry raw driver detail -- column names,
+    // constraint names, connection strings in some cases (audit #111). A 5xx
+    // in production gets a fixed, safe message; explicit 4xx errors thrown by
+    // our own code (validation, auth, not-found) keep their message, since
+    // those are written for the client on purpose.
+    const isServerError = statusCode >= 500;
+    const safeForClient = !isServerError || process.env.NODE_ENV !== 'production';
+
     res.json({
         success: false,
-        message: err.message || "An unexpected error occurred",
-        code: errorCode,
+        message: safeForClient ? (err.message || "An unexpected error occurred") : "Internal server error",
+        code: safeForClient ? errorCode : 'INTERNAL_SERVER_ERROR',
         // Fail closed: only include the stack trace when explicitly running
         // in development, not merely "whenever NODE_ENV isn't 'production'".
         stack: process.env.NODE_ENV === 'development' ? err.stack : null,
