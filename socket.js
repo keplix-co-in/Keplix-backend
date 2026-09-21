@@ -1,7 +1,7 @@
 // socket.js
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import { allowedOrigins } from "./util/cors.js";
+import corsOptions from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
 
@@ -50,7 +50,13 @@ const isConversationParticipant = async (room, authUser) => {
 export const initSocket = (httpServer) => {
   io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins,
+      // Reuse the HTTP origin check rather than the bare allowedOrigins list.
+      // That list carries only exact strings plus the vercel regex, so a
+      // keplix.co.in subdomain (vendor.keplix.co.in) passed HTTP CORS — which
+      // applies the anchored subdomain regex below the list — but was refused
+      // here, leaving the vendor portal able to call the API yet never receive
+      // a booking, payment or chat event.
+      origin: (origin, callback) => corsOptions.origin(origin, callback),
       methods: ["GET", "POST"],
       credentials: true,
     },

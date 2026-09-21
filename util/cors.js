@@ -13,6 +13,7 @@ const allowedOrigins = [
   'http://localhost:8000',
   'http://localhost:5173', // <-- Add this line for the Admin local dev
   'http://localhost:5174', // <-- Optional: if you run the website locally too
+  'http://localhost:3000', // vendor web portal (keplix-webpage-vendors) local dev
   /\.vercel\.app$/ // allows vercel previews
 ];
 
