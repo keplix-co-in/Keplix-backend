@@ -70,6 +70,12 @@ export const updateServiceSchema = z.object({
   duration: z.coerce.number().int().positive().optional(),
   category: z.string().optional(),
   image: z.string().optional(),
+  // The controller has always read is_active on update, but this schema left it
+  // out, and zod drops unknown keys — so pausing or resuming a service returned
+  // 200 while changing nothing. Declared the same way as on create.
+  is_active: z
+    .preprocess((val) => val === "true" || val === true, z.boolean())
+    .optional(),
   segment_prices: segmentPricesField,
   vehicle_note: z.string().trim().max(200).nullish(),
 });
