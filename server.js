@@ -7,7 +7,7 @@ import { initSocket } from "./socket.js";
 import Logger from "./util/logger.js";
 import bookingStatusManager from "./util/bookingStatusManager.js";
 import refundReconciler from "./util/refundReconciler.js";
-import { startPaymentReconciliation } from "./util/paymentReconciliation.js";
+import { startPaymentReconciliation, stopPaymentReconciliation } from "./util/paymentReconciliation.js";
 import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
 import cron from "node-cron";
 import {
@@ -94,15 +94,23 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`⚙️ Mode: ${env.NODE_ENV}`);
   Logger.info(`=================================`);
 
-  bookingStatusManager.start();
-  refundReconciler.start();
+  // Three of these started unconditionally regardless of RUN_WORKERS (audit
+  // #54) while startJobDispatcher/scheduleOtpCleanup below did not -- an
+  // inconsistency that becomes a real bug the moment this ever scales past
+  // one instance (deploy.yml's own comment on why max-instances is pinned
+  // at 1): every instance would run its own auto-decline/refund/
+  // reconciliation cron redundantly, the exact multiplication problem
+  // RUN_WORKERS exists to prevent for the job dispatcher. All background
+  // work now shares one gate.
   if (RUN_WORKERS) {
+    bookingStatusManager.start();
+    refundReconciler.start();
     startJobDispatcher();
     scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule cleanup job:', err));
+    startPaymentReconciliation();
   } else {
     Logger.info('RUN_WORKERS=false — background jobs not dispatched by this process.');
   }
-  startPaymentReconciliation();
 });
 
 // --- GRACEFUL SHUTDOWN ---
@@ -112,6 +120,7 @@ const gracefulShutdown = () => {
   bookingStatusManager.stop();
   refundReconciler.stop();
   stopOtpCleanup();
+  stopPaymentReconciliation();
 
   // Stopping the schedules is all that is needed now. There are no queue
   // connections to drain: a job in flight is a Postgres row in 'processing',

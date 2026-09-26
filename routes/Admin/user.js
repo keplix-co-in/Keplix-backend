@@ -1,5 +1,5 @@
 import express from 'express';
-import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
+import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
 import { getUserMetrics, getUsers, deleteUser } from '../../controllers/Admin/userController.js';
 const router = express.Router();
 
@@ -49,7 +49,8 @@ router.get("/users", authAdmin, authorizeAdmin, getUsers);
  *       200:
  *         description: User deleted successfully
  */
-router.delete("/users/:id", authAdmin, authorizeAdmin, deleteUser);
+// Irreversible account erasure -- super_admin only (audit #108).
+router.delete("/users/:id", authAdmin, authorizeAdmin, authorizeSuperAdmin, deleteUser);
 
 
 

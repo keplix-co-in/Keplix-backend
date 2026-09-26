@@ -16,6 +16,8 @@ import {
   verifyEmailOTP,
   googleLogin,
   updatePushToken,
+  registerWebPush,
+  unregisterWebPush,
   changePassword,
   deleteAccount,
   exportAccountData
@@ -401,6 +403,58 @@ router.put('/profile', protect, authedReadLimiter, uploadProfileFields, updateUs
  */
 // Re-sent on every app launch -- same reasoning as /profile above.
 router.put('/push-token', protect, authedReadLimiter, updatePushToken);
+
+/**
+ * @swagger
+ * /accounts/auth/web-push:
+ *   post:
+ *     summary: Save this browser's Web Push subscription (vendor portal alerts)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [endpoint, keys]
+ *             properties:
+ *               endpoint:
+ *                 type: string
+ *               keys:
+ *                 type: object
+ *                 properties:
+ *                   p256dh:
+ *                     type: string
+ *                   auth:
+ *                     type: string
+ *     responses:
+ *       200:
+ *         description: Subscription saved
+ *       400:
+ *         description: Unsupported endpoint or invalid keys
+ *   delete:
+ *     summary: Remove this browser's Web Push subscription
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [endpoint]
+ *             properties:
+ *               endpoint:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Subscription removed
+ */
+router.post('/web-push', protect, authedReadLimiter, registerWebPush);
+router.delete('/web-push', protect, authedReadLimiter, unregisterWebPush);
 
 /**
  * @swagger

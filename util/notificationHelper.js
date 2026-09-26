@@ -1,6 +1,7 @@
 import prisma from "../util/prisma.js";
 import { Expo } from 'expo-server-sdk';
 import Logger from './logger.js';
+import { sendWebPushToUser } from './webPush.js';
 
 
 const expo = new Expo();
@@ -139,6 +140,15 @@ export const createNotification = async (userIdOrPayload, title, message, metada
                 }
             }
         }
+
+        // Browser (vendor portal) push, alongside the Expo push above. Not awaited:
+        // it can take seconds per subscription and must never delay or fail the
+        // request that created the notification. sendWebPushToUser never throws.
+        sendWebPushToUser(userId, {
+            title: resolvedTitle,
+            message: resolvedMessage,
+            metadata: resolvedMetadata,
+        });
 
         return notification;
     } catch (error) {

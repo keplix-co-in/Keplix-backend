@@ -61,6 +61,13 @@ export const getJobSheetByToken = async (req, res) => {
       },
     });
 
+    // token_expires_at was a column nothing ever checked (audit #115) --
+    // existing rows written before this had it null and stay valid
+    // (null = no expiry set, not "expired"); only a set, past date expires.
+    if (job && job.token_expires_at && job.token_expires_at < new Date()) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+
     if (job) {
       return res.json({
         type: 'walk_in',

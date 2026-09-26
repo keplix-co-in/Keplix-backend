@@ -17,7 +17,20 @@ function getPrismaClient() {
   }
 
   try {
-    const pool = new Pool({ connectionString })
+    // node-pg's own default (10) is what this ran on with no explicit limit
+    // at all (audit #29) -- not literally unbounded, but undocumented and
+    // untied to how this actually deploys: one Cloud Run instance at
+    // concurrency 80 (deploy.yml), so a burst of concurrent requests could
+    // exhaust the pool with no visibility into why. PGPOOL_MAX makes the
+    // ceiling explicit and tunable without a code change; 20 leaves headroom
+    // under Supabase's connection cap for the migration step and any manual
+    // psql session while still covering realistic concurrent load.
+    const pool = new Pool({
+      connectionString,
+      max: Number(process.env.PGPOOL_MAX) || 20,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    })
     const adapter = new PrismaPg(pool)
     prisma = new PrismaClient({
       adapter,

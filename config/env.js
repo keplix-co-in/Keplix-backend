@@ -141,6 +141,14 @@ const envSchema = z
     // that existing default.
     PUBLIC_WEB_BASE_URL: z.string().optional(),
 
+    // Browser push for the vendor portal (util/webPush.js). Optional: without
+    // the key pair the feature is off and nothing else is affected. Generate
+    // with `npx web-push generate-vapid-keys`; the PUBLIC key is also set on the
+    // portal as NEXT_PUBLIC_VAPID_PUBLIC_KEY.
+    VAPID_PUBLIC_KEY: z.string().optional(),
+    VAPID_PRIVATE_KEY: z.string().optional(),
+    VAPID_SUBJECT: z.string().optional(),
+
     // Every call site (controllers/authController.js, util/communication.js)
     // already falls back to 'Keplix <noreply@keplix.co.in>' when this is
     // unset -- kept optional to preserve that existing default.

@@ -1,8 +1,8 @@
 import express from 'express';
-import { getReviews, createReview, deleteReview } from '../../controllers/user/reviewController.js';
+import { getReviews, createReview, updateReview, deleteReview } from '../../controllers/user/reviewController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
-import { createReviewSchema } from '../../validators/user/reviewValidators.js';
+import { createReviewSchema, updateReviewSchema } from '../../validators/user/reviewValidators.js';
 
 const router = express.Router();
 
@@ -46,6 +46,36 @@ router.get('/reviews', protect, getReviews);
  *         description: Review created
  */
 router.post('/reviews/create', protect, validateRequest(createReviewSchema), createReview);
+
+/**
+ * @swagger
+ * /interactions/api/reviews/{id}:
+ *   put:
+ *     summary: Edit the caller's own review (rating and/or comment)
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               rating:
+ *                 type: number
+ *               comment:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Review updated
+ */
+router.put('/reviews/:id', protect, validateRequest(updateReviewSchema), updateReview);
 
 /**
  * @swagger

@@ -235,6 +235,54 @@ describe('protect - user lookup', () => {
   });
 });
 
+// ─── passwordChangedAt (audit #175) ────────────────────────────────────────────
+
+describe('protect - password changed after token issue', () => {
+  test('rejects a token whose iat predates passwordChangedAt', async () => {
+    notBlacklisted();
+    const changedAt = new Date();
+    // iat one hour before the password was changed.
+    const iat = Math.floor(changedAt.getTime() / 1000) - 3600;
+    mockVerify.mockReturnValue({ id: 1, type: 'access', iat });
+    mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, passwordChangedAt: changedAt });
+
+    const res = mockRes();
+    const next = jest.fn();
+
+    await protect(mockReq('valid.token'), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ message: 'Not authorized, password changed' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  test('accepts a token issued after the password was changed', async () => {
+    notBlacklisted();
+    const changedAt = new Date(Date.now() - 3600_000);
+    const iat = Math.floor(Date.now() / 1000);
+    mockVerify.mockReturnValue({ id: 1, type: 'access', iat });
+    mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, passwordChangedAt: changedAt });
+
+    const next = jest.fn();
+
+    await protect(mockReq('valid.token'), mockRes(), next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  test('accepts any token when passwordChangedAt is null (never changed)', async () => {
+    notBlacklisted();
+    mockVerify.mockReturnValue({ id: 1, type: 'access', iat: 1 });
+    mockPrisma.user.findUnique.mockResolvedValue({ ...USER_ROW, passwordChangedAt: null });
+
+    const next = jest.fn();
+
+    await protect(mockReq('valid.token'), mockRes(), next);
+
+    expect(next).toHaveBeenCalled();
+  });
+});
+
 // ─── Account state checks (inactive / unverified) ─────────────────────────────
 
 describe('protect - account state checks', () => {

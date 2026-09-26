@@ -67,4 +67,16 @@ const authorizeAdmin = (req, res, next) => {
 
 }
 
-export  {authAdmin, authorizeAdmin};
+// Destructive / money-moving endpoints (refund, payout settlement, force-
+// complete, account deletion) had no privilege separation from ordinary
+// admin read/write routes -- any "admin" role could do everything a
+// "super_admin" could (audit #108). Mount this AFTER authAdmin+authorizeAdmin
+// on those specific routes only; it does not replace authorizeAdmin.
+const authorizeSuperAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "super_admin") {
+    return res.status(403).json({ message: "Access Denied: super_admin required" });
+  }
+  next();
+};
+
+export  {authAdmin, authorizeAdmin, authorizeSuperAdmin};

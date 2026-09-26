@@ -151,3 +151,63 @@ describe('authUser - customer login payload', () => {
     expect(user.onboarding_completed).toBeUndefined();
   });
 });
+
+describe('authUser - legacy Django pbkdf2_sha256 password (audit #124)', () => {
+  /**
+   * verifyDjangoPassword used crypto.pbkdf2Sync (blocking) before; now uses
+   * the async crypto.pbkdf2 promisified. This exercises the real crypto
+   * path (not mocked) end to end with a genuine Django-format hash to prove
+   * the promisified version still authenticates correctly, not just that it
+   * doesn't throw.
+   */
+  test('authenticates a real pbkdf2_sha256 hash with the correct password', async () => {
+    const crypto = await import('crypto');
+    const password = 'correct horse battery staple';
+    const salt = 'testsalt123';
+    const iterations = 20000;
+    const derivedKey = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256');
+    const djangoHash = `pbkdf2_sha256$${iterations}$${salt}$${derivedKey.toString('base64')}`;
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 9,
+      email: 'legacy@example.com',
+      password: djangoHash,
+      role: 'user',
+      is_active: true,
+      is_verified: true,
+      vendorProfile: null,
+      userProfile: { name: 'Legacy User', phone: '9111111111', address: 'MG Road', profile_picture: null },
+    });
+    const res = mockRes();
+
+    await authUser(mockReq({ email: 'legacy@example.com', password }), res);
+
+    expect(res.status).not.toHaveBeenCalledWith(401);
+    const user = loginUser(res);
+    expect(user.name).toBe('Legacy User');
+  });
+
+  test('rejects a real pbkdf2_sha256 hash with the wrong password', async () => {
+    const crypto = await import('crypto');
+    const salt = 'testsalt123';
+    const iterations = 20000;
+    const derivedKey = crypto.pbkdf2Sync('the real password', salt, iterations, 32, 'sha256');
+    const djangoHash = `pbkdf2_sha256$${iterations}$${salt}$${derivedKey.toString('base64')}`;
+
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 9,
+      email: 'legacy@example.com',
+      password: djangoHash,
+      role: 'user',
+      is_active: true,
+      is_verified: true,
+      vendorProfile: null,
+      userProfile: { name: 'Legacy User' },
+    });
+    const res = mockRes();
+
+    await authUser(mockReq({ email: 'legacy@example.com', password: 'wrong password' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+});

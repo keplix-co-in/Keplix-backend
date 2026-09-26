@@ -18,6 +18,13 @@ model User {
   device_type         String?
   pushToken           String?
   is_verified         Boolean              @default(false)
+  // Set whenever the account's password changes (changePassword,
+  // resetPassword*). `protect` and the refresh-token flow reject any token
+  // whose `iat` predates this, so changing a password invalidates every
+  // access/refresh token already issued -- not just the one the caller sent
+  // in for changePassword (audit #175). Null means "never changed"; no token
+  // predates account creation, so nothing is rejected for a new account.
+  passwordChangedAt   DateTime?
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -41,11 +48,33 @@ model User {
   healthSheets     HealthSheet[]  @relation("VendorHealthSheets")
   phoneIdentity    PhoneIdentity?
 
+  // Browser push subscriptions for the vendor web portal (see WebPushSubscription).
+  webPushSubscriptions WebPushSubscription[]
+
   // Offer slots this vendor has been specifically targeted by (see OfferSlot).
   offerSlotTargets OfferSlotVendor[]
 
   @@index([email])
   @@index([role])
+}
+
+// One row per browser that turned on "Background alerts" in the vendor portal.
+// Distinct from User.pushToken, which is an Expo token for the mobile apps: a
+// web subscription is an endpoint URL plus the two keys needed to encrypt the
+// payload for that browser. `endpoint` is unique because it identifies the
+// browser, and signing in as someone else on the same browser re-points the row
+// at the new user rather than leaving the old vendor's alerts going to it.
+model WebPushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model BlacklistedToken {

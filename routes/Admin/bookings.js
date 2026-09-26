@@ -1,6 +1,6 @@
 import express from 'express';
-import { getBookingMetrics, getBookings, forceCompleteBooking } from '../../controllers/Admin/bookingController.js';
-import { authAdmin, authorizeAdmin } from '../../middleware/authAdminMiddleware.js';
+import { getBookingMetrics, getBookings, forceCompleteBooking, resolveDisputeForCustomer } from '../../controllers/Admin/bookingController.js';
+import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
 /**
@@ -40,6 +40,21 @@ router.get("/bookings", authAdmin, authorizeAdmin, getBookings);
  *     security:
  *       - bearerAuth: []
  */
-router.post("/bookings/:id/force-complete", authAdmin, authorizeAdmin, forceCompleteBooking);
+// Overrides the normal completion state machine and can trigger a payout --
+// super_admin only (audit #108).
+router.post("/bookings/:id/force-complete", authAdmin, authorizeAdmin, authorizeSuperAdmin, forceCompleteBooking);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/dispute/resolve:
+ *   post:
+ *     summary: Resolve a disputed booking in the customer's favour (cancels the booking; refund is a separate action)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+// The other half of dispute resolution force-complete didn't cover (audit
+// #76) -- super_admin only, same reasoning as force-complete above.
+router.post("/bookings/:id/dispute/resolve", authAdmin, authorizeAdmin, authorizeSuperAdmin, resolveDisputeForCustomer);
 
 export default router;

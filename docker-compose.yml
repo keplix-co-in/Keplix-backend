@@ -21,7 +21,6 @@ services:
       - RAZORPAYX_KEY_SECRET=${RAZORPAYX_KEY_SECRET}
       - RAZORPAYX_ACCOUNT_NUMBER=${RAZORPAYX_ACCOUNT_NUMBER}
       - RAZORPAYX_WEBHOOK_SECRET=${RAZORPAYX_WEBHOOK_SECRET}
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - EMAIL_FROM=${EMAIL_FROM}
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
@@ -43,11 +42,13 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=keplix
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-keplix}
     ports:
-      - "5432:5432"
+      # Bound to localhost only -- was 0.0.0.0:5432, exposing Postgres on
+      # every network interface the host has (audit #145).
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

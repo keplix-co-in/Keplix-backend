@@ -1,6 +1,8 @@
 import express from 'express';
 import { createVendorConversation, getVendorConversations, getVendorMessages, sendVendorMessage } from '../../controllers/vendor/interactionController.js';
 import { protect } from '../../middleware/authMiddleware.js';
+import { validateRequest } from '../../middleware/validationMiddleware.js';
+import { sendMessageSchema, createConversationSchema } from '../../validators/user/interactionValidators.js';
 
 const router = express.Router();
 
@@ -41,7 +43,7 @@ router.get('/conversations', protect, getVendorConversations);
  *       201:
  *         description: Conversation created successfully
  */
-router.post('/chat/create', protect, createVendorConversation);
+router.post('/chat/create', protect, validateRequest(createConversationSchema), createVendorConversation);
 
 /**
  * @swagger
@@ -89,7 +91,7 @@ router.get('/chat/:conversationId', protect, getVendorMessages);
  *       201:
  *         description: Message sent successfully
  */
-router.post('/chat/send', protect, sendVendorMessage);
+router.post('/chat/send', protect, validateRequest(sendMessageSchema), sendVendorMessage);
 
 // Aliases
 router.get('/conversations/', protect, getVendorConversations);

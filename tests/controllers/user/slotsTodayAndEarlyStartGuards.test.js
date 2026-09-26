@@ -121,6 +121,7 @@ describe('respondToEarlyStart — apply-once guards', () => {
     userId: 1,
     status: 'confirmed',
     booking_time: '14:00',
+    booking_date: new Date('2026-08-26'),
     service: { id: 7, vendorId: 42, name: 'Detailing' },
     earlyStart: { status: 'pending', requested_time: '11:00' },
     ...over,
@@ -133,9 +134,12 @@ describe('respondToEarlyStart — apply-once guards', () => {
     txEarly = { update: jest.fn() };
     txBooking = {
       update: jest.fn().mockResolvedValue({ id: 100, status: 'in_progress', booking_time: '11:00' }),
+      // No clash by default (audit #110's re-check runs inside the same
+      // transaction as the accept write); individual tests override this.
+      findFirst: jest.fn().mockResolvedValue(null),
     };
     prisma.$transaction.mockImplementation(async (cb) =>
-      cb({ bookingEarlyStart: txEarly, booking: txBooking })
+      cb({ bookingEarlyStart: txEarly, booking: txBooking, $queryRaw: jest.fn() })
     );
   });
 

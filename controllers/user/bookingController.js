@@ -6,7 +6,7 @@ import { executeCancellationRefund, resolveCancellationRefund } from "../../serv
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 import { generateSlots, isHoliday, minutesToLabel, parseTimeToMinutes, toCanonicalTime } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
-import { stripVendorSecrets } from "../../util/publicVendor.js";
+import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
 import { isValidBookingStatus } from "../../util/bookingStatus.js";
 
 
@@ -156,7 +156,16 @@ export const getPaymentByBooking = async (req, res) => {
 export const getUserBookings = async (req, res) => {
   try {
     // query params
-    const { page = 1, limit = 200, search } = req.query;
+    // limit is caller-supplied and had no ceiling -- unlike every sibling
+    // list endpoint in this codebase (reviewController.getReviews, etc.) -- so
+    // ?limit=999999 paged through a user's entire booking history in one
+    // query (audit #25). Capped at 200 rather than the usual 100: BookingList
+    // and Profile in user_keplix both explicitly request limit=200 today for
+    // an unpaginated "all bookings" view, and this must not silently
+    // truncate that.
+    const { page: rawPage = 1, search } = req.query;
+    const page = Math.max(1, parseInt(rawPage) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 20));
     const skip = (page - 1) * limit;
 
     let where = { userId: req.user.id };
@@ -182,7 +191,7 @@ export const getUserBookings = async (req, res) => {
       take: Number(limit),
       include: {
         service: {
-          include: { vendor: { include: { vendorProfile: true } } },
+          include: { vendor: PUBLIC_VENDOR_INCLUDE }, // audit #65: fetch only public columns at the query level (also stripVendorSecrets'd below as belt-and-braces)
         },
         // Refunds ride along with the payment so the app can answer "where is
         // my money" without a second round trip — which is what most refund
@@ -249,7 +258,7 @@ export const getSingleBooking = async (req, res) => {
       },
       include: {
         service: {
-          include: { vendor: { include: { vendorProfile: true } } },
+          include: { vendor: PUBLIC_VENDOR_INCLUDE }, // audit #65: fetch only public columns at the query level (also stripVendorSecrets'd below as belt-and-braces)
         },
         payment: { include: { refunds: true } },
         review: true,
@@ -649,6 +658,7 @@ export const updateBooking = async (req, res) => {
     // existing rows store the time in either form and matching only the
     // canonical value lets a "14:00" reschedule sit on top of a "2:00 PM" row.
     const isReschedule = Boolean(booking_date || canonicalTime);
+    let updatedBooking;
     if (isReschedule) {
       const targetDate = booking_date ? new Date(booking_date) : booking.booking_date;
       const targetTime = canonicalTime || booking.booking_time;
@@ -681,34 +691,63 @@ export const updateBooking = async (req, res) => {
         timeVariants.push(legacyLabel);
       }
 
-      const clash = await prisma.booking.findFirst({
-        where: {
-          id: { not: bookingId },
-          service: { vendorId: booking.service.vendorId },
-          booking_date: targetDate,
-          booking_time: { in: timeVariants },
-          NOT: { status: { in: ['cancelled', 'rejected'] } },
-        },
-        select: { id: true },
-      });
+      // Same check-then-act race createBooking already guards against
+      // (audit #109): two concurrent reschedules onto the same free slot
+      // both see no clash under READ COMMITTED and both commit. Reuses the
+      // identical pg_advisory_xact_lock keyed on (vendor, date, time) so a
+      // reschedule and a fresh createBooking targeting the same slot also
+      // serialise against each other, not just two reschedules.
+      const targetDateKey = targetDate.toISOString().slice(0, 10);
+      try {
+        updatedBooking = await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${targetDateKey}:${targetTime}`}))`;
 
-      if (clash) {
-        return res.status(409).json({
-          message: "That slot is already booked. Please pick another time.",
+          const clash = await tx.booking.findFirst({
+            where: {
+              id: { not: bookingId },
+              service: { vendorId: booking.service.vendorId },
+              booking_date: targetDate,
+              booking_time: { in: timeVariants },
+              NOT: { status: { in: ['cancelled', 'rejected'] } },
+            },
+            select: { id: true },
+          });
+
+          if (clash) {
+            const err = new Error("That slot is already booked. Please pick another time.");
+            err.statusCode = 409;
+            throw err;
+          }
+
+          return tx.booking.update({
+            where: { id: bookingId },
+            data: {
+              status: status || undefined,
+              booking_date: booking_date ? new Date(booking_date) : undefined,
+              booking_time: canonicalTime || undefined,
+              notes: notes || undefined,
+            },
+            include: { service: true },
+          });
         });
+      } catch (err) {
+        if (err.statusCode === 409) {
+          return res.status(409).json({ message: err.message });
+        }
+        throw err;
       }
+    } else {
+      updatedBooking = await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: status || undefined,
+          booking_date: booking_date ? new Date(booking_date) : undefined,
+          booking_time: canonicalTime || undefined,
+          notes: notes || undefined,
+        },
+        include: { service: true }
+      });
     }
-
-    const updatedBooking = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        status: status || undefined,
-        booking_date: booking_date ? new Date(booking_date) : undefined,
-        booking_time: canonicalTime || undefined,
-        notes: notes || undefined,
-      },
-      include: { service: true }
-    });
 
     // === CANCELLATION REFUND ===
     // Uses `booking` (pre-update) deliberately: resolveCancellationRefund
@@ -951,25 +990,67 @@ export const respondToEarlyStart = async (req, res) => {
     // Moving booking_time to the earlier slot is what "frees the original
     // slot": slot occupancy is derived from booking_time (see getVendorSlots),
     // so the later window becomes bookable again the moment this commits.
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.bookingEarlyStart.update({
-        where: { bookingId },
-        data: { status: 'accepted', responded_at: startedAt, started_at: startedAt },
-      });
+    //
+    // The vendor's early-start request was created against a slot that was
+    // free AT THAT TIME. Minutes or hours can pass before the customer
+    // responds, in which case another booking may have already taken that
+    // earlier slot for the same vendor -- accepting here would silently
+    // double-book it (audit #110). Same advisory-lock pattern as
+    // createBooking/reschedule, re-checked inside this transaction.
+    const requestedTime = booking.earlyStart.requested_time;
+    const bookingDateKey = booking.booking_date.toISOString().slice(0, 10);
+    const timeVariants = [requestedTime];
+    const legacyLabel = minutesToLabel(parseTimeToMinutes(requestedTime));
+    if (legacyLabel && !timeVariants.includes(legacyLabel)) {
+      timeVariants.push(legacyLabel);
+    }
 
-      return tx.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: 'in_progress',
-          booking_time: booking.earlyStart.requested_time,
-        },
-        include: {
-          service: true,
-          earlyStart: true,
-          bookingVehicle: { include: { vehicle: { select: VEHICLE_SUMMARY_SELECT } } },
-        },
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${bookingDateKey}:${requestedTime}`}))`;
+
+        const clash = await tx.booking.findFirst({
+          where: {
+            id: { not: bookingId },
+            service: { vendorId: booking.service.vendorId },
+            booking_date: booking.booking_date,
+            booking_time: { in: timeVariants },
+            NOT: { status: { in: ['cancelled', 'rejected'] } },
+          },
+          select: { id: true },
+        });
+
+        if (clash) {
+          const err = new Error("That earlier slot has since been booked by someone else.");
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await tx.bookingEarlyStart.update({
+          where: { bookingId },
+          data: { status: 'accepted', responded_at: startedAt, started_at: startedAt },
+        });
+
+        return tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: 'in_progress',
+            booking_time: booking.earlyStart.requested_time,
+          },
+          include: {
+            service: true,
+            earlyStart: true,
+            bookingVehicle: { include: { vehicle: { select: VEHICLE_SUMMARY_SELECT } } },
+          },
+        });
       });
-    });
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json({ success: false, message: err.message });
+      }
+      throw err;
+    }
 
     try {
       const esAccepted = renderNotification(NOTIFICATION_TYPES.EARLY_START_ACCEPTED, {

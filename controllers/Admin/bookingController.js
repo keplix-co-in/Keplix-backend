@@ -1,6 +1,8 @@
 import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
 import { toCanonicalTime } from "../../util/slots.js";
+import { addNotificationJob } from "../../queues/notificationQueue.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -225,6 +227,96 @@ export const forceCompleteBooking = async (req, res) => {
     return res.json({ booking: updated });
   } catch (error) {
     Logger.error(`[Admin] forceCompleteBooking failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Resolve a disputed booking in the CUSTOMER's favour -- the
+//          counterpart forceCompleteBooking above never had (audit #76).
+//          forceCompleteBooking resolves a dispute for the vendor (moves it
+//          on to service_completed, eligible for customer confirmation and
+//          payout); this is the other outcome, and there was previously no
+//          way to formally close a dispute that way at all.
+//
+//          Deliberately does NOT call the payment gateway itself. It only
+//          transitions the booking to 'cancelled' (freeing the vendor's slot,
+//          same as any other cancellation) and notifies both sides. Issuing
+//          the actual refund is a separate action against the existing,
+//          already-hardened /admin/finance/payments/:id/refund endpoint --
+//          this keeps the one code path that talks to Razorpay for a refund
+//          exactly where it already is (services/refundService.js), rather
+//          than adding a second, less-tested one here.
+// @route   POST /admin/bookings/:id/dispute/resolve
+export const resolveDisputeForCustomer = async (req, res) => {
+  const { reason } = req.body;
+  const bookingId = parseInt(req.params.id);
+
+  if (!reason || reason.trim().length < 10) {
+    return res.status(400).json({ message: "Please provide a detailed reason (minimum 10 characters)" });
+  }
+
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { service: { select: { vendorId: true, name: true } } },
+    });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (booking.status !== "disputed") {
+      return res.status(400).json({
+        message: `Cannot resolve a dispute on a booking that is not disputed (current status: ${booking.status}).`,
+      });
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: "cancelled",
+        notes: `${booking.notes ? booking.notes + " | " : ""}[Admin dispute resolved for customer by ${req.user.id}]: ${reason}`,
+      },
+    });
+
+    Logger.warn(
+      `[Admin] Dispute for booking ${bookingId} resolved in the customer's favour by admin ${req.user.id}. Reason: ${reason}. A refund must still be issued separately via /admin/finance/payments/:id/refund.`,
+    );
+
+    try {
+      const customerNotif = renderNotification(NOTIFICATION_TYPES.DISPUTE_RESOLVED_CUSTOMER, {
+        serviceName: booking.service?.name,
+        bookingId,
+      });
+      await addNotificationJob({
+        type: customerNotif.type,
+        recipientId: booking.userId,
+        title: customerNotif.title,
+        body: customerNotif.body,
+        metadata: { type: customerNotif.type, data: customerNotif.data, bookingId },
+        socketEvent: "dispute_resolved",
+        socketData: { bookingId, resolution: "customer" },
+      });
+
+      if (booking.service?.vendorId) {
+        const vendorNotif = renderNotification(NOTIFICATION_TYPES.DISPUTE_RESOLVED_VENDOR_NOTICE, {
+          serviceName: booking.service?.name,
+          bookingId,
+        });
+        await addNotificationJob({
+          type: vendorNotif.type,
+          recipientId: booking.service.vendorId,
+          title: vendorNotif.title,
+          body: vendorNotif.body,
+          metadata: { type: vendorNotif.type, data: vendorNotif.data, bookingId },
+          socketEvent: "dispute_resolved",
+          socketData: { bookingId, resolution: "customer" },
+        });
+      }
+    } catch (notifyError) {
+      Logger.error(`[Admin] Failed to send dispute-resolution notifications for booking ${bookingId}: ${notifyError.message}`);
+    }
+
+    return res.json({ booking: updated });
+  } catch (error) {
+    Logger.error(`[Admin] resolveDisputeForCustomer failed: ${error.message}`);
     return res.status(500).json({ message: "Server Error" });
   }
 };

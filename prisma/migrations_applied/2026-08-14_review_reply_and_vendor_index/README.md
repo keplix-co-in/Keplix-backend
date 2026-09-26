@@ -3,6 +3,9 @@
 **Status: NOT YET APPLIED.** Run `001_review_reply.sql` against `DATABASE_URL`
 before deploying the code that depends on it.
 
+> **Update (audit #45/#138-142):** since 2026-09-14 the deploy workflow (`.github/workflows/deploy.yml`) runs `prisma db push` against `schema.prisma` before every deploy to `main`, so schema changes reach production automatically now -- this file's columns are already in `schema.prisma`. The manual steps below predate that gate and are kept only as a historical record of how this change was applied the first time.
+
+
     npx prisma db execute --file prisma/migrations_applied/2026-08-14_review_reply_and_vendor_index/001_review_reply.sql --schema prisma/schema.prisma
 
 ## What it does

@@ -3,6 +3,9 @@
 **Status: NOT YET APPLIED to production.** Apply before or with the deploy that
 carries the Redis removal, or the backend will 401 every authenticated request.
 
+> **Update (audit #45/#138-142):** since 2026-09-14 the deploy workflow (`.github/workflows/deploy.yml`) runs `prisma db push` against `schema.prisma` before every deploy to `main`, so schema changes reach production automatically now -- this file's columns are already in `schema.prisma`. The manual steps below predate that gate and are kept only as a historical record of how this change was applied the first time.
+
+
 ## Why this migration is load-bearing
 
 Redis was removed from the app entirely (it had repeatedly exhausted the hosted

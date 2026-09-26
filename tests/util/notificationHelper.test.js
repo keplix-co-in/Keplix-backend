@@ -26,6 +26,8 @@ const mockLogger = {
 
 jest.unstable_mockModule('../../util/prisma.js', () => ({ default: mockPrisma }));
 jest.unstable_mockModule('../../util/logger.js', () => ({ default: mockLogger }));
+const mockSendWebPush = jest.fn().mockResolvedValue(undefined);
+jest.unstable_mockModule('../../util/webPush.js', () => ({ sendWebPushToUser: mockSendWebPush }));
 
 const { createNotification, sendPushNotification } = await import('../../util/notificationHelper.js');
 
@@ -137,5 +139,25 @@ describe('sendPushNotification — token validation', () => {
 
   test('refuses a missing token', async () => {
     expect(await sendPushNotification(null, 'T', 'B')).toBeNull();
+  });
+});
+
+describe('createNotification - browser (web) push', () => {
+  test('hands the notification to the web push sender', async () => {
+    await createNotification(7, 'New service request', 'Asha requested Oil change.', {
+      type: 'NEW_BOOKING_ALERT',
+      bookingId: 42,
+    });
+
+    expect(mockSendWebPush).toHaveBeenCalledWith(7, {
+      title: 'New service request',
+      message: 'Asha requested Oil change.',
+      metadata: { type: 'NEW_BOOKING_ALERT', bookingId: 42 },
+    });
+  });
+
+  test('is not sent for a call that never created a row (invalid arguments)', async () => {
+    await createNotification(null, undefined, 'x');
+    expect(mockSendWebPush).not.toHaveBeenCalled();
   });
 });

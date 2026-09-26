@@ -14,6 +14,7 @@ import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMid
 import { OAuth2Client } from "google-auth-library";
 import { eraseUserPii } from "../services/accountErasureService.js";
 import { getUserDataExport } from "../services/accountExportService.js";
+import { isAllowedPushEndpoint } from "../util/webPush.js";
 
 const require = createRequire(import.meta.url);
 
@@ -59,7 +60,20 @@ const generateRefreshToken = (id) => {
 // Alias for backward-compat usage (e.g. token refresh endpoint)
 const generateToken = generateAccessToken;
 
-const verifyDjangoPassword = (password, hash) => {
+// pbkdf2Sync blocked the event loop for the duration of the derivation on
+// every legacy-hash login (audit #124) -- on a single-instance deployment
+// (server.js/deploy.yml), that stalls every other in-flight request, not
+// just the slow one. crypto.pbkdf2's callback form runs on libuv's threadpool
+// instead, promisified here so call sites just `await` it same as before.
+const pbkdf2Async = (password, salt, iterations, keyLen, digest) =>
+  new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, iterations, keyLen, digest, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+
+const verifyDjangoPassword = async (password, hash) => {
   try {
     const parts = hash.split("$");
     if (parts.length !== 4) return false;
@@ -68,13 +82,7 @@ const verifyDjangoPassword = (password, hash) => {
     if (algorithm !== "pbkdf2_sha256") return false;
 
     const keyLen = 32; // SHA256 produces 32 bytes
-    const derivedKey = crypto.pbkdf2Sync(
-      password,
-      salt,
-      parseInt(iterations),
-      keyLen,
-      "sha256",
-    );
+    const derivedKey = await pbkdf2Async(password, salt, parseInt(iterations), keyLen, "sha256");
     const derivedHash = derivedKey.toString("base64");
 
     // timingSafeEqual, not === : a plain string compare short-circuits on the
@@ -169,7 +177,7 @@ export const authUser = async (req, res) => {
 
       // Check if it's a Django PBKDF2 hash
       if (user.password.startsWith("pbkdf2_sha256$")) {
-        isValid = verifyDjangoPassword(password, user.password);
+        isValid = await verifyDjangoPassword(password, user.password);
       } else {
         // Otherwise assume bcrypt (new users or dummy data)
         isValid = await bcrypt.compare(password, user.password);
@@ -324,6 +332,15 @@ export const refreshToken = async (req, res) => {
 
     if (!user) return res.status(401).json({ message: "User not found" });
 
+    // Same check as `protect` (audit #175): a refresh token issued before a
+    // password change must not be redeemable for a new access token.
+    if (
+      user.passwordChangedAt &&
+      decoded.iat * 1000 < user.passwordChangedAt.getTime()
+    ) {
+      return res.status(401).json({ message: "Refresh token has been revoked" });
+    }
+
     // Rotate: the presented refresh token is single-use — blacklist it and
     // issue a new one, so a token that leaks (e.g. via logs, XSS) has a
     // limited window before it's replaced, and reuse of an old token after
@@ -353,6 +370,34 @@ export const logoutUser = async (req, res) => {
     const decoded = jwt.decode(token);
 
     await blacklistToken(token, decoded.exp);
+
+    // Also revoke the refresh token when the client sends it.
+    //
+    // WHY: logout used to blacklist only the access token from the
+    // Authorization header. Access tokens are short-lived, but the refresh
+    // token issued alongside them lives for 30 days, so "logging out" left a
+    // credential that could mint new access tokens for a month -- exactly what
+    // refreshToken() guards against by blacklisting the presented token on
+    // rotation. Same helper, same semantics, so a logged-out refresh token is
+    // rejected by isRefreshTokenBlacklisted on the next /token/refresh/.
+    //
+    // Deliberately best-effort and non-fatal: the field is optional and older
+    // shipped mobile builds (which don't auto-update) never send it. A missing,
+    // malformed or already-expired refresh token must still produce a
+    // successful logout rather than a 400/500 that strands the client holding
+    // a live access token it thinks it revoked.
+    const { refresh } = req.body || {};
+    if (refresh && typeof refresh === "string") {
+      try {
+        const decodedRefresh = jwt.decode(refresh);
+        if (decodedRefresh?.exp) {
+          await blacklistToken(refresh, decodedRefresh.exp);
+        }
+      } catch (refreshError) {
+        console.error("Logout refresh-token revocation skipped:", refreshError);
+      }
+    }
+
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -444,6 +489,7 @@ export const resetPassword = async (req, res) => {
         password: hashedPassword,
         resetPasswordToken: null,
         resetPasswordExpires: null,
+        passwordChangedAt: new Date(),
       },
     });
 
@@ -551,7 +597,7 @@ export const resetPasswordWithOTP = async (req, res) => {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { password: hashedPassword },
+        data: { password: hashedPassword, passwordChangedAt: new Date() },
       }),
       prisma.emailOTP.update({
         where: { id: record.id },
@@ -1318,7 +1364,7 @@ export const changePassword = async (req, res) => {
 
     let isValid = false;
     if (user.password.startsWith("pbkdf2_sha256$")) {
-      isValid = verifyDjangoPassword(oldPassword, user.password);
+      isValid = await verifyDjangoPassword(oldPassword, user.password);
     } else {
       isValid = await bcrypt.compare(oldPassword, user.password);
     }
@@ -1330,12 +1376,12 @@ export const changePassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
-      data: { password: hashedPassword },
+      data: { password: hashedPassword, passwordChangedAt: new Date() },
     });
 
-    // Force re-login on this device; the client discards its tokens after
-    // this call succeeds. (Other devices' tokens remain valid until they
-    // expire naturally — full multi-session revocation is out of scope here.)
+    // Blacklist this device's current token immediately (belt-and-braces);
+    // every other device's access/refresh token is now also rejected by
+    // `protect` and the refresh-token flow via passwordChangedAt (audit #175).
     const token = req.headers.authorization?.split(" ")[1];
     if (token) {
       const decoded = jwt.decode(token);
@@ -1348,6 +1394,72 @@ export const changePassword = async (req, res) => {
   } catch (error) {
     console.error("Change Password Error:", error);
     res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// ======================
+// Web Push subscriptions (vendor portal browser alerts) — see util/webPush.js
+// ======================
+const MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER = 5;
+
+export const registerWebPush = async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body || {};
+    const p256dh = keys?.p256dh;
+    const auth = keys?.auth;
+
+    if (!isAllowedPushEndpoint(endpoint)) {
+      return res.status(400).json({ success: false, message: 'Unsupported push endpoint' });
+    }
+    if (
+      typeof p256dh !== 'string' || p256dh.length === 0 || p256dh.length > 256 ||
+      typeof auth !== 'string' || auth.length === 0 || auth.length > 256
+    ) {
+      return res.status(400).json({ success: false, message: 'Invalid push keys' });
+    }
+
+    const userId = req.user.id;
+    const userAgent = String(req.get('user-agent') || '').slice(0, 300) || null;
+
+    // Bound the table per user: one vendor with many browsers is normal, one
+    // account registering thousands is not. Drop the oldest beyond the cap.
+    const others = await prisma.webPushSubscription.findMany({
+      where: { userId, NOT: { endpoint } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (others.length >= MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER) {
+      const stale = others.slice(MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER - 1).map((row) => row.id);
+      await prisma.webPushSubscription.deleteMany({ where: { id: { in: stale } } });
+    }
+
+    // Upsert by endpoint: the same browser signing in as a different user moves
+    // the subscription to that user instead of leaving it on the old one.
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint },
+      update: { userId, p256dh, auth, userAgent },
+      create: { userId, endpoint, p256dh, auth, userAgent },
+    });
+
+    res.json({ success: true, message: 'Web push subscription saved' });
+  } catch (error) {
+    console.error('Register web push error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+export const unregisterWebPush = async (req, res) => {
+  try {
+    const { endpoint } = req.body || {};
+    if (typeof endpoint !== 'string' || !endpoint) {
+      return res.status(400).json({ success: false, message: 'endpoint is required' });
+    }
+    // Scoped to the caller so one user cannot remove another's subscription.
+    await prisma.webPushSubscription.deleteMany({ where: { endpoint, userId: req.user.id } });
+    res.json({ success: true, message: 'Web push subscription removed' });
+  } catch (error) {
+    console.error('Unregister web push error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
