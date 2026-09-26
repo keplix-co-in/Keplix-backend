@@ -14,6 +14,7 @@ import { blacklistToken, isRefreshTokenBlacklisted } from "../middleware/authMid
 import { OAuth2Client } from "google-auth-library";
 import { eraseUserPii } from "../services/accountErasureService.js";
 import { getUserDataExport } from "../services/accountExportService.js";
+import { isAllowedPushEndpoint } from "../util/webPush.js";
 
 const require = createRequire(import.meta.url);
 
@@ -369,6 +370,34 @@ export const logoutUser = async (req, res) => {
     const decoded = jwt.decode(token);
 
     await blacklistToken(token, decoded.exp);
+
+    // Also revoke the refresh token when the client sends it.
+    //
+    // WHY: logout used to blacklist only the access token from the
+    // Authorization header. Access tokens are short-lived, but the refresh
+    // token issued alongside them lives for 30 days, so "logging out" left a
+    // credential that could mint new access tokens for a month -- exactly what
+    // refreshToken() guards against by blacklisting the presented token on
+    // rotation. Same helper, same semantics, so a logged-out refresh token is
+    // rejected by isRefreshTokenBlacklisted on the next /token/refresh/.
+    //
+    // Deliberately best-effort and non-fatal: the field is optional and older
+    // shipped mobile builds (which don't auto-update) never send it. A missing,
+    // malformed or already-expired refresh token must still produce a
+    // successful logout rather than a 400/500 that strands the client holding
+    // a live access token it thinks it revoked.
+    const { refresh } = req.body || {};
+    if (refresh && typeof refresh === "string") {
+      try {
+        const decodedRefresh = jwt.decode(refresh);
+        if (decodedRefresh?.exp) {
+          await blacklistToken(refresh, decodedRefresh.exp);
+        }
+      } catch (refreshError) {
+        console.error("Logout refresh-token revocation skipped:", refreshError);
+      }
+    }
+
     res.json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
@@ -1365,6 +1394,72 @@ export const changePassword = async (req, res) => {
   } catch (error) {
     console.error("Change Password Error:", error);
     res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// ======================
+// Web Push subscriptions (vendor portal browser alerts) — see util/webPush.js
+// ======================
+const MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER = 5;
+
+export const registerWebPush = async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body || {};
+    const p256dh = keys?.p256dh;
+    const auth = keys?.auth;
+
+    if (!isAllowedPushEndpoint(endpoint)) {
+      return res.status(400).json({ success: false, message: 'Unsupported push endpoint' });
+    }
+    if (
+      typeof p256dh !== 'string' || p256dh.length === 0 || p256dh.length > 256 ||
+      typeof auth !== 'string' || auth.length === 0 || auth.length > 256
+    ) {
+      return res.status(400).json({ success: false, message: 'Invalid push keys' });
+    }
+
+    const userId = req.user.id;
+    const userAgent = String(req.get('user-agent') || '').slice(0, 300) || null;
+
+    // Bound the table per user: one vendor with many browsers is normal, one
+    // account registering thousands is not. Drop the oldest beyond the cap.
+    const others = await prisma.webPushSubscription.findMany({
+      where: { userId, NOT: { endpoint } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (others.length >= MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER) {
+      const stale = others.slice(MAX_WEB_PUSH_SUBSCRIPTIONS_PER_USER - 1).map((row) => row.id);
+      await prisma.webPushSubscription.deleteMany({ where: { id: { in: stale } } });
+    }
+
+    // Upsert by endpoint: the same browser signing in as a different user moves
+    // the subscription to that user instead of leaving it on the old one.
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint },
+      update: { userId, p256dh, auth, userAgent },
+      create: { userId, endpoint, p256dh, auth, userAgent },
+    });
+
+    res.json({ success: true, message: 'Web push subscription saved' });
+  } catch (error) {
+    console.error('Register web push error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+export const unregisterWebPush = async (req, res) => {
+  try {
+    const { endpoint } = req.body || {};
+    if (typeof endpoint !== 'string' || !endpoint) {
+      return res.status(400).json({ success: false, message: 'endpoint is required' });
+    }
+    // Scoped to the caller so one user cannot remove another's subscription.
+    await prisma.webPushSubscription.deleteMany({ where: { endpoint, userId: req.user.id } });
+    res.json({ success: true, message: 'Web push subscription removed' });
+  } catch (error) {
+    console.error('Unregister web push error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
