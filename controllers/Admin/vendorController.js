@@ -229,7 +229,7 @@ export const setVendorStatus = async (req, res) => {
   try {
     const profile = await prisma.vendorProfile.findUnique({
       where: { userId: vendorId },
-      select: { id: true, status: true, shop_name: true },
+      select: { id: true, status: true, business_name: true },
     });
 
     if (!profile) {
@@ -246,13 +246,13 @@ export const setVendorStatus = async (req, res) => {
     const updated = await prisma.vendorProfile.update({
       where: { userId: vendorId },
       data: { status },
-      select: { userId: true, status: true, shop_name: true },
+      select: { userId: true, status: true, business_name: true },
     });
 
     // Loud on purpose: this is the gate between a signup and a business that can
     // take customers' money, so it needs to be searchable in logs afterwards.
     Logger.warn(
-      `[Admin] Vendor ${vendorId} (${updated.shop_name || "unnamed"}) status ${profile.status} -> ${status} by admin ${req.user?.id}. Reason: ${reason || "(none given)"}`,
+      `[Admin] Vendor ${vendorId} (${updated.business_name || "unnamed"}) status ${profile.status} -> ${status} by admin ${req.user?.id}. Reason: ${reason || "(none given)"}`,
     );
 
     return res.json({ message: `Vendor ${status}.`, vendor: updated });

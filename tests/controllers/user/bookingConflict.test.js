@@ -39,6 +39,7 @@ describe('createBooking slot conflict', () => {
       booking: { findFirst: jest.fn(), create: jest.fn() },
       bookingVehicle: { create: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn().mockResolvedValue(0),
     };
     prisma.$transaction.mockImplementation(async (cb) => cb(tx));
     prisma.service.findUnique.mockResolvedValue({

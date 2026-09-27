@@ -85,9 +85,26 @@ const SECRET_VENDOR_FIELDS = [
  * Use this on the way out when a controller enriches a broadly-included object
  * and returning a fully re-selected query would be a larger change.
  */
+// Only arrays and plain objects are walked. Everything else that typeof calls an
+// "object" — Date, Prisma's Decimal (a decimal.js instance), Buffer — is a value,
+// and must pass through untouched so it still serializes itself in res.json().
+//
+// WHY: this used to recurse into ANY object. Object.entries(new Date()) is empty,
+// so every Date became `{}`; a Decimal's own fields are {s, e, d}, so every price
+// became `{"s":1,"e":2,"d":[148]}`. The customer app then received
+// booking_date: {} — `new Date({})` is invalid and toISOString() threw
+// "RangeError: Date value out of bounds", blanking the whole app — and showed
+// prices as "₹[object Object]". Secrets are still stripped from every nested
+// plain object, which is all this function was ever meant to walk.
+const isPlainObject = (value) => {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
 export const stripVendorSecrets = (obj) => {
   if (!obj || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(stripVendorSecrets);
+  if (!isPlainObject(obj)) return obj;
 
   const clean = {};
   for (const [key, value] of Object.entries(obj)) {
