@@ -406,7 +406,14 @@ export const createBooking = async (req, res) => {
             // -- see the audit's preferred fix (a real partial unique index)
             // for the more robust alternative once the migration-history
             // cutover in prisma/MIGRATION_CUTOVER.md is complete.
-            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${service.vendorId}:${bookingDateKey}:${canonicalTime}`}))`;
+            // $executeRaw, NOT $queryRaw: pg_advisory_xact_lock returns `void`, and
+            // Prisma's $queryRaw cannot deserialize a void column — it throws
+            // "Failed to deserialize column of type 'void'" (P2010). Through
+            // $queryRaw this lock made EVERY booking creation, reschedule and
+            // early-start respond 500 in production. $executeRaw discards the
+            // result, which is all a lock needs. (Also true of the other two lock
+            // sites below.)
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${service.vendorId}:${bookingDateKey}:${canonicalTime}`}))`;
 
             // Both time representations are matched because legacy rows still
             // hold "2:00 PM" — comparing only the canonical form would let a
@@ -700,7 +707,7 @@ export const updateBooking = async (req, res) => {
       const targetDateKey = targetDate.toISOString().slice(0, 10);
       try {
         updatedBooking = await prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${targetDateKey}:${targetTime}`}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${targetDateKey}:${targetTime}`}))`;
 
           const clash = await tx.booking.findFirst({
             where: {
@@ -1008,7 +1015,7 @@ export const respondToEarlyStart = async (req, res) => {
     let updated;
     try {
       updated = await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${bookingDateKey}:${requestedTime}`}))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-slot:${booking.service.vendorId}:${bookingDateKey}:${requestedTime}`}))`;
 
         const clash = await tx.booking.findFirst({
           where: {

@@ -151,6 +151,7 @@ describe('confirmServiceCompletion (IDOR)', () => {
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
         $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn().mockResolvedValue(0),
         booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn() },
         payment: { update: jest.fn() },
         review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },

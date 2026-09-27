@@ -139,7 +139,7 @@ describe('respondToEarlyStart — apply-once guards', () => {
       findFirst: jest.fn().mockResolvedValue(null),
     };
     prisma.$transaction.mockImplementation(async (cb) =>
-      cb({ bookingEarlyStart: txEarly, booking: txBooking, $queryRaw: jest.fn() })
+      cb({ bookingEarlyStart: txEarly, booking: txBooking, $queryRaw: jest.fn(), $executeRaw: jest.fn().mockResolvedValue(0) })
     );
   });
 

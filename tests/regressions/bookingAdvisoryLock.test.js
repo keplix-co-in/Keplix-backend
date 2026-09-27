@@ -42,6 +42,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
       booking: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       bookingVehicle: { create: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([]),
+      $executeRaw: jest.fn().mockResolvedValue(0),
     };
     prisma.$transaction.mockImplementation(async (cb) => cb(tx));
     prisma.service.findUnique.mockResolvedValue({
@@ -68,8 +69,11 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
 
     await createBooking(req, res);
 
-    expect(tx.$queryRaw).toHaveBeenCalled();
-    const lockCallOrder = tx.$queryRaw.mock.invocationCallOrder[0];
+    expect(tx.$executeRaw).toHaveBeenCalled();
+    // The lock must never go through $queryRaw: pg_advisory_xact_lock returns void,
+    // which $queryRaw cannot deserialize (P2010) — that made every booking 500.
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    const lockCallOrder = tx.$executeRaw.mock.invocationCallOrder[0];
     const clashCallOrder = tx.booking.findFirst.mock.invocationCallOrder[0];
     expect(lockCallOrder).toBeLessThan(clashCallOrder);
   });
@@ -86,7 +90,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
 
     // The tagged-template call's raw strings/values are captured as separate
     // args by Prisma's $queryRaw mock signature: ([strings, ...values]).
-    const [, lockKey] = tx.$queryRaw.mock.calls[0];
+    const [, lockKey] = tx.$executeRaw.mock.calls[0];
     expect(lockKey).toContain('42'); // vendorId
     expect(lockKey).toContain('2026-08-25'); // date
     expect(lockKey).toContain('14:00'); // canonical time (from "2:00 PM")

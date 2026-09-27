@@ -405,100 +405,22 @@ export const logoutUser = async (req, res) => {
   }
 };
 
-// @desc    Forgot Password
-export const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    const user = await prisma.user.findUnique({ where: { email } });
-
-    // Security: If the email does not exist, do not reveal this information, reply with success message
-    if (!user) {
-      return res.json({
-        message: "If the email exists, a reset link has been sent.",
-      });
-    }
-
-    // In real implementation, generate token and send email
-
-    const resetToken = crypto.randomBytes(32).toString("hex");
-
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-
-    // save token for expiry ( 15 minutes )
-    await prisma.user.update({
-      where: { email },
-      data: {
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000),
-      },
-    });
-
-    // create reset link
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${user.id}/${resetToken}`;
-
-    // send email via Resend
-
-    await sendEmail(
-      email,
-      "Reset Your Password",
-      `Click here to reset your password: ${resetLink}`,
-    );
-
-    res.json({ message: "Password Reset Link Sent Successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server Error" });
-  }
+// @desc    Forgot Password (link flow) - RETIRED
+//
+// This wrote `resetPasswordToken` / `resetPasswordExpires` onto User, columns the
+// schema has never had, so for any real account it answered 500 while an unknown
+// email got a friendly 200 - which also told an attacker which emails are
+// registered. Every client uses the emailed 6-digit code instead
+// (POST /accounts/auth/send-password-reset-otp, then /reset-password-otp), so the
+// link flow is retired with a uniform 410 rather than repaired.
+const LINK_RESET_RETIRED = {
+  message:
+    "Link-based password reset is no longer available. Request a 6-digit code instead (send-password-reset-otp).",
 };
+export const forgotPassword = async (req, res) => res.status(410).json(LINK_RESET_RETIRED);
 
-// @desc    Reset Password
-export const resetPassword = async (req, res) => {
-  try {
-    const { token } = req.params;
-    const { password, re_password } = req.body;
-
-    if (password !== re_password) {
-      return res.status(400).json({ message: "Password does not match" });
-    }
-
-    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-
-    const user = await prisma.user.findFirst({
-      where: {
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: {
-          gt: new Date(),
-        },
-      },
-    });
-
-    if (!user) {
-      return res
-        .status(400)
-        .json({ message: "Invalid or Expired reset token" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        resetPasswordToken: null,
-        resetPasswordExpires: null,
-        passwordChangedAt: new Date(),
-      },
-    });
-
-    return res.json({ message: "Password reset successfully" });
-  } catch (error) {
-    console.error("Reset Password Error:", error);
-    res.status(500).json({ message: "Server Error" });
-  }
-};
+// @desc    Reset Password (link flow) - RETIRED, see forgotPassword above
+export const resetPassword = async (req, res) => res.status(410).json(LINK_RESET_RETIRED);
 
 // @desc    Send OTP for password reset (reuses EmailOTP infra, separate from
 //          the token-link forgotPassword/resetPassword flow above — this

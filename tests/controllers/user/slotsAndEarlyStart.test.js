@@ -128,6 +128,7 @@ describe('respondToEarlyStart', () => {
           findFirst: jest.fn().mockResolvedValue(null),
         },
         $queryRaw: jest.fn(),
+        $executeRaw: jest.fn().mockResolvedValue(0),
       })
     );
   });
@@ -186,6 +187,7 @@ describe('respondToEarlyStart', () => {
           findFirst: jest.fn().mockResolvedValue({ id: 555 }), // a clashing booking
         },
         $queryRaw: jest.fn(),
+        $executeRaw: jest.fn().mockResolvedValue(0),
       })
     );
     prisma.booking.findUnique.mockResolvedValue(pendingBooking);
