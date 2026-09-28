@@ -1,5 +1,7 @@
 ﻿import prisma from "../../util/prisma.js";
 import { getIO } from '../../socket.js';
+import { createNotification } from "../../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { PUBLIC_VENDOR_INCLUDE, stripVendorSecrets } from "../../util/publicVendor.js";
 
 
@@ -228,12 +230,40 @@ export const sendVendorMessage = async (req, res) => {
             data: { updatedAt: new Date() }
         });
 
-        // Socket.io Emit
+        // Socket.io Emit + customer notification. The user-side sendMessage
+        // (controllers/user/interactionController.js) has always notified the
+        // receiver of a new message; this vendor-side counterpart never did,
+        // so a customer got no notification -- and no unread badge -- for a
+        // vendor's reply unless they happened to have the chat screen open.
         try {
             const io = getIO();
             io.to(String(conversationId)).emit("receive_message", message);
+
+            const conversation = await prisma.conversation.findUnique({
+                where: { id: Number(conversationId) },
+                select: { booking: { select: { id: true, userId: true } } },
+            });
+
+            if (conversation?.booking) {
+                const receiverId = conversation.booking.userId;
+                const chatNotification = renderNotification(NOTIFICATION_TYPES.NEW_MESSAGE, {
+                    messageText: message_text,
+                    conversationId: Number(conversationId),
+                    bookingId: conversation.booking.id,
+                });
+                await createNotification(
+                    receiverId,
+                    chatNotification.title,
+                    chatNotification.body,
+                    {
+                        type: chatNotification.type,
+                        data: chatNotification.data,
+                        conversationId: Number(conversationId),
+                    }
+                );
+            }
         } catch (socketError) {
-             console.error("Socket emit failed:", socketError);
+             console.error("Socket/Notification Error:", socketError);
         }
 
         res.status(201).json(message);

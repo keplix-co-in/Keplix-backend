@@ -104,6 +104,20 @@ export const disputeServiceCompletion = async (req, res) => {
       return res.status(400).json({ message: "This booking is already under dispute" });
     }
 
+    // A dispute is the customer's response to the vendor's claim that the
+    // service is done -- confirmServiceCompletion requires the same
+    // precondition (status === "service_completed") for the opposite answer.
+    // Without this check, any booking could be disputed regardless of state
+    // -- including one still 'pending' vendor acceptance, where no service
+    // has happened at all -- which let a customer short-circuit cancellation
+    // (NON_CANCELLABLE excludes 'disputed') on a booking nothing was ever
+    // done on (audit: bookingcust flow, 2026-09-28).
+    if (booking.status !== "service_completed") {
+      return res.status(400).json({
+        message: "You can only dispute a booking after the vendor has marked the service as completed.",
+      });
+    }
+
     // Update booking status to disputed
     await prisma.booking.update({
       where: { id: bookingId },

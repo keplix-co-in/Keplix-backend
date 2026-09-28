@@ -41,6 +41,14 @@ const matches = (row, where) => {
 
 const VENDOR = 42;
 
+// Computed relative to "now" rather than hardcoded, so this suite does not
+// silently start failing once the wall clock passes a fixed date -- it did,
+// against 2026-08-25, once createBooking gained a past-date guard (audit:
+// bookingcust flow, 2026-09-28).
+const FUTURE_DATE = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+const FUTURE_DATE_ISO = FUTURE_DATE.toISOString();
+const FUTURE_DATE_PLUS_1_ISO = new Date(FUTURE_DATE.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
 describe('createBooking conflict matrix (fake booking table)', () => {
   let req, res, tx, table;
 
@@ -58,7 +66,7 @@ describe('createBooking conflict matrix (fake booking table)', () => {
       params: { userId: '1' },
       body: {
         serviceId: 7,
-        booking_date: '2026-08-25T00:00:00.000Z',
+        booking_date: FUTURE_DATE_ISO,
         booking_time: '14:00',
         notes: 'x',
       },
@@ -93,7 +101,7 @@ describe('createBooking conflict matrix (fake booking table)', () => {
   const existing = (over = {}) => ({
     id: 55,
     vendorId: VENDOR,
-    booking_date: new Date('2026-08-25T00:00:00.000Z'),
+    booking_date: new Date(FUTURE_DATE_ISO),
     booking_time: '14:00',
     status: 'confirmed',
     ...over,
@@ -141,7 +149,7 @@ describe('createBooking conflict matrix (fake booking table)', () => {
   });
 
   test('a different date at the same time does NOT collide', async () => {
-    table.push(existing({ booking_date: new Date('2026-08-26T00:00:00.000Z') }));
+    table.push(existing({ booking_date: new Date(FUTURE_DATE_PLUS_1_ISO) }));
     await run();
     expect(res.status).toHaveBeenCalledWith(201);
   });

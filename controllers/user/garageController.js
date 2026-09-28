@@ -303,9 +303,12 @@ export const getVehicle = async (req, res) => {
 //          they've claimed, newest first.
 // @route   GET /service_api/user/garage/history
 export const getHistory = async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
+  // Capped the same way the service-list endpoints are: `Number(limit)` used
+  // to be handed straight to both the over-fetch (`take = pageNum * limitNum`)
+  // and the final slice, so `?limit=999999999` asked for that many rows from
+  // both Booking and WalkInJob in one request.
+  const pageNum = Math.max(1, parseInt(req.query.page) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
 
   try {
     // Two queries + an in-memory merge, not a raw UNION ALL — this project

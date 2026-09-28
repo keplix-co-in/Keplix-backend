@@ -212,7 +212,24 @@ app.use(limiter);
 // --- ROUTES ---
 
 // Auth
-app.use("/accounts/auth", authLimiter, authRoutes);
+//
+// authLimiter is applied PER CREDENTIAL ROUTE inside routes/auth.js, not
+// mounted here on the whole router. It used to be mounted here (`app.use("/accounts/auth",
+// authLimiter, authRoutes)`), which ran ahead of `protect` for every route under
+// this prefix -- including the `protect`-guarded, authedReadLimiter-budgeted ones
+// (profile, push-token, web-push, export, account, password/change). Since
+// `keyByUserOrIp` only produces a per-user key once `protect` has populated
+// req.user, and authLimiter ran BEFORE routes/auth.js's own `protect` middleware,
+// every one of those "generous, per-user" reads was actually spending the tight
+// 20-per-15-min IP-keyed credential budget documented in
+// middleware/rateLimitMiddleware.js -- reintroducing, for every authenticated
+// endpoint in this file, exactly the "~20 profile views locks out login for the
+// whole IP" bug that authedReadLimiter's per-route carve-out was written to fix
+// (see the comments above authedReadLimiter and above GET/PUT /profile in
+// routes/auth.js). Found by the auth audit flow test (2026-09-28): a normal
+// sequence of login + profile + push-token + web-push + export + erase calls
+// from one client hit 429 well before any brute-force threshold.
+app.use("/accounts/auth", authRoutes);
 app.use("/accounts/auth", logoutRouter);
 
 // Vendor
