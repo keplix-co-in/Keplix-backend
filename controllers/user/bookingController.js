@@ -376,6 +376,29 @@ export const createBooking = async (req, res) => {
             return res.status(400).json({ message: "Invalid booking time" });
         }
         const bookingDate = new Date(booking_date);
+        if (isNaN(bookingDate.getTime())) {
+            return res.status(400).json({ message: "Invalid booking date" });
+        }
+
+        // Reject a booking whose date+time has already passed. updateBooking's
+        // reschedule path has always had this guard (see the identical check
+        // there), but createBooking never did, so a customer could POST a
+        // booking_date days in the past and it would be accepted with status
+        // 'pending' -- silently invisible to the vendor's day view and
+        // impossible to ever fulfil (audit: bookingcust flow, 2026-09-28).
+        // Compared in IST, same as the rest of the scheduling code, not the
+        // container's clock.
+        {
+            const nowIst = getISTDate();
+            const bookingMinutes = parseTimeToMinutes(canonicalTime);
+            const target = new Date(bookingDate);
+            if (Number.isFinite(bookingMinutes)) {
+                target.setHours(Math.floor(bookingMinutes / 60), bookingMinutes % 60, 0, 0);
+            }
+            if (target < nowIst) {
+                return res.status(400).json({ message: "Cannot book a time in the past." });
+            }
+        }
 
         // Booking + BookingVehicle together: a booking that priced against a
         // vehicle but has no snapshot row (or vice versa) is an inconsistent

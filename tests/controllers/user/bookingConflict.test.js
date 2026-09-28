@@ -18,6 +18,12 @@ jest.unstable_mockModule('../../../queues/notificationQueue.js', () => ({
 const { createBooking } = await import('../../../controllers/user/bookingController.js');
 const prisma = (await import('../../../util/prisma.js')).default;
 
+// Computed relative to "now" rather than hardcoded, so this suite does not
+// silently start failing once the wall clock passes a fixed date -- it did,
+// against 2026-08-25, once createBooking gained a past-date guard (audit:
+// bookingcust flow, 2026-09-28).
+const FUTURE_DATE_ISO = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+
 describe('createBooking slot conflict', () => {
   let req, res, tx;
 
@@ -28,7 +34,7 @@ describe('createBooking slot conflict', () => {
       params: { userId: '1' },
       body: {
         serviceId: 7,
-        booking_date: '2026-08-25T00:00:00.000Z',
+        booking_date: FUTURE_DATE_ISO,
         booking_time: '2:00 PM',
         notes: 'x',
       },

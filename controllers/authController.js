@@ -802,8 +802,15 @@ export const verifyEmailOTP = async (req, res) => {
       data: { verified: true },
     });
 
-    // Mark user as verified
-    await prisma.user.update({
+    // Mark user as verified, if one exists yet.
+    //
+    // sendEmailOTP (above) accepts any email and doesn't require a User row to
+    // already exist -- it's also used to verify an address before/without a
+    // full signup. `update()` throws P2025 ("record not found") when there's no
+    // matching row, which turned a perfectly valid OTP verification into a 500
+    // for any email not yet tied to a User. `updateMany` performs the same
+    // write but is a no-op (count: 0) instead of throwing when nothing matches.
+    await prisma.user.updateMany({
       where: { email: record.email },
       data: { is_verified: true },
     });

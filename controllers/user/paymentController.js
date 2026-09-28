@@ -104,6 +104,20 @@ export const createPaymentOrder = async (req, res) => {
     return res.json(responseData);
   } catch (error) {
     console.error("Create payment order error:", error);
+    // The Razorpay SDK throws a plain { statusCode, error: { description } }
+    // object, not an Error, for anything the gateway itself rejects
+    // (including bad/test credentials — statusCode 401). That previously fell
+    // through to a bare 500 with `error.message` (always undefined on this
+    // shape), hiding a gateway-side problem behind a generic server-error
+    // response. A failure Razorpay itself reported is an upstream/gateway
+    // failure from our API's point of view, so it's surfaced as 502 with the
+    // gateway's own description, not our own bug.
+    if (error && typeof error.statusCode === 'number') {
+      return res.status(502).json({
+        message: "Payment gateway rejected the request",
+        error: error.error?.description || error.message || 'Unknown gateway error',
+      });
+    }
     res.status(500).json({ message: "Payment order failed", error: error.message });
   }
 };

@@ -25,7 +25,7 @@ import {
 import { protect } from '../middleware/authMiddleware.js';
 // Mounted AFTER protect on the routes below, so the limiter keys on the user id
 // rather than the shared carrier NAT address. See app.js for the full reasoning.
-import { authedReadLimiter } from '../middleware/rateLimitMiddleware.js';
+import { authedReadLimiter, authLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema, updatePasswordSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
@@ -70,8 +70,8 @@ const uploadProfileFields = uploadFieldss([
  *         description: Bad request
  */
 // Same strict limit as /signup — this alias was an unlimited signup route.
-router.post('/register', validateRequest(registerSchema), registerUser);
-router.post('/signup', validateRequest(registerSchema), registerUser); // Alias for compatibility
+router.post('/register', authLimiter, validateRequest(registerSchema), registerUser);
+router.post('/signup', authLimiter, validateRequest(registerSchema), registerUser); // Alias for compatibility
 
 /**
  * @swagger
@@ -98,7 +98,7 @@ router.post('/signup', validateRequest(registerSchema), registerUser); // Alias 
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', validateRequest(loginSchema), authUser);
+router.post('/login', authLimiter, validateRequest(loginSchema), authUser);
 
 /**
  * @swagger
@@ -140,7 +140,7 @@ router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken)
  *       200:
  *         description: Reset email sent
  */
-router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPassword);
+router.post('/forgot-password', authLimiter, validateRequest(forgotPasswordSchema), forgotPassword);
 
 /**
  * @swagger
@@ -161,7 +161,7 @@ router.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPas
  *       200:
  *         description: OTP sent (if the email exists)
  */
-router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
+router.post('/send-password-reset-otp', authLimiter, validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
 
 /**
  * @swagger
@@ -186,7 +186,7 @@ router.post('/send-password-reset-otp', validateRequest(forgotPasswordSchema), s
  *       200:
  *         description: Password reset successfully
  */
-router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
+router.post('/reset-password-otp', authLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
 
 /**
  * @swagger
@@ -218,7 +218,7 @@ router.post('/reset-password-otp', validateRequest(resetPasswordWithOtpSchema), 
  *       200:
  *         description: Password reset successful
  */
-router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema), resetPassword);
+router.post('/reset-password/:uid/:token', authLimiter, validateRequest(resetPasswordSchema), resetPassword);
 
 /**
  * @swagger
@@ -240,7 +240,7 @@ router.post('/reset-password/:uid/:token', validateRequest(resetPasswordSchema),
  *         description: Login successful
  */
 // Rate limited like every other credential-accepting route.
-router.post('/google', validateRequest(googleLoginSchema), googleLogin);
+router.post('/google', authLimiter, validateRequest(googleLoginSchema), googleLogin);
 
 // OTP Routes
 /**
@@ -262,7 +262,7 @@ router.post('/google', validateRequest(googleLoginSchema), googleLogin);
  *       200:
  *         description: OTP sent
  */
-router.post('/send-phone-otp', validateRequest(requestOtpSchema), sendPhoneOTP);
+router.post('/send-phone-otp', authLimiter, validateRequest(requestOtpSchema), sendPhoneOTP);
 
 /**
  * @swagger
@@ -294,7 +294,7 @@ router.post('/send-phone-otp', validateRequest(requestOtpSchema), sendPhoneOTP);
 // unset, so behind Cloud Run every request resolved to the same proxy address
 // and the three attempts were shared by EVERY user of both apps — locking the
 // whole platform out of login for two hours at a time.
-router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOTP);
+router.post('/verify-phone-otp', authLimiter, validateRequest(verifyOtpSchema), verifyPhoneOTP);
 
 /**
  * @swagger
@@ -315,7 +315,7 @@ router.post('/verify-phone-otp', validateRequest(verifyOtpSchema), verifyPhoneOT
  *       200:
  *         description: OTP sent
  */
-router.post('/send-email-otp', validateRequest(requestOtpSchema), sendEmailOTP);
+router.post('/send-email-otp', authLimiter, validateRequest(requestOtpSchema), sendEmailOTP);
 
 /**
  * @swagger
@@ -339,7 +339,7 @@ router.post('/send-email-otp', validateRequest(requestOtpSchema), sendEmailOTP);
  *         description: OTP verified
  */
 // See verify-phone-otp for the limiter reasoning.
-router.post('/verify-email-otp', validateRequest(verifyOtpSchema), verifyEmailOTP);
+router.post('/verify-email-otp', authLimiter, validateRequest(verifyOtpSchema), verifyEmailOTP);
 
 // Protected Routes
 /**
@@ -512,8 +512,8 @@ router.delete('/account', protect, authedReadLimiter, deleteAccount);
 router.get('/export', protect, authedReadLimiter, exportAccountData);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
-router.post('/signup/', validateRequest(registerSchema), registerUser);
-router.post('/login/', validateRequest(loginSchema), authUser);
+router.post('/signup/', authLimiter, validateRequest(registerSchema), registerUser);
+router.post('/login/', authLimiter, validateRequest(loginSchema), authUser);
 router.post('/token/refresh/', validateRequest(refreshTokenSchema), refreshToken);
 
 export default router;

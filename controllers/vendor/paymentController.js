@@ -64,6 +64,18 @@ export const createVendorPaymentOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Vendor Payment Order Error:", error);
+    // Same rationale as routes/user's createPaymentOrder: the Razorpay SDK
+    // throws a plain { statusCode, error: { description } } object (not an
+    // Error) for anything the gateway itself rejects, including bad/test
+    // credentials (statusCode 401). That previously surfaced as a bare 500
+    // with `error.message` always undefined. A gateway-reported failure is
+    // an upstream problem, not our own bug, so it's now a 502.
+    if (error && typeof error.statusCode === 'number') {
+      return res.status(502).json({
+        message: "Payment gateway rejected the request",
+        error: error.error?.description || error.message || 'Unknown gateway error',
+      });
+    }
     res.status(500).json({
       message: "Vendor payment order creation failed",
       error: error.message,

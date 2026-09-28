@@ -20,7 +20,13 @@ import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVend
  */
 export const getAllServices = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search, latitude, longitude, radius = 50, online_only } = req.query;
+    const { search, latitude, longitude, radius = 50, online_only } = req.query;
+    // Capped the same way getFeaturedServices caps its own limit — this
+    // endpoint took `Number(limit)` straight from the query string into both
+    // Prisma's `take` and a raw-SQL `LIMIT`, so `?limit=999999999` asked
+    // Postgres to hand back the entire services table in one response.
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
     const skip = (page - 1) * limit;
     const searchRadius = parseFloat(radius);
     const userLat = latitude ? parseFloat(latitude) : null;
@@ -460,7 +466,10 @@ export const getServicesByVendor = async (req, res) => {
 
     // The link is via vendorId (Int) -> Service.vendorId (Int).
     // Note: In schema, Service.vendorId refers to userId of the vendor.
-    const { page = 1, limit = 50 } = req.query;
+    // Capped like getAllServices/getFeaturedServices — `Number(limit)` used
+    // to go straight into Prisma's `take` uncapped.
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
     const skip = (page - 1) * limit;
 
     const services = await prisma.service.findMany({

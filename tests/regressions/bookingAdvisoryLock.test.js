@@ -33,6 +33,13 @@ jest.unstable_mockModule('../../queues/notificationQueue.js', () => ({
 const { createBooking } = await import('../../controllers/user/bookingController.js');
 const prisma = (await import('../../util/prisma.js')).default;
 
+// Computed relative to "now" rather than hardcoded, so this suite does not
+// silently start failing once the wall clock passes a fixed date -- it did,
+// against 2026-08-25, once createBooking gained a past-date guard (audit:
+// bookingcust flow, 2026-09-28).
+const FUTURE_DATE_ISO = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+const FUTURE_DATE_KEY = FUTURE_DATE_ISO.slice(0, 10);
+
 describe('booking-slot advisory lock — FIXED, regression guard', () => {
   let tx;
 
@@ -63,7 +70,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
     const req = {
       user: { id: 1 },
       params: { userId: '1' },
-      body: { serviceId: 7, booking_date: '2026-08-25T00:00:00.000Z', booking_time: '2:00 PM', notes: 'x' },
+      body: { serviceId: 7, booking_date: FUTURE_DATE_ISO, booking_time: '2:00 PM', notes: 'x' },
     };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
 
@@ -82,7 +89,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
     const req = {
       user: { id: 1 },
       params: { userId: '1' },
-      body: { serviceId: 7, booking_date: '2026-08-25T00:00:00.000Z', booking_time: '2:00 PM', notes: 'x' },
+      body: { serviceId: 7, booking_date: FUTURE_DATE_ISO, booking_time: '2:00 PM', notes: 'x' },
     };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
 
@@ -92,7 +99,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
     // args by Prisma's $queryRaw mock signature: ([strings, ...values]).
     const [, lockKey] = tx.$executeRaw.mock.calls[0];
     expect(lockKey).toContain('42'); // vendorId
-    expect(lockKey).toContain('2026-08-25'); // date
+    expect(lockKey).toContain(FUTURE_DATE_KEY); // date
     expect(lockKey).toContain('14:00'); // canonical time (from "2:00 PM")
   });
 });
