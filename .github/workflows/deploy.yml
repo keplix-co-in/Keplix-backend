@@ -197,10 +197,18 @@ jobs:
           # dispatcher IN-PROCESS, so it is correct on exactly one instance and
           # misbehaves on more: cross-instance chat is lost (no shared adapter),
           # the rate limit multiplies per instance, and the cron dispatcher runs
-          # N times at once. min=1 keeps the instance warm and removes the ~5s
-          # cold start. One 2cpu/2Gi instance at concurrency 80 is ample here.
-          # Raising max>1 REQUIRES a shared adapter/store first (the deferred
-          # "Redis / horizontal" path).
+          # N times at once. One 2cpu/2Gi instance at concurrency 80 is ample
+          # here. Raising max>1 REQUIRES a shared adapter/store first (the
+          # deferred "Redis / horizontal" path).
+          #
+          # min=0 (2026-10-07): traffic is effectively zero right now and the
+          # always-on instance was pure cost for no use. Scaling to zero means
+          # the in-process cron jobs (bookingStatusManager, paymentReconciliation,
+          # refundReconciler, otpCleanupQueue — see util/*.js) do NOT fire while
+          # idle; they only catch up once a request wakes the instance. If real
+          # traffic returns and the ~5s cold start or the cron gap becomes a
+          # problem, set this back to 1 (or move the cron jobs to Cloud
+          # Scheduler hitting an endpoint, which works at min=0 too).
           gcloud run deploy $SERVICE_NAME \
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
@@ -211,7 +219,7 @@ jobs:
             --memory 2Gi \
             --cpu 2 \
             --max-instances 1 \
-            --min-instances 1 \
+            --min-instances 0 \
             --concurrency 80 \
             --timeout 600 \
             --cpu-boost \
