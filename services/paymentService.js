@@ -3,6 +3,9 @@ import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolveBookingAmount } from "../util/servicePricing.js";
 import { resolvePlatformFeeRate } from "../util/platformSettings.js";
+import { executeCancellationRefund } from "./refundPolicy.js";
+import { createNotification } from "../util/notificationHelper.js";
+import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -173,7 +176,7 @@ export const verifyAndRecordPayment = async ({
     throw new PaymentError("Captured amount does not match booking price", 400);
   }
 
-  const { payment, updatedBooking } = await recordSuccessfulPayment({
+  const { payment, updatedBooking, bookingActive, refundOutcome } = await recordSuccessfulPayment({
     bookingId: Number(bookingId),
     amount: totalAmount,
     platformFee,
@@ -182,7 +185,10 @@ export const verifyAndRecordPayment = async ({
     transactionId: paymentId || `TXN${Date.now()}`,
   });
 
-  return { payment, updatedBooking, platformFee, vendorAmount };
+  // bookingActive/refundOutcome let the controller tell the customer their
+  // payment arrived for a booking that had already been cancelled (and is
+  // being refunded) instead of reporting a normal success.
+  return { payment, updatedBooking, platformFee, vendorAmount, bookingActive, refundOutcome };
 };
 
 /**
@@ -205,7 +211,7 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
     vendorAmount,
   };
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Serialise concurrent verifies for this booking on the booking row.
     // Payment.bookingId is unique, but an upsert is a read-then-write: several
     // simultaneous verifies (a double-tapped pay button, a client retry racing
@@ -225,14 +231,96 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
       },
     });
 
-    const updatedBooking = await tx.booking.update({
-      where: { id: bookingId },
+    // Guarded: a payment may only move a LIVE, vendor-accepted booking to
+    // confirmed. This was an unconditional update, so a capture landing late
+    // (the customer paid in a tab left open, or the webhook arrived after the
+    // fact) revived a cancelled booking straight back to confirmed, and a
+    // payment on an in_progress/service_completed booking rolled it BACK to
+    // confirmed. Anything else keeps the status it has; the payment row is
+    // still recorded above because the money has genuinely moved.
+    const { count } = await tx.booking.updateMany({
+      where: {
+        id: bookingId,
+        status: { in: ["pending", "confirmed"] },
+        vendor_status: "accepted",
+      },
       data: { status: "confirmed" },
+    });
+
+    const updatedBooking = await tx.booking.findUnique({
+      where: { id: bookingId },
       include: { service: true },
     });
 
-    return { payment, updatedBooking };
+    return { payment, updatedBooking, bookingAdvanced: count > 0 };
   });
+
+  const { payment, updatedBooking, bookingAdvanced } = result;
+
+  if (bookingAdvanced || !updatedBooking) {
+    return { payment, updatedBooking, bookingActive: Boolean(updatedBooking) };
+  }
+
+  // A captured payment for a booking that is already dead. It must not be
+  // revived (above), and the customer must not be left out of pocket for a
+  // service that cannot happen: refund the whole amount, fee included
+  // (forceFullRefund -- see refundPolicy.js for why the normal cancellation
+  // policy does not apply). Run AFTER the transaction commits, because
+  // issueRefund reads the payment row this transaction just wrote.
+  if (updatedBooking.status === "cancelled") {
+    console.warn(
+      `[ADMIN NOTICE] Payment ${payment.id} captured for booking ${bookingId}, which is already cancelled. ` +
+      `Booking left cancelled; issuing a full refund.`
+    );
+    const refundOutcome = await executeCancellationRefund({
+      booking: updatedBooking,
+      payment,
+      forceFullRefund: true,
+      reason: `Payment received after booking #${bookingId} was cancelled -- full refund`,
+    });
+
+    if (refundOutcome.refunded) {
+      // Best-effort: createNotification never throws.
+      const n = renderNotification(NOTIFICATION_TYPES.PAYMENT_REFUNDED_BOOKING_INACTIVE, {
+        amount: refundOutcome.amount ?? amount,
+        bookingId,
+      });
+      await createNotification({
+        userId: updatedBooking.userId,
+        title: n.title,
+        message: n.body,
+        type: n.type,
+        data: n.data,
+      });
+      if (refundOutcome.payoutAlreadySettled) {
+        console.error(
+          `[MANUAL ACTION] Booking ${bookingId} refunded after vendor payout was settled -- ` +
+          `amount must be recovered from the vendor.`
+        );
+      }
+    } else {
+      console.error(
+        `[MANUAL ACTION] Payment ${payment.id} on cancelled booking ${bookingId} could not be refunded ` +
+        `automatically (${refundOutcome.code}: ${refundOutcome.reason}). Refund it from the admin finance page.`
+      );
+    }
+
+    return { payment, updatedBooking, bookingActive: false, refundOutcome };
+  }
+
+  // Not cancelled and not advanced: either the job is already further along
+  // (in_progress / service_completed / user_confirmed / disputed -- leave it
+  // exactly where it is, the payment simply settles it), or the vendor has
+  // not accepted yet. The second can only come from an order created before
+  // createPaymentOrder started requiring acceptance; nothing reverses it
+  // automatically if the vendor then declines, so say so loudly.
+  if (updatedBooking.vendor_status !== "accepted") {
+    console.warn(
+      `[ADMIN NOTICE] Payment ${payment.id} captured for booking ${bookingId} before the vendor accepted it ` +
+      `(vendor_status ${updatedBooking.vendor_status}). Status left as ${updatedBooking.status}.`
+    );
+  }
+  return { payment, updatedBooking, bookingActive: true };
 };
 
 /**
@@ -253,8 +341,18 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
 export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amountPaise, bookingIdHint }) => {
   const existing = await prisma.payment.findFirst({ where: { transactionId: paymentId } });
   if (existing) {
-    if (existing.status !== 'success') {
-      await prisma.payment.update({ where: { id: existing.id }, data: { status: 'success' } });
+    // Promote only a row that has not settled yet. This was `!== 'success'`,
+    // which also matched 'refunded': Razorpay redelivers payment.captured
+    // (retries, or a manual replay from its dashboard) long after a refund,
+    // and each redelivery flipped a refunded payment back to 'success' --
+    // re-arming the vendor payout and auto-confirm paths for money that had
+    // already gone back to the customer. Guarded in the WHERE as well, so a
+    // refund committing between the read and this write still wins.
+    if (existing.status === 'pending' || existing.status === 'failed') {
+      await prisma.payment.updateMany({
+        where: { id: existing.id, status: { in: ['pending', 'failed'] } },
+        data: { status: 'success' },
+      });
     }
     return { created: false };
   }
@@ -294,7 +392,7 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
   const platformFee = totalAmount * (await resolvePlatformFeeRate());
   const vendorAmount = totalAmount - platformFee;
 
-  const { payment, updatedBooking } = await recordSuccessfulPayment({
+  const { payment, updatedBooking, bookingActive, refundOutcome } = await recordSuccessfulPayment({
     bookingId,
     amount: totalAmount,
     platformFee,
@@ -303,5 +401,5 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
     transactionId: paymentId,
   });
 
-  return { created: true, payment, updatedBooking };
+  return { created: true, payment, updatedBooking, bookingActive, refundOutcome };
 };

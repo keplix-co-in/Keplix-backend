@@ -169,7 +169,51 @@ export const resolveCancellationRefund = async ({ booking, payment, settings }) 
  * gateway problem must not turn a successful cancellation into a 500. The
  * outcome is returned for logging/notification instead.
  */
-export const executeCancellationRefund = async ({ booking, payment }) => {
+export const executeCancellationRefund = async ({ booking, payment, forceFullRefund = false, reason }) => {
+  // Forced full refund: for cancellations the CUSTOMER did not cause -- the
+  // vendor never showed up (expiry cron, util/bookingStatusManager.js), or a
+  // payment captured for a booking that was already dead
+  // (services/paymentService.js). Owner decision 2026-10-20: these refund the
+  // whole amount regardless of autoRefundOnCancellation, and with no gateway
+  // fee deduction, because keeping any of the customer's money for a service
+  // that could never happen is not a policy question. The normal
+  // resolveCancellationRefund rules (which look at the PRE-cancel status and
+  // would answer ALREADY_CANCELLED here) are deliberately skipped.
+  if (forceFullRefund) {
+    if (!payment || payment.status !== "success") {
+      return {
+        refunded: false,
+        code: payment ? "PAYMENT_NOT_SUCCESSFUL" : "NO_PAYMENT",
+        reason: "There is no successful payment to refund.",
+      };
+    }
+    try {
+      // amount omitted: issueRefund refunds whatever is still unrefunded on
+      // this payment, so an earlier partial refund is never double-counted.
+      // Its own key, distinct from the customer-cancel key, so the two intents
+      // can't collide in refundService's idempotency table.
+      const result = await issueRefund({
+        paymentId: payment.id,
+        reason: reason || `Booking #${booking.id} could not go ahead -- full refund`,
+        idempotencyKey: `forced_full_refund_booking_${booking.id}`,
+      });
+      const refunded = result.refund?.amount != null ? parseFloat(result.refund.amount.toString()) : null;
+      return {
+        refunded: true,
+        amount: refunded,
+        feeDeducted: 0,
+        alreadyProcessed: result.alreadyProcessed,
+        payoutAlreadySettled: result.payoutAlreadySettled,
+        refund: result.refund,
+        code: "REFUND_ISSUED",
+        reason: "Full refund.",
+      };
+    } catch (error) {
+      console.error(`Forced full refund failed for booking ${booking.id}:`, error.message);
+      return { refunded: false, code: "REFUND_FAILED", reason: error.message };
+    }
+  }
+
   const settings = await getPlatformSettings();
 
   if (!settings.autoRefundOnCancellation) {

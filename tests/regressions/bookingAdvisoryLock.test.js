@@ -22,6 +22,9 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     service: { findUnique: jest.fn() },
     booking: { findFirst: jest.fn(), create: jest.fn() },
     bookingVehicle: { create: jest.fn() },
+    // createBooking now checks the requested time against the vendor's
+    // opening hours before the transaction (see checkSlotBookable).
+    vendorProfile: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -58,6 +61,12 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
       name: 'Detailing',
       price: 1000,
       segmentPrices: [],
+    });
+    // Open every day 9-6, so 2:00 PM reaches the lock and the clash check.
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      operating_hours: '9:00 AM - 6:00 PM',
+      breaks: '[]',
+      holidays: '[]',
     });
     tx.booking.create.mockResolvedValue({
       id: 101,

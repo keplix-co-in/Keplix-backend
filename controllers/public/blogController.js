@@ -10,6 +10,9 @@ const PUBLIC_SELECT = {
   category: true,
   readTime: true,
   publishedAt: true,
+  // Exposed so the website can emit BlogPosting `dateModified` and an accurate
+  // sitemap <lastmod> for posts edited after publishing. Not sensitive.
+  updatedAt: true,
   author: { select: { name: true } },
 };
 

@@ -13,6 +13,9 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     service: { findUnique: jest.fn() },
     booking: { findFirst: jest.fn(), create: jest.fn() },
     bookingVehicle: { create: jest.fn() },
+    // createBooking now checks the requested time against the vendor's
+    // opening hours before the transaction (see checkSlotBookable).
+    vendorProfile: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -28,7 +31,14 @@ const prisma = (await import('../../../util/prisma.js')).default;
 // Minimal evaluator for the exact WHERE shape this controller builds.
 const matches = (row, where) => {
   if (where.service?.vendorId !== undefined && row.vendorId !== where.service.vendorId) return false;
-  if (where.booking_date && row.booking_date.getTime() !== new Date(where.booking_date).getTime()) {
+  // booking_date is now matched as a calendar-day range ({ gte, lt }), not
+  // an exact timestamp: an exact match missed rows for the same day whose
+  // stored value carried a time component. A bare value is still handled.
+  if (where.booking_date?.gte || where.booking_date?.lt) {
+    const t = row.booking_date.getTime();
+    if (where.booking_date.gte && t < new Date(where.booking_date.gte).getTime()) return false;
+    if (where.booking_date.lt && t >= new Date(where.booking_date.lt).getTime()) return false;
+  } else if (where.booking_date && row.booking_date.getTime() !== new Date(where.booking_date).getTime()) {
     return false;
   }
   if (where.booking_time?.in && !where.booking_time.in.includes(row.booking_time)) return false;
@@ -95,6 +105,13 @@ describe('createBooking conflict matrix (fake booking table)', () => {
       name: 'Detailing',
       price: 1000,
       segmentPrices: [],
+    });
+    // Open every day 9-6 with no breaks, so both 14:00 and 15:00 are offered
+    // slots and the matrix keeps testing the clash check, not the hours check.
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      operating_hours: '9:00 AM - 6:00 PM',
+      breaks: '[]',
+      holidays: '[]',
     });
   });
 

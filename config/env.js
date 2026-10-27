@@ -154,6 +154,12 @@ const envSchema = z
     // unset -- kept optional to preserve that existing default.
     EMAIL_FROM: z.string().optional(),
 
+    // util/blogPublishHooks.js rebuilds keplix-website when a blog post goes
+    // live or changes. Optional: unset (or empty, which is what an unset GitHub
+    // secret becomes) means no automatic rebuild -- redeploy by hand instead.
+    // Must also be on deploy.yml's --set-env-vars line to reach Cloud Run.
+    VERCEL_DEPLOY_HOOK_URL: z.string().optional(),
+
     // util/bookingStatusManager.js already does
     // `process.env.BOOKING_PENDING_TIMEOUT_MINUTES || 5`. Declared here only
     // so it isn't stripped from `env` for anything that wants to read it via

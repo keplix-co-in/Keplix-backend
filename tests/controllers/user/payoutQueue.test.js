@@ -111,6 +111,9 @@ describe('Vendor Payout Queueing & Worker', () => {
             booking: {
                 findUnique: jest.fn().mockResolvedValue(mockBooking),
                 update: jest.fn().mockResolvedValue({}),
+                // Guarded confirmation write (status must still be
+                // service_completed, so a concurrent dispute wins).
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
             payment: {
                 update: jest.fn().mockResolvedValue({}),

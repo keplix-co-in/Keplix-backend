@@ -206,7 +206,12 @@ export const sendPushNotification = async (expoPushToken, title, body, data = {}
 
     return ticket;
   } catch (error) {
+    // Logged, not rethrown. A push is always a side effect of a write that has
+    // already committed (a dispute, a status change); rethrowing turned an
+    // Expo outage into a 500 for a request that had in fact succeeded, so the
+    // client retried into a state conflict. Same contract as the token checks
+    // above and as createNotification: null means "not delivered".
     Logger.error('Failed to send push notification:', error);
-    throw error;
+    return null;
   }
 };

@@ -235,6 +235,18 @@ model Booking {
   updatedAt         DateTime        @updatedAt
   vendor_status     String          @default("pending")
   completion_images String?
+  // Bookings enhancement (owner-approved 2026-10-20). All nullable so
+  // `prisma db push` adds them to existing rows without a default or a
+  // backfill. dispute_reason/disputed_at: the customer's dispute text used to
+  // be accepted and thrown away, leaving admins nothing to review.
+  // vendor_reject_reason: the partner app collected a reject reason and had
+  // nowhere to send it. service_completed_at: when the vendor marked the job
+  // done -- the 48h auto-confirm cron (util/bookingStatusManager.js) measures
+  // from it; NULL (legacy rows) is never auto-confirmed.
+  dispute_reason       String?
+  disputed_at          DateTime?
+  vendor_reject_reason String?
+  service_completed_at DateTime?
   service           Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   user              User            @relation("UserBookings", fields: [userId], references: [id])
   conversation      Conversation?

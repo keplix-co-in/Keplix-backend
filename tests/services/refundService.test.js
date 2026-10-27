@@ -107,6 +107,9 @@ describe('issueRefund', () => {
     mockPrisma.payment.findUnique.mockResolvedValue(paymentFixture());
     mockPrisma.refund.findUnique.mockResolvedValue({
       id: 10,
+      // paymentId is a required column on Refund; the key-ownership check
+      // (refundService issueRefund) compares it with the payment being refunded.
+      paymentId: 1,
       status: 'processed',
       amount: { toString: () => '5000' },
     });
@@ -115,6 +118,27 @@ describe('issueRefund', () => {
 
     expect(mockRefundCreate).not.toHaveBeenCalled();
     expect(result.alreadyProcessed).toBe(true);
+  });
+
+  test('a key already used for a different payment is refused (409) and the gateway is never called', async () => {
+    // Regression: the admin refund form kept its idempotency key after the
+    // operator edited the Payment ID, so a gateway_failed row for payment 1
+    // was retried with payment 2's request — moving payment 2's money while
+    // the ledger row still pointed at payment 1.
+    mockPrisma.payment.findUnique.mockResolvedValue(paymentFixture({ id: 2, transactionId: 'pay_2' }));
+    mockPrisma.refund.findUnique.mockResolvedValue({
+      id: 10,
+      paymentId: 1,
+      status: 'gateway_failed',
+      amount: { toString: () => '5000' },
+    });
+
+    const err = await issueRefund({ paymentId: 2, idempotencyKey: 'k1' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RefundError);
+    expect(err.statusCode).toBe(409);
+    expect(mockRefundCreate).not.toHaveBeenCalled();
+    expect(mockPrisma.refund.update).not.toHaveBeenCalled();
   });
 
   test('an in-flight "initiated" refund reserves its amount against the remaining balance', async () => {

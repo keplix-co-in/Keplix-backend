@@ -1,6 +1,7 @@
 import prisma from "../../util/prisma.js";
 import { uniqueSlug } from "../../util/slugify.js";
 import { sanitizeBlogHtml, estimateReadTime } from "../../util/sanitizeHtml.js";
+import { onBlogPostChanged } from "../../util/blogPublishHooks.js";
 
 const AUTHOR_SELECT = { select: { id: true, name: true } };
 
@@ -86,6 +87,8 @@ export const createBlogPost = async (req, res) => {
       include: { author: AUTHOR_SELECT },
     });
 
+    // Rebuild the website + IndexNow when the change is public (never throws).
+    await onBlogPostChanged(null, post);
     res.status(201).json(post);
   } catch (error) {
     console.error(error);
@@ -128,6 +131,7 @@ export const updateBlogPost = async (req, res) => {
       include: { author: AUTHOR_SELECT },
     });
 
+    await onBlogPostChanged(existing, post);
     res.json(post);
   } catch (error) {
     console.error(error);
@@ -142,6 +146,7 @@ export const deleteBlogPost = async (req, res) => {
     if (!existing) return res.status(404).json({ message: "Post not found" });
 
     await prisma.blogPost.delete({ where: { id } });
+    await onBlogPostChanged(existing, null);
     res.json({ message: "Post deleted" });
   } catch (error) {
     console.error(error);

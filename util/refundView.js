@@ -24,7 +24,10 @@ export const REFUND_ETA_TEXT = 'within 24 hours';
 // Money moved: the gateway confirmed it. reconciliation_needed belongs here
 // too — there the refund succeeded and only our own bookkeeping afterwards
 // failed, which is not the customer's problem and must not look like one.
-const SETTLED_STATUSES = ['processed', 'reconciliation_needed'];
+// Exported so the admin bookings list's 'refunded' filter
+// (controllers/Admin/bookingController.js) uses the same definition of "money
+// actually went back" as the customer's refund view, not a second copy.
+export const SETTLED_STATUSES = ['processed', 'reconciliation_needed'];
 
 const CANCELLED_STATUSES = ['cancelled', 'canceled'];
 

@@ -35,6 +35,11 @@ describe('payment order creation — gateway failures surface as 502, not 500 (r
           findUnique: jest.fn().mockResolvedValue({
             id: 1,
             userId: 5,
+            // createPaymentOrder now refuses (409) a booking the vendor has not
+            // accepted or that is no longer live, before reaching the gateway.
+            // This test is about the gateway failure, so the fixture is payable.
+            status: 'confirmed',
+            vendor_status: 'accepted',
             service: { id: 1, price: '799.00', vendorId: 9 },
             bookingVehicle: null,
           }),

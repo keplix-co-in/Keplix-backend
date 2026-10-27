@@ -40,6 +40,8 @@ export const NOTIFICATION_TYPES = {
   BOOKING_AUTO_DECLINED: 'BOOKING_AUTO_DECLINED',
   SERVICE_STARTED: 'SERVICE_STARTED',
   BOOKING_EXPIRED: 'BOOKING_EXPIRED',
+  BOOKING_NO_SHOW_REFUNDED: 'BOOKING_NO_SHOW_REFUNDED',
+  SERVICE_AUTO_CONFIRMED: 'SERVICE_AUTO_CONFIRMED',
 
   // Booking lifecycle -- vendor facing
   NEW_BOOKING_ALERT: 'NEW_BOOKING_ALERT',
@@ -54,6 +56,7 @@ export const NOTIFICATION_TYPES = {
   REFUND_ISSUED: 'REFUND_ISSUED',
   REFUND_UNDER_REVIEW: 'REFUND_UNDER_REVIEW',
   REFUND_FAILED: 'REFUND_FAILED',
+  PAYMENT_REFUNDED_BOOKING_INACTIVE: 'PAYMENT_REFUNDED_BOOKING_INACTIVE',
 
   // Early start
   EARLY_START_REQUEST: 'EARLY_START_REQUEST',
@@ -199,12 +202,23 @@ export const notificationTemplates = {
     data: bookingData(T.BOOKING_REQUEST_ACCEPTED, v),
   }),
 
-  [T.BOOKING_REQUEST_DECLINED]: (v = {}) => ({
-    type: T.BOOKING_REQUEST_DECLINED,
-    title: 'Request declined',
-    body: `Your ${serviceNoun(v.serviceName)} request was declined by the workshop. You can book another provider.`,
-    data: bookingData(T.BOOKING_REQUEST_DECLINED, v),
-  }),
+  // The vendor may now give a reason (respondToServiceRequest stores it in
+  // vendor_reject_reason). It is the vendor's own free text, so it is quoted
+  // as theirs, previewed to a push-sized length, and the clause is dropped
+  // entirely when there is none -- a bare decline reads exactly as before.
+  [T.BOOKING_REQUEST_DECLINED]: (v = {}) => {
+    const reason = previewText(v.reason, 120).replace(/[.\s]+$/, '');
+    return {
+      type: T.BOOKING_REQUEST_DECLINED,
+      title: 'Request declined',
+      body: join(
+        `Your ${serviceNoun(v.serviceName)} request was declined by the workshop.`,
+        reason ? `Their reason: "${reason}".` : '',
+        'You can book another provider.'
+      ),
+      data: bookingData(T.BOOKING_REQUEST_DECLINED, v),
+    };
+  },
 
   [T.BOOKING_STATUS_UPDATED]: (v = {}) => {
     const phrase = statusPhrase(v.status);
@@ -258,6 +272,39 @@ export const notificationTemplates = {
     title: 'Booking expired',
     body: `Your ${serviceNoun(v.serviceName)} booking expired because the scheduled time passed without the service starting.`,
     data: bookingData(T.BOOKING_EXPIRED, v),
+  }),
+
+  // The workshop never started a booking the customer had PAID for, so the
+  // expiry cron cancelled it and refunded the full amount
+  // (util/bookingStatusManager.js). Distinct from BOOKING_EXPIRED so the
+  // customer is told about their money, and from REFUND_ISSUED because this
+  // was not a cancellation they made.
+  [T.BOOKING_NO_SHOW_REFUNDED]: (v = {}) => {
+    const amount = formatAmount(v.amount);
+    return {
+      type: T.BOOKING_NO_SHOW_REFUNDED,
+      title: 'Booking missed by the workshop',
+      body: join(
+        `The workshop did not start your ${serviceNoun(v.serviceName)} booking at the scheduled time, so it has been cancelled.`,
+        amount
+          ? `A full refund of ${amount} is on its way to your original payment method.`
+          : 'A full refund is on its way to your original payment method.'
+      ),
+      data: bookingData(T.BOOKING_NO_SHOW_REFUNDED, v, {
+        screen: 'BookingList',
+        params: { initialTab: 'cancelled' },
+      }),
+    };
+  },
+
+  // The customer neither confirmed nor disputed within the auto-confirm
+  // window after the workshop marked the job done, so it was confirmed on
+  // their behalf and the workshop's payout released.
+  [T.SERVICE_AUTO_CONFIRMED]: (v = {}) => ({
+    type: T.SERVICE_AUTO_CONFIRMED,
+    title: 'Service confirmed automatically',
+    body: `Your ${serviceNoun(v.serviceName)} booking was confirmed automatically because no issue was raised after the workshop marked it as completed.`,
+    data: bookingData(T.SERVICE_AUTO_CONFIRMED, v),
   }),
 
   // --- Booking lifecycle: vendor facing -----------------------------------
@@ -371,6 +418,25 @@ export const notificationTemplates = {
       params: { initialTab: 'cancelled' },
     }),
   }),
+
+  // A payment was captured for a booking that had already been cancelled
+  // (services/paymentService.js recordSuccessfulPayment). The booking is NOT
+  // revived; the money goes straight back. No ETA quoted unless one is given,
+  // same as REFUND_ISSUED.
+  [T.PAYMENT_REFUNDED_BOOKING_INACTIVE]: (v = {}) => {
+    const amount = formatAmount(v.amount);
+    return {
+      type: T.PAYMENT_REFUNDED_BOOKING_INACTIVE,
+      title: 'Payment returned for a cancelled booking',
+      body: amount
+        ? `Your payment of ${amount} arrived after this booking was cancelled, so it is being refunded in full to your original payment method.`
+        : 'Your payment arrived after this booking was cancelled, so it is being refunded in full to your original payment method.',
+      data: bookingData(T.PAYMENT_REFUNDED_BOOKING_INACTIVE, v, {
+        screen: 'BookingList',
+        params: { initialTab: 'cancelled' },
+      }),
+    };
+  },
 
   // --- Early start ---------------------------------------------------------
 

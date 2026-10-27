@@ -77,7 +77,7 @@ export const reconcileStalePayments = async () => {
       const platformFee = totalAmount * 0.1;
       const vendorAmount = totalAmount - platformFee;
 
-      await prisma.$transaction(async (tx) => {
+      const bookingAdvanced = await prisma.$transaction(async (tx) => {
         await tx.payment.upsert({
           where: { bookingId: booking.id },
           update: {},
@@ -93,8 +93,32 @@ export const reconcileStalePayments = async () => {
             vendorPayoutStatus: 'pending',
           },
         });
-        await tx.booking.update({ where: { id: booking.id }, data: { status: 'confirmed' } });
+        // Same guard as recordSuccessfulPayment in services/paymentService.js.
+        // This was an unconditional update, but the booking was read at the
+        // top of the run and two Razorpay round-trips happened since: the
+        // customer may have cancelled, or the pending-timeout cron
+        // auto-declined it, in the gap. Writing 'confirmed' then revived a
+        // cancelled booking. vendor_status:'accepted' matters too: an order
+        // created before createPaymentOrder required acceptance can belong to
+        // a booking the vendor never answered, and confirming that one left
+        // it stuck (accept/reject and the pending-timeout job all require
+        // status 'pending'). The payment row above is recorded either way,
+        // because the money has moved.
+        const { count } = await tx.booking.updateMany({
+          where: { id: booking.id, status: { in: ['pending', 'confirmed'] }, vendor_status: 'accepted' },
+          data: { status: 'confirmed' },
+        });
+        return count > 0;
       });
+
+      if (!bookingAdvanced) {
+        // No admin notification channel; tagged log line, same convention as
+        // paymentService.js. The customer has paid for a booking that is no
+        // longer live, so this needs a refund by hand.
+        Logger.warn(
+          `[ADMIN NOTICE] [Reconciliation] Recovered payment ${captured.id} for booking ${booking.id}, but the booking is no longer an accepted, unstarted booking (cancelled/declined meanwhile, or never accepted by the vendor) -- left as is. Check whether it needs a refund.`,
+        );
+      }
 
       recovered += 1;
       Logger.info(`[Reconciliation] Recovered orphaned payment for booking ${booking.id} (payment ${captured.id})`);

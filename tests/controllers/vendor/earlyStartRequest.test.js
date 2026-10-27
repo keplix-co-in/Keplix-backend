@@ -139,7 +139,12 @@ describe('requestEarlyStart', () => {
     const where = prisma.booking.findMany.mock.calls[0][0].where;
     expect(where.id).toEqual({ not: 100 });
     expect(where.service).toEqual({ vendorId: VENDOR });
-    expect(where.booking_date).toEqual(booking().booking_date);
+    // The whole calendar day, not the exact stored timestamp: an exact match
+    // missed same-day bookings whose booking_date carried a time component.
+    expect(where.booking_date).toEqual({
+      gte: new Date('2026-08-25T00:00:00.000Z'),
+      lt: new Date('2026-08-26T00:00:00.000Z'),
+    });
     expect(where.NOT).toEqual({ status: { in: ['cancelled', 'rejected'] } });
   });
 

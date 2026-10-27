@@ -21,6 +21,10 @@ jest.unstable_mockModule('razorpay', () => ({
   })),
 }));
 
+// The booking write inside the transaction is a guarded updateMany (see the
+// guard tests at the bottom); it is hoisted so tests can set its count.
+const mockTxBookingUpdateMany = jest.fn();
+
 jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
     booking: { findMany: jest.fn(), update: jest.fn() },
@@ -28,13 +32,17 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     $transaction: jest.fn((cb) =>
       cb({
         payment: { upsert: jest.fn() },
-        booking: { update: jest.fn() },
+        booking: { updateMany: mockTxBookingUpdateMany },
       }),
     ),
   },
 }));
+jest.unstable_mockModule('../../util/logger.js', () => ({
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), http: jest.fn() },
+}));
 
 const prisma = (await import('../../util/prisma.js')).default;
+const { default: Logger } = await import('../../util/logger.js');
 const { reconcileStalePayments } = await import('../../util/paymentReconciliation.js');
 
 const BOOKING_ID = 501;
@@ -48,6 +56,7 @@ const capturedPayment = (amountPaise) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockOrdersAll.mockResolvedValue({ items: [{ id: 'order_test123' }] });
+  mockTxBookingUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 describe('reconcileStalePayments amount resolution (audit #148)', () => {
@@ -98,5 +107,48 @@ describe('reconcileStalePayments amount resolution (audit #148)', () => {
     const result = await reconcileStalePayments();
 
     expect(result.recovered).toBe(1);
+  });
+});
+
+/**
+ * Review fix 2026-10-24: the booking write was an unconditional update to
+ * confirmed. The booking is read at the top of the run and two Razorpay
+ * calls happen before the write, so a booking the customer cancelled (or the
+ * pending-timeout cron auto-declined) in that gap was revived to confirmed.
+ */
+describe('reconcileStalePayments booking write is guarded', () => {
+  const staleBooking = {
+    id: BOOKING_ID,
+    service: { price: '2000.00', segmentPrices: [] },
+    bookingVehicle: null,
+  };
+
+  // Same guard as recordSuccessfulPayment: vendor_status 'accepted' keeps a
+  // legacy order on a never-accepted booking from confirming it (it would then
+  // be stuck -- accept/reject and pending-timeout all need status 'pending').
+  test('confirms only a vendor-accepted booking that is still pending/confirmed', async () => {
+    prisma.booking.findMany.mockResolvedValue([staleBooking]);
+    mockFetchPayments.mockResolvedValue({ items: [capturedPayment(200000)] });
+
+    await reconcileStalePayments();
+
+    expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
+      where: { id: BOOKING_ID, status: { in: ['pending', 'confirmed'] }, vendor_status: 'accepted' },
+      data: { status: 'confirmed' },
+    });
+    expect(Logger.warn).not.toHaveBeenCalled();
+  });
+
+  test('a booking that left pending meanwhile is not revived; the payment is still recorded and ops is told', async () => {
+    prisma.booking.findMany.mockResolvedValue([staleBooking]);
+    mockFetchPayments.mockResolvedValue({ items: [capturedPayment(200000)] });
+    mockTxBookingUpdateMany.mockResolvedValue({ count: 0 });
+
+    const result = await reconcileStalePayments();
+
+    // Recovered = the payment row was written; the money genuinely moved.
+    expect(result.recovered).toBe(1);
+    expect(Logger.warn).toHaveBeenCalledWith(expect.stringContaining('[ADMIN NOTICE]'));
+    expect(Logger.warn).toHaveBeenCalledWith(expect.stringContaining(String(BOOKING_ID)));
   });
 });

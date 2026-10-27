@@ -90,6 +90,15 @@ export const issueRefund = async ({ paymentId, amount, reason, idempotencyKey, i
     const existing = await tx.refund.findUnique({ where: { idempotencyKey } });
 
     if (existing) {
+      // An idempotency key belongs to ONE payment. A key replayed against a
+      // different payment (e.g. an admin form that kept its key after the
+      // Payment ID was edited) must not retry/return the other payment's row:
+      // the retry path below would move this payment's money while the ledger
+      // row still points at the first payment. Refuse instead of guessing.
+      if (existing.paymentId !== payment.id) {
+        throw new RefundError("idempotencyKey was already used for a different payment", 409);
+      }
+
       // Already reached the gateway — nothing more to do.
       if (GATEWAY_REACHED_STATUSES.includes(existing.status)) {
         return { refund: existing, alreadyProcessed: true };

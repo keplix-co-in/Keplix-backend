@@ -98,7 +98,9 @@ describe('confirmServiceCompletion', () => {
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn() },
+        // The status write is a guarded updateMany (WHERE status is still
+        // service_completed) so a concurrent dispute wins; count 1 = no race.
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
         payment: { update: jest.fn() },
         review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
         // Confirmation refuses to release a payout while a refund is reserved

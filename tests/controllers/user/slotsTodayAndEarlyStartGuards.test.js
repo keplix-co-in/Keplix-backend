@@ -137,6 +137,15 @@ describe('respondToEarlyStart — apply-once guards', () => {
       // No clash by default (audit #110's re-check runs inside the same
       // transaction as the accept write); individual tests override this.
       findFirst: jest.fn().mockResolvedValue(null),
+      // The accept re-reads the booking in the transaction (must still be
+      // confirmed/scheduled + accepted), writes with a guarded updateMany,
+      // then re-reads the row for the response.
+      findUnique: jest.fn(async (args) =>
+        args.select
+          ? { status: 'confirmed', vendor_status: 'accepted' }
+          : { id: 100, status: 'in_progress', booking_time: '11:00' }
+      ),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     };
     prisma.$transaction.mockImplementation(async (cb) =>
       cb({ bookingEarlyStart: txEarly, booking: txBooking, $queryRaw: jest.fn(), $executeRaw: jest.fn().mockResolvedValue(0) })
@@ -147,9 +156,12 @@ describe('respondToEarlyStart — apply-once guards', () => {
     prisma.booking.findUnique.mockResolvedValue(pending());
     await respondToEarlyStart(req, res);
 
-    expect(txBooking.update).toHaveBeenCalledWith(
+    // updateMany with the startable states repeated in the WHERE, so a
+    // customer cancel (or vendor action) committing first makes this a no-op
+    // and a 409 rather than reviving the booking as in_progress.
+    expect(txBooking.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 100 },
+        where: { id: 100, status: { in: ['confirmed', 'scheduled'] }, vendor_status: 'accepted' },
         data: expect.objectContaining({ status: 'in_progress', booking_time: '11:00' }),
       })
     );

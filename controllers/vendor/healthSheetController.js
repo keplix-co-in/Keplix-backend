@@ -1,6 +1,7 @@
 import prisma from '../../util/prisma.js';
 import Logger from '../../util/logger.js';
 import { generatePublicToken } from '../../util/publicToken.js';
+import { parseIdParam } from '../../util/parseIdParam.js';
 
 /** Field-naming convention shared with the partner app: one file field per
  * inspection component, so a photo can never be silently mis-associated with
@@ -209,13 +210,19 @@ export const getHealthSheet = async (req, res) => {
 // @desc    Look up a health sheet by its parent Booking
 // @route   GET /service_api/vendor/bookings/:id/health-sheet
 export const getHealthSheetForBooking = async (req, res) => {
-  await getHealthSheetForParent(req, res, { bookingId: parseInt(req.params.id) });
+  // A non-numeric id reached Prisma as NaN and came back as a 500.
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) return res.status(400).json({ message: 'Invalid booking id' });
+  await getHealthSheetForParent(req, res, { bookingId });
 };
 
 // @desc    Look up a health sheet by its parent WalkInJob
 // @route   GET /service_api/vendor/walk-in-jobs/:id/health-sheet
 export const getHealthSheetForWalkInJob = async (req, res) => {
-  await getHealthSheetForParent(req, res, { walkInJobId: parseInt(req.params.id) });
+  // Same NaN-to-500 problem as the booking lookup above.
+  const walkInJobId = parseIdParam(req.params.id);
+  if (walkInJobId === null) return res.status(400).json({ message: 'Invalid walk-in job id' });
+  await getHealthSheetForParent(req, res, { walkInJobId });
 };
 
 async function getHealthSheetForParent(req, res, parentWhere) {

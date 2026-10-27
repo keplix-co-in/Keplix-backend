@@ -6,9 +6,35 @@ import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationT
 import { assertHealthSheetPresent } from "../../services/healthSheetService.js";
 import { resolvePayoutHoldUntil } from "../../util/platformSettings.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
-import { toCanonicalTime, minutesToLabel, SLOT_MINUTES } from "../../util/slots.js";
+import { toCanonicalTime, minutesToLabel, SLOT_MINUTES, bookingDayKey, bookingDayRange } from "../../util/slots.js";
 import { getISTDate } from "../../util/time.js";
 import { isValidBookingStatus, isValidVendorStatus } from "../../util/bookingStatus.js";
+import { parseIdParam } from "../../util/parseIdParam.js";
+
+// The ONLY status changes a vendor makes through updateBookingStatus, and the
+// states each may start from. Owner-approved booking-flow plan (2026-10-20).
+//
+// Everything else is refused (400). Accept/reject is respondToServiceRequest's
+// job; cancellation, confirmation, dispute and rejection belong to the
+// customer, the crons or an admin. This used to be a per-status if-chain where
+// any status WITHOUT a branch (pending, confirmed, cancelled, user_confirmed,
+// disputed ...) had no precondition at all -- a vendor could roll a booking
+// back to pending, cancel a paid booking without any refund running, or mark
+// it user_confirmed and skip the customer's confirmation entirely.
+//
+// 'completed' is not a key: it is mapped to service_completed before lookup
+// (see LEGACY_VENDOR_STATUS_ALIASES).
+const VENDOR_STATUS_TRANSITIONS = {
+  in_progress: ['confirmed', 'scheduled'],
+  service_completed: ['in_progress', 'confirmed', 'scheduled'],
+};
+
+// Shipped partner-app versions (ServiceCompletion.jsx, Bookings.jsx) send
+// status 'completed' to finish a job. Stored as service_completed instead:
+// 'completed' skipped the customer's confirm-or-dispute step, and the
+// customer's confirmation (or the auto-confirm cron after the window) is what
+// releases the vendor payout. Mapping here keeps those app versions working.
+const LEGACY_VENDOR_STATUS_ALIASES = { completed: 'service_completed' };
 
 
 
@@ -39,7 +65,16 @@ export const getVendorBookings = async (req, res) => {
       if (date_to) query.booking_date.lte = new Date(date_to);
     }
     if (serviceName) query.service = { name: { contains: serviceName } };
-    if (token) query.id = parseInt(token);
+    // token is the booking id typed into the vendor app's search box.
+    // parseInt let "12abc" through as 12 and sent NaN / an out-of-range int
+    // to Prisma as a 500.
+    if (token) {
+      const tokenId = parseIdParam(String(token));
+      if (tokenId === null) {
+        return res.status(400).json({ message: "Invalid booking token" });
+      }
+      query.id = tokenId;
+    }
 
     // The "today onwards" default only makes sense for bookings that are
     // still ABOUT a future date — pending/confirmed/scheduled. Once a
@@ -69,7 +104,14 @@ export const getVendorBookings = async (req, res) => {
         user: { include: { userProfile: true } },
         service: true,
         conversation: true, // Include conversation to get conversationId for chat
-        payment: true, // Include payment status
+        payment: true, // Include payment status (id, status, amount ...)
+        // The price this booking was actually quoted at (segment price
+        // snapshotted at createBooking). Without it the vendor app could only
+        // show service.price for an unpaid booking -- wrong whenever the
+        // customer's vehicle segment priced differently, or the vendor has
+        // edited the price since. Scalar row only (no vehicle relation), so no
+        // customer vehicle details are added to this response.
+        bookingVehicle: true,
       },
       orderBy: { booking_date: "desc" },
       skip: Number(skip),
@@ -86,8 +128,12 @@ export const getVendorBookings = async (req, res) => {
 // @desc    Accept or reject a service request
 // @route   PATCH /service_api/vendor/bookings/:id/respond
 export const respondToServiceRequest = async (req, res) => {
-  const { vendor_status } = req.body; // 'accepted' or 'rejected'
-  const bookingId = parseInt(req.params.id);
+  const { vendor_status, reason } = req.body; // 'accepted' or 'rejected'
+  // A non-numeric id used to reach Prisma as NaN and come back as a 500.
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) {
+    return res.status(400).json({ message: "Invalid booking id" });
+  }
 
   if (!isValidVendorStatus(vendor_status)) {
     return res.status(400).json({ message: `Invalid vendor_status: ${vendor_status}` });
@@ -140,7 +186,11 @@ export const respondToServiceRequest = async (req, res) => {
       },
       data: {
         vendor_status,
-        status: vendor_status === 'accepted' ? 'confirmed' : 'cancelled'
+        status: vendor_status === 'accepted' ? 'confirmed' : 'cancelled',
+        // Stored so the customer (and support) can see WHY a request was
+        // declined; before this the reason the vendor typed was discarded.
+        // Only on reject -- an accept has nothing to explain.
+        ...(vendor_status === 'rejected' && reason ? { vendor_reject_reason: reason } : {}),
       },
     });
 
@@ -197,6 +247,7 @@ export const respondToServiceRequest = async (req, res) => {
       const declined = renderNotification(NOTIFICATION_TYPES.BOOKING_REQUEST_DECLINED, {
         serviceName: booking.service?.name,
         bookingId: booking.id,
+        reason,
       });
       await createNotification(
         booking.userId,
@@ -231,10 +282,30 @@ export const respondToServiceRequest = async (req, res) => {
 // @desc    Update booking status
 // @route   PATCH /service_api/bookings/:id/
 export const updateBookingStatus = async (req, res) => {
-  const { status, notes } = req.body;
+  const { status: requestedStatus, notes } = req.body;
 
-  if (status && !isValidBookingStatus(status)) {
-    return res.status(400).json({ message: `Invalid status: ${status}` });
+  if (requestedStatus && !isValidBookingStatus(requestedStatus)) {
+    return res.status(400).json({ message: `Invalid status: ${requestedStatus}` });
+  }
+
+  // A non-numeric id used to reach Prisma as NaN and come back as a 500.
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) {
+    return res.status(400).json({ message: "Invalid booking id" });
+  }
+
+  // Legacy 'completed' -> 'service_completed' (see LEGACY_VENDOR_STATUS_ALIASES).
+  // Everything below -- the transition table, the health-sheet gate, the
+  // write, the escrow hold and the notification -- works on the mapped value.
+  const status = LEGACY_VENDOR_STATUS_ALIASES[requestedStatus] ?? requestedStatus;
+
+  // Explicit allow-list, checked before touching the database: a status with
+  // no entry is not a vendor transition at all.
+  const allowedFrom = VENDOR_STATUS_TRANSITIONS[status];
+  if (!allowedFrom) {
+    return res.status(400).json({
+      message: `Vendors can only start a booking (in_progress) or mark it completed (service_completed). '${requestedStatus ?? ''}' is not a status a workshop can set.`,
+    });
   }
 
   try {
@@ -246,7 +317,7 @@ export const updateBookingStatus = async (req, res) => {
     // filters this way; this function was simply missing it.
     const currentBooking = await prisma.booking.findFirst({
       where: {
-        id: parseInt(req.params.id),
+        id: bookingId,
         service: {
           vendorId: req.user.id
         }
@@ -260,86 +331,45 @@ export const updateBookingStatus = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    // Populated by whichever branch below applies to the requested `status`,
-    // then enforced again in the write's WHERE clause further down (see
-    // F41's fix note there). null means "no transition restriction for this
-    // status" -- preserved as-is for pending/user_confirmed/cancelled/disputed,
-    // which never had a guard here.
-    let allowedFrom = null;
+    if (!allowedFrom.includes(currentBooking.status)) {
+      return res.status(400).json({
+        message: status === 'in_progress'
+          ? `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
+          : `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`,
+      });
+    }
 
-    if (status) {
-        // 1. Start Service: confirmed -> in_progress
-        if (status === 'in_progress') {
-            allowedFrom = ['confirmed', 'scheduled'];
-            if (!allowedFrom.includes(currentBooking.status)) {
-                return res.status(400).json({
-                    message: `Cannot start service. Booking must be confirmed first. Current status: ${currentBooking.status}`
-                });
-            }
-        }
-
-        // 2. Complete Service: in_progress -> service_completed
-        if (status === 'service_completed') {
-             // Allow skipping in_progress check if it was just confirmed (for quick jobs), but typically we want the flow.
-             // For now, let's allow confirmed -> service_completed too for flexibility, or enforce flow?
-             // User prompt: "in_progress -> service_completed" logic implies flow.
-             allowedFrom = ['in_progress', 'confirmed', 'scheduled'];
-             if (!allowedFrom.includes(currentBooking.status)) {
-                return res.status(400).json({
-                    message: `Cannot mark completed. Service must be in progress or confirmed. Current status: ${currentBooking.status}`
-                });
-             }
-        }
-
-        // 3. Finish: the partner app sends 'completed' directly (not
-        //    'service_completed'), so this value has to keep working -- verified
-        //    against keplix-frontend/components/Vendor/Bookings/Bookings.jsx,
-        //    which sends 'in_progress' and 'completed' and nothing else.
-        //
-        //    It previously had NO branch here at all, so it was reachable from
-        //    any state: a vendor could mark a booking completed that they had
-        //    never accepted and that had never been paid for. Same precondition
-        //    as service_completed, plus service_completed itself so the natural
-        //    two-step finish still works.
-        if (status === 'completed') {
-            allowedFrom = ['in_progress', 'confirmed', 'scheduled', 'service_completed'];
-            if (!allowedFrom.includes(currentBooking.status)) {
-                return res.status(400).json({
-                    message: `Cannot mark completed. Service must be in progress, confirmed or already marked service-complete. Current status: ${currentBooking.status}`
-                });
-            }
-        }
-
-        // Mandatory-inspection gate. Same rule, same rollout anchoring as
-        // walk-in job completion — see services/healthSheetService.js and
-        // the PlatformSettings comment in schema.prisma. 409, not 400, so the
-        // app can branch on this specific code and deep-link into the
-        // inspection form rather than showing a generic validation error.
-        // Anchored to currentBooking.createdAt, not "now": flipping the
-        // rollout flag must never strand a booking that was already in
-        // flight before any garage had a way to see this form — completion
-        // is what releases escrow.
-        //
-        // Gated on 'completed' too, not just 'service_completed': despite
-        // this function's own comments describing service_completed as the
-        // completion step, the partner app's actual ServiceCompletion.jsx
-        // screen submits status: 'completed' directly. A gate that only
-        // checked 'service_completed' would never fire on a real completion
-        // — caught by testing the request the app actually sends, not the
-        // string this code talks about sending.
-        if (status === 'service_completed' || status === 'completed') {
-          const gate = await assertHealthSheetPresent({
-            createdAt: currentBooking.createdAt,
-            bookingId: currentBooking.id,
-          });
-          if (!gate.ok) {
-            return res.status(409).json({ code: gate.code, message: gate.message });
-          }
-        }
+    // Mandatory-inspection gate. Same rule, same rollout anchoring as
+    // walk-in job completion — see services/healthSheetService.js and
+    // the PlatformSettings comment in schema.prisma. 409, not 400, so the
+    // app can branch on this specific code and deep-link into the
+    // inspection form rather than showing a generic validation error.
+    // Anchored to currentBooking.createdAt, not "now": flipping the
+    // rollout flag must never strand a booking that was already in
+    // flight before any garage had a way to see this form — completion
+    // is what releases escrow.
+    //
+    // Legacy 'completed' requests reach this gate too, because `status` has
+    // already been mapped to service_completed above.
+    if (status === 'service_completed') {
+      const gate = await assertHealthSheetPresent({
+        createdAt: currentBooking.createdAt,
+        bookingId: currentBooking.id,
+      });
+      if (!gate.ok) {
+        return res.status(409).json({ code: gate.code, message: gate.message });
+      }
     }
 
     // Prepare update data
     const updateData = { status };
+    // Starts the customer's confirm-or-dispute window: the auto-confirm cron
+    // (util/bookingStatusManager.js) confirms bookings left in
+    // service_completed past it. Written in the same statement as the status
+    // so the two can never disagree.
+    if (status === 'service_completed') {
+      updateData.service_completed_at = new Date();
+    }
     if (notes) {
       updateData.notes = notes;
     }
@@ -372,12 +402,11 @@ export const updateBookingStatus = async (req, res) => {
     // refunded for the same booking. `allowedFrom` (computed above, per
     // target status) repeated in the WHERE makes the guard and the write one
     // statement, closing that window entirely, not just narrowing it.
-    const bookingId = parseInt(req.params.id);
     const { count } = await prisma.booking.updateMany({
       where: {
         id: bookingId,
         service: { vendorId: req.user.id },
-        ...(allowedFrom ? { status: { in: allowedFrom } } : {}),
+        status: { in: allowedFrom },
       },
       data: updateData,
     });
@@ -411,7 +440,8 @@ export const updateBookingStatus = async (req, res) => {
     // a hold must not fail the vendor's completion. The payout guard treats a
     // missing hold as releasable, so the downside is a payout that isn't
     // delayed — never a booking that can't be completed.
-    if (status === 'service_completed' || status === 'completed') {
+    // (`status` is already the mapped value, so legacy 'completed' lands here.)
+    if (status === 'service_completed') {
       try {
         const holdUntil = await resolvePayoutHoldUntil(new Date());
         if (holdUntil) {
@@ -429,10 +459,11 @@ export const updateBookingStatus = async (req, res) => {
     // Copy comes from the template registry so the generic branch can no
     // longer leak a raw enum ("is now service_completed") into a user's
     // notification tray.
+    // Only in_progress and service_completed reach this point now (see
+    // VENDOR_STATUS_TRANSITIONS), so the confirmed/cancelled branches that
+    // used to live here are gone.
     const statusTemplateType =
-        status === 'confirmed' ? NOTIFICATION_TYPES.BOOKING_CONFIRMED
-      : status === 'service_completed' ? NOTIFICATION_TYPES.SERVICE_COMPLETED
-      : status === 'cancelled' ? NOTIFICATION_TYPES.BOOKING_CANCELLED_BY_VENDOR
+        status === 'service_completed' ? NOTIFICATION_TYPES.SERVICE_COMPLETED
       : NOTIFICATION_TYPES.BOOKING_STATUS_UPDATED;
 
     const statusNotification = renderNotification(statusTemplateType, {
@@ -493,8 +524,10 @@ const timeToMinutes = (value) => {
 // booking to in_progress.
 export const requestEarlyStart = async (req, res) => {
   try {
-    const bookingId = parseInt(req.params.id);
-    if (isNaN(bookingId)) {
+    // parseIdParam, not parseInt: parseInt("12abc") is 12 and an id past
+    // INT4 reached Prisma as a 500 (see util/parseIdParam.js).
+    const bookingId = parseIdParam(req.params.id);
+    if (bookingId === null) {
       return res.status(400).json({ success: false, message: "Invalid booking id" });
     }
 
@@ -556,7 +589,10 @@ export const requestEarlyStart = async (req, res) => {
       where: {
         id: { not: bookingId },
         service: { vendorId: req.user.id },
-        booking_date: booking.booking_date,
+        // Whole calendar day rather than the exact timestamp, same window as
+        // the customer-side clash checks: a same-day booking stored with a
+        // different time-of-day component used to be invisible here.
+        booking_date: bookingDayRange(bookingDayKey(booking.booking_date)),
         NOT: { status: { in: ['cancelled', 'rejected'] } },
       },
       select: { booking_time: true },

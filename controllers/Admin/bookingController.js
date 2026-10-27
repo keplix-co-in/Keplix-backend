@@ -3,6 +3,8 @@ import Logger from "../../util/logger.js";
 import { toCanonicalTime } from "../../util/slots.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
+import { SETTLED_STATUSES } from "../../util/refundView.js";
+import { parseIdParam } from "../../util/parseIdParam.js";
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -59,6 +61,62 @@ export const getBookingMetrics = async (req, res) => {
   }
 };
 
+// `?type=` value -> Prisma where-clause for the admin bookings list.
+//
+// Exported for tests/regressions/adminBookingsFilter.test.js. The admin panel
+// (kepix-admin src/data/config.js bookingFilters) sends every key here. This
+// used to recognise only completed/inprogress/confirmed/cancelled/requested,
+// and ANY other value fell through to an empty filter, so choosing "Disputed"
+// or "Refunded" silently listed every booking on the platform -- an admin
+// could believe there were hundreds of disputes. Unknown values are now a 400
+// (see getBookings), never "all".
+export const ADMIN_BOOKING_FILTERS = {
+  all: {},
+  pending: { status: "pending" },
+  // Older alias for pending, kept for any cached admin build still sending it.
+  requested: { status: "pending" },
+  confirmed: { status: "confirmed" },
+  in_progress: { status: "in_progress" },
+  // The admin panel sends the un-underscored spelling; both are accepted.
+  inprogress: { status: "in_progress" },
+  // Done by the workshop, waiting on the customer's confirm-or-dispute.
+  service_completed: { status: "service_completed" },
+  // Unchanged meaning: work done, whether or not the customer has confirmed
+  // yet. "completed" itself is included because legacy rows still hold it
+  // (vendor app versions that sent 'completed' wrote it verbatim before the
+  // backend mapped it to service_completed).
+  completed: { status: { in: ["service_completed", "user_confirmed", "completed"] } },
+  disputed: { status: "disputed" },
+  cancelled: { status: "cancelled" },
+  // A workshop declining the request is a vendor_status, not a status: the
+  // booking itself is written as 'cancelled' (respondToServiceRequest).
+  rejected: { vendor_status: "rejected" },
+  // Money actually went back. Same definition as the customer's refund view
+  // (util/refundView.js SETTLED_STATUSES), plus Payment.status 'refunded',
+  // which refundService writes once the whole amount has been returned.
+  refunded: {
+    payment: {
+      is: {
+        OR: [
+          { status: "refunded" },
+          { refunds: { some: { status: { in: SETTLED_STATUSES } } } },
+        ],
+      },
+    },
+  },
+};
+
+// Same collapse util/refundView.js applies for customers, minus its
+// "payment must still be success" gate (a fully refunded payment is
+// 'refunded', which is exactly the case an admin needs to see). null means no
+// refund has been attempted.
+const adminRefundStatus = (refunds) => {
+  if (!Array.isArray(refunds) || refunds.length === 0) return null;
+  const live = refunds.filter((r) => r.status !== "gateway_failed");
+  if (live.length === 0) return "failed";
+  return live.every((r) => SETTLED_STATUSES.includes(r.status)) ? "completed" : "processing";
+};
+
 export const getBookings = async (req, res) => {
   try {
 
@@ -66,30 +124,14 @@ export const getBookings = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    let filter = {};
-
-    // 🔥 FILTER LOGIC
-    if (type === "completed") {
-      filter.status = {
-        in: ["service_completed", "user_confirmed"]
-      };
+    // Own-property lookup so "constructor"/"__proto__" can't match.
+    if (!Object.prototype.hasOwnProperty.call(ADMIN_BOOKING_FILTERS, type)) {
+      return res.status(400).json({
+        message: `Unknown booking filter: ${String(type)}`,
+        allowed: Object.keys(ADMIN_BOOKING_FILTERS),
+      });
     }
-
-    else if (type === "inprogress") {
-      filter.status = "in_progress";
-    }
-
-    else if (type === "confirmed") {
-      filter.status = "confirmed";
-    }
-
-    else if (type === "cancelled") {
-      filter.status = "cancelled";
-    }
-
-    else if (type === "requested") {
-      filter.status = "pending";
-    }
+    const filter = ADMIN_BOOKING_FILTERS[type];
 
     // 🚀 QUERY
     const bookings = await prisma.booking.findMany({
@@ -98,9 +140,18 @@ export const getBookings = async (req, res) => {
       select: {
         id: true,
         status: true,
+        vendor_status: true,
         booking_date: true,
         booking_time: true,
         createdAt: true,
+        // Shown on the admin booking card: why the customer disputed, why
+        // the workshop declined, and when the confirm-or-dispute window
+        // started. A select list drops anything not named, so these have to
+        // be listed explicitly.
+        dispute_reason: true,
+        disputed_at: true,
+        vendor_reject_reason: true,
+        service_completed_at: true,
 
         user: {
           select: {
@@ -130,8 +181,15 @@ export const getBookings = async (req, res) => {
 
         payment: {
           select: {
+            // id + status: the admin card's Refund action posts to
+            // /admin/finance/payments/:id/refund, which only accepts a
+            // 'success' payment. Without the id the action had nothing to
+            // call.
+            id: true,
+            status: true,
             amount: true,
-            platformFee: true
+            platformFee: true,
+            refunds: { select: { status: true } },
           }
         }
       },
@@ -164,7 +222,18 @@ export const getBookings = async (req, res) => {
       amount: b.payment?.amount || 0,
       fee: b.payment?.platformFee || 0,
       status: b.status,
-      createdAt: b.createdAt
+      vendor_status: b.vendor_status,
+      createdAt: b.createdAt,
+      dispute_reason: b.dispute_reason,
+      disputed_at: b.disputed_at,
+      vendor_reject_reason: b.vendor_reject_reason,
+      service_completed_at: b.service_completed_at,
+      // null when no payment exists, so the panel can tell "unpaid" from
+      // "payment details missing".
+      paymentId: b.payment?.id ?? null,
+      payment: b.payment
+        ? { id: b.payment.id, status: b.payment.status, refundStatus: adminRefundStatus(b.payment.refunds) }
+        : null,
     }));
 
     res.json(formatted);
@@ -189,7 +258,11 @@ export const getBookings = async (req, res) => {
 // @route   POST /admin/bookings/:id/force-complete
 export const forceCompleteBooking = async (req, res) => {
   const { reason } = req.body;
-  const bookingId = parseInt(req.params.id);
+  // A non-numeric id used to reach Prisma as NaN and come back as a 500.
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) {
+    return res.status(400).json({ message: "Invalid booking id" });
+  }
 
   try {
     const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
@@ -208,15 +281,38 @@ export const forceCompleteBooking = async (req, res) => {
       });
     }
 
-    const updated = await prisma.booking.update({
-      where: { id: bookingId },
+    // Guarded: the ALREADY_RESOLVED check above was a pre-read, and a
+    // customer confirmation or cancellation can commit in between. Writing
+    // unconditionally would then drag a user_confirmed/cancelled booking back
+    // to service_completed -- the exact resurrection the check exists to stop.
+    //
+    // service_completed_at is explicitly CLEARED, not just left alone. That
+    // column starts the auto-confirm window (util/bookingStatusManager.js),
+    // and auto-confirm releases the payout. The header above promises this
+    // endpoint "cannot itself move money"; a null column keeps that true --
+    // the auto-confirm cron skips rows with no service_completed_at, so a
+    // force-completed booking still needs the customer's own confirmation.
+    // Merely not setting it was not enough (review 2026-10-20): a booking the
+    // vendor marked service_completed and the customer then DISPUTED still
+    // carries the vendor's old timestamp, which is long past the 48h window,
+    // so force-completing it out of 'disputed' made it auto-confirm -- and
+    // pay out -- within ten minutes, over the customer's dispute.
+    const { count } = await prisma.booking.updateMany({
+      where: { id: bookingId, status: { notIn: ALREADY_RESOLVED } },
       data: {
         status: "service_completed",
+        service_completed_at: null,
         notes: reason
           ? `${booking.notes ? booking.notes + " | " : ""}[Admin force-complete by ${req.user.id}]: ${reason}`
           : booking.notes,
       },
     });
+    if (count === 0) {
+      return res.status(409).json({
+        message: "This booking changed status before it could be force-completed. Reload and try again.",
+      });
+    }
+    const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
 
     // Deliberately loud — this is the one path that bypasses a safety gate,
     // and it should be easy to find in logs later.
@@ -249,7 +345,11 @@ export const forceCompleteBooking = async (req, res) => {
 // @route   POST /admin/bookings/:id/dispute/resolve
 export const resolveDisputeForCustomer = async (req, res) => {
   const { reason } = req.body;
-  const bookingId = parseInt(req.params.id);
+  // A non-numeric id used to reach Prisma as NaN and come back as a 500.
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) {
+    return res.status(400).json({ message: "Invalid booking id" });
+  }
 
   if (!reason || reason.trim().length < 10) {
     return res.status(400).json({ message: "Please provide a detailed reason (minimum 10 characters)" });
@@ -268,13 +368,22 @@ export const resolveDisputeForCustomer = async (req, res) => {
       });
     }
 
-    const updated = await prisma.booking.update({
-      where: { id: bookingId },
+    // Guarded on 'disputed': two admins resolving the same dispute (one for
+    // the vendor via force-complete, one here) must not both win. Whichever
+    // write lands second sees count 0.
+    const { count } = await prisma.booking.updateMany({
+      where: { id: bookingId, status: "disputed" },
       data: {
         status: "cancelled",
         notes: `${booking.notes ? booking.notes + " | " : ""}[Admin dispute resolved for customer by ${req.user.id}]: ${reason}`,
       },
     });
+    if (count === 0) {
+      return res.status(409).json({
+        message: "This dispute was resolved or changed before your update. Reload and try again.",
+      });
+    }
+    const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
 
     Logger.warn(
       `[Admin] Dispute for booking ${bookingId} resolved in the customer's favour by admin ${req.user.id}. Reason: ${reason}. A refund must still be issued separately via /admin/finance/payments/:id/refund.`,

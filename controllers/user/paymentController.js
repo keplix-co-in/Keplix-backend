@@ -6,6 +6,8 @@ import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationT
 import Logger from "../../util/logger.js";
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
 import { resolveBookingAmount } from "../../util/servicePricing.js";
+import { isBookingPayable } from "../../util/bookingStatus.js";
+import { parseIdParam } from "../../util/parseIdParam.js";
 
 
 
@@ -30,9 +32,14 @@ export const createPaymentOrder = async (req, res) => {
     if (!bookingId) {
       return res.status(400).json({ message: "Booking ID is required" });
     }
+    // Number("abc") is NaN and reached Prisma as a 500.
+    const bookingIdNum = parseIdParam(typeof bookingId === "number" ? bookingId : String(bookingId));
+    if (bookingIdNum === null) {
+      return res.status(400).json({ message: "Invalid booking ID" });
+    }
 
     const booking = await prisma.booking.findUnique({
-      where: { id: Number(bookingId) },
+      where: { id: bookingIdNum },
       include: { service: true, bookingVehicle: true },
     });
 
@@ -42,6 +49,22 @@ export const createPaymentOrder = async (req, res) => {
 
     if (booking.userId !== req.user.id) {
       return res.status(403).json({ message: "Not authorized for this booking" });
+    }
+
+    // Only a vendor-accepted, still-live booking can be paid for
+    // (util/bookingStatus.js isBookingPayable). Orders used to be created for
+    // any booking the caller owned -- one still awaiting the vendor, one the
+    // vendor had declined, one already cancelled -- and the resulting capture
+    // then confirmed it regardless. 409: the request is fine, the booking's
+    // state is what rules it out.
+    if (!isBookingPayable(booking)) {
+      return res.status(409).json({
+        message:
+          booking.vendor_status !== "accepted"
+            ? "The workshop has not accepted this booking yet, so it can't be paid for."
+            : `This booking is ${booking.status} and can no longer be paid for.`,
+        code: "BOOKING_NOT_PAYABLE",
+      });
     }
 
     // Prefers BookingVehicle.price_snapshot (segment price at the time this
@@ -130,7 +153,7 @@ export const verifyPayment = async (req, res) => {
   try {
     const { orderId, paymentId, signature, bookingId, gateway } = req.body;
 
-    const { payment, updatedBooking, platformFee, vendorAmount } = await verifyAndRecordPayment({
+    const { payment, updatedBooking, platformFee, vendorAmount, bookingActive, refundOutcome } = await verifyAndRecordPayment({
       bookingId,
       requestingUserId: req.user.id,
       orderId,
@@ -138,6 +161,22 @@ export const verifyPayment = async (req, res) => {
       signature,
       gateway,
     });
+
+    // The payment was captured, but for a booking that had already been
+    // cancelled: recordSuccessfulPayment left it cancelled and refunded the
+    // money. Tell the app plainly (bookingActive:false is additive -- older
+    // app builds ignore it) and do NOT tell the vendor they were paid.
+    if (bookingActive === false) {
+      return res.json({
+        success: true,
+        paymentId: payment.id,
+        bookingActive: false,
+        refundInitiated: Boolean(refundOutcome?.refunded),
+        message: refundOutcome?.refunded
+          ? "This booking was cancelled before your payment arrived, so the full amount is being refunded."
+          : "This booking was cancelled before your payment arrived. Our team will refund you shortly.",
+      });
+    }
 
     // Notify Vendor about successful payment
     if (updatedBooking) {
@@ -360,10 +399,14 @@ async function handlePaymentFailed(payment) {
           data: { status: 'failed' }
         });
 
-        // Update booking back to pending
+        // Update booking back to pending -- but only from the pre-start
+        // states a payment attempt can leave behind. Guarded because a late or
+        // retried payment.failed used to pull a booking back to pending from
+        // anywhere: un-cancelling a cancelled booking, or rolling an
+        // in_progress job back to before the vendor had even started.
         if (existingPayment.bookingId) {
-          await tx.booking.update({
-            where: { id: existingPayment.bookingId },
+          await tx.booking.updateMany({
+            where: { id: existingPayment.bookingId, status: { in: ['pending', 'confirmed'] } },
             data: { status: 'pending' }
           });
         }

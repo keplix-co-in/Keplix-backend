@@ -17,7 +17,13 @@ import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
-    booking: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
+    // updateMany: cancel and reschedule are now guarded writes (the allowed
+    // statuses repeated in the WHERE). bookingEarlyStart: a cancel declines
+    // any pending early-start offer. vendorProfile: a reschedule is checked
+    // against the vendor's opening hours.
+    booking: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
+    bookingEarlyStart: { updateMany: jest.fn() },
+    vendorProfile: { findUnique: jest.fn() },
     service: { findUnique: jest.fn() },
     payment: { update: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn(),
@@ -76,6 +82,14 @@ beforeEach(() => {
     ...data,
     service: { id: 1, vendorId: VENDOR_ID, name: 'Full Service', price: 5000 },
   }));
+  prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+  prisma.bookingEarlyStart.updateMany.mockResolvedValue({ count: 0 });
+  // Open every day 9-6, so 11:00 is an offered slot for the reschedule tests.
+  prisma.vendorProfile.findUnique.mockResolvedValue({
+    operating_hours: '9:00 AM - 6:00 PM',
+    breaks: '[]',
+    holidays: '[]',
+  });
 });
 
 describe('D1 — customer cannot write a vendor-owned status (escrow self-release)', () => {
@@ -134,21 +148,23 @@ describe('D7 — cancellation after the money has moved', () => {
 
     await updateBooking(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(400);
+    // 409, was 400: a state conflict, like every other "booking is no longer
+    // in a state that allows this" answer on these endpoints.
+    expect(res.status).toHaveBeenCalledWith(409);
     expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
   });
 
   /**
-   * OPEN PRODUCT QUESTION, not a defect: cancelling an in-progress booking is
-   * still permitted. Blocking it strands a customer who wants to stop a job;
-   * allowing it means the vendor has done work on a booking that can no longer
-   * reach the payout path (which requires service_completed -> user_confirmed),
-   * so they can only be paid by an admin settle.
-   *
-   * Asserting the current behaviour so a change is a deliberate decision rather
-   * than an accident. Decide the policy, then change this test with it.
+   * POLICY DECIDED (owner, 2026-10-20), replacing the "CURRENT POLICY: an
+   * in-progress booking may still be cancelled" assertion that stood here as
+   * an open question. A customer may cancel only before the job starts:
+   * pending, confirmed, scheduled. Once the workshop has started, cancelling
+   * stranded a vendor who had done work on a booking that could no longer
+   * reach the payout path; a problem with a started job now goes through the
+   * dispute path instead.
    */
-  test('CURRENT POLICY: an in-progress booking may still be cancelled', async () => {
+  test('POLICY: an in-progress booking can no longer be cancelled (409)', async () => {
     prisma.booking.findUnique.mockResolvedValue(
       bookingInProgress({ status: 'in_progress' }),
     );
@@ -157,7 +173,47 @@ describe('D7 — cancellation after the money has moved', () => {
 
     await updateBooking(req, res);
 
-    expect(prisma.booking.update).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+  });
+
+  test('a confirmed booking is cancelled with a guarded write and its pending early-start offer is declined', async () => {
+    prisma.booking.findUnique.mockResolvedValue(
+      bookingInProgress({ status: 'confirmed' }),
+    );
+    const req = mockReq({ status: 'cancelled' });
+    const res = mockRes();
+
+    await updateBooking(req, res);
+
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: BOOKING_ID, status: { in: ['pending', 'confirmed', 'scheduled'] } },
+        data: expect.objectContaining({ status: 'cancelled' }),
+      }),
+    );
+    expect(prisma.bookingEarlyStart.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { bookingId: BOOKING_ID, status: 'pending' },
+        data: expect.objectContaining({ status: 'declined' }),
+      }),
+    );
+    expect(res.status).not.toHaveBeenCalledWith(409);
+  });
+
+  test('a cancel that loses a race with the vendor starting the job is 409, not an overwrite', async () => {
+    // Pre-read says confirmed; by write time the vendor has started it.
+    prisma.booking.findUnique.mockResolvedValue(
+      bookingInProgress({ status: 'confirmed' }),
+    );
+    prisma.booking.updateMany.mockResolvedValue({ count: 0 });
+    const req = mockReq({ status: 'cancelled' });
+    const res = mockRes();
+
+    await updateBooking(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(prisma.bookingEarlyStart.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -168,8 +224,11 @@ describe('D6 — reschedule conflict and past-date guards', () => {
    * reschedule could land on an occupied slot or in the past. The guard now
    * mirrors createBooking's, including the legacy 12-hour time label.
    */
+  // These used bookingInProgress() as-is. A reschedule is now only allowed
+  // from pending/confirmed/scheduled (an in_progress booking is 409 before
+  // any of these checks), so the fixtures are 'confirmed'.
   test('refuses to reschedule into the past', async () => {
-    prisma.booking.findUnique.mockResolvedValue(bookingInProgress());
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ status: 'confirmed' }));
     const req = mockReq({ booking_date: '2020-01-01', booking_time: '09:00' });
     const res = mockRes();
 
@@ -188,7 +247,7 @@ describe('D6 — reschedule conflict and past-date guards', () => {
    */
   test('takes the advisory lock and rejects a reschedule onto an occupied slot', async () => {
     const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ booking_date: future }));
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ status: 'confirmed', booking_date: future }));
     prisma.$executeRaw.mockResolvedValue(0);
     prisma.booking.findFirst.mockResolvedValue({ id: 99999 }); // a clashing booking
     prisma.$transaction.mockImplementation((cb) => cb(prisma));
@@ -205,11 +264,12 @@ describe('D6 — reschedule conflict and past-date guards', () => {
     expect(prisma.booking.findFirst).toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(409);
     expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
   });
 
   test('reschedules onto a free slot inside the same locked transaction', async () => {
     const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ booking_date: future }));
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ status: 'confirmed', booking_date: future }));
     prisma.$executeRaw.mockResolvedValue(0);
     prisma.booking.findFirst.mockResolvedValue(null); // no clash
     prisma.$transaction.mockImplementation((cb) => cb(prisma));
@@ -223,8 +283,30 @@ describe('D6 — reschedule conflict and past-date guards', () => {
     await updateBooking(req, res);
 
     expect(prisma.$executeRaw).toHaveBeenCalled();
-    expect(prisma.booking.update).toHaveBeenCalled();
+    // Guarded write: the reschedule only lands if the booking is still in a
+    // reschedulable state at write time.
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: BOOKING_ID, status: { in: ['pending', 'confirmed', 'scheduled'] } },
+        data: expect.objectContaining({ booking_time: '11:00' }),
+      }),
+    );
     expect(res.status).not.toHaveBeenCalledWith(409);
     expect(res.status).not.toHaveBeenCalledWith(500);
+  });
+
+  test('an in-progress booking cannot be rescheduled (409)', async () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    prisma.booking.findUnique.mockResolvedValue(bookingInProgress({ booking_date: future }));
+    const req = mockReq({
+      booking_date: future.toISOString().slice(0, 10),
+      booking_time: '11:00',
+    });
+    const res = mockRes();
+
+    await updateBooking(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
   });
 });
