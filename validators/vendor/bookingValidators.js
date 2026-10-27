@@ -4,6 +4,12 @@ export const respondToServiceRequestSchema = z.object({
   vendor_status: z.enum(['accepted', 'rejected', 'declined'], { 
     message: "Vendor status must be 'accepted', 'rejected', or 'declined'" 
   }).transform((val) => val === 'declined' ? 'rejected' : val), // Convert 'declined' to 'rejected'
+  // Why the vendor declined, shown to the customer and stored in
+  // Booking.vendor_reject_reason. Optional so the shipped vendor app, which
+  // sends only vendor_status, keeps working. Must be declared here: this is a
+  // z.object, and validateRequest replaces req.body with the parsed result, so
+  // an undeclared key is silently stripped before the controller sees it.
+  reason: z.string().trim().max(500, { message: "Reason too long (maximum 500 characters)" }).optional(),
 });
 
 export const updateBookingStatusSchema = z.object({
@@ -15,6 +21,11 @@ export const updateBookingStatusSchema = z.object({
     ['pending', 'confirmed', 'scheduled', 'in_progress', 'service_completed', 'completed', 'cancelled', 'rejected'],
     { message: "Invalid status" }
   ),
+  // Completion notes sent alongside status:'service_completed' (multipart).
+  // The controller has always written `notes` when present, but the key was
+  // never declared, so validateRequest stripped it and the vendor's notes were
+  // silently dropped on every completion.
+  notes: z.string().max(2000).optional(),
 });
 
 // Vendor's early-start request. Both fields optional: with no booking_time the

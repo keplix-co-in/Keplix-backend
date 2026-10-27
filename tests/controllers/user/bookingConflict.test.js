@@ -6,6 +6,9 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     service: { findUnique: jest.fn() },
     booking: { findFirst: jest.fn(), create: jest.fn() },
     bookingVehicle: { create: jest.fn() },
+    // createBooking now checks the requested time against the vendor's
+    // opening hours before the transaction (see checkSlotBookable).
+    vendorProfile: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -54,6 +57,13 @@ describe('createBooking slot conflict', () => {
       name: 'Detailing',
       price: 1000,
       segmentPrices: [],
+    });
+    // Open every day 9-6 with no breaks, so 2:00 PM is an offered slot and
+    // these tests keep exercising the clash check, not the hours check.
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      operating_hours: '9:00 AM - 6:00 PM',
+      breaks: '[]',
+      holidays: '[]',
     });
     tx.booking.create.mockImplementation(async ({ data }) => ({
       id: 101,

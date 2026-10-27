@@ -10,6 +10,8 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
     booking: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     payment: { updateMany: jest.fn() },
+    // A user cancel now also declines any pending early-start offer.
+    bookingEarlyStart: { updateMany: jest.fn() },
   },
 }));
 jest.unstable_mockModule('../../util/payoutHelper.js', () => ({ initiateVendorPayout: jest.fn() }));
@@ -131,26 +133,29 @@ describe('Booking status allow-list', () => {
       expect(prisma.booking.update).not.toHaveBeenCalled();
     });
 
-    test('accepts a valid status ("cancelled") and proceeds', async () => {
+    // This used to accept 'cancelled' from a vendor ("no transition guard,
+    // so allowedFrom stays null"). That gap let a workshop cancel -- or roll
+    // back -- a paid booking through the status endpoint. The vendor
+    // transition table now only knows in_progress and service_completed, so
+    // the allow-list case below uses service_completed, and 'cancelled' is a
+    // 400 that never reaches the database.
+    test('accepts a valid vendor status ("service_completed") and proceeds', async () => {
       prisma.booking.findFirst.mockResolvedValue({
         id: 100,
-        status: 'confirmed',
+        status: 'in_progress',
         createdAt: new Date(),
       });
-      // 'cancelled' has no transition guard in updateBookingStatus, so
-      // allowedFrom stays null and the updateMany's WHERE carries no status
-      // restriction -- it should succeed regardless of current status.
       prisma.booking.updateMany.mockResolvedValue({ count: 1 });
       prisma.booking.findUnique.mockResolvedValue({
         id: 100,
         userId: USER,
-        status: 'cancelled',
+        status: 'service_completed',
         service: { id: 7, name: 'Detailing' },
       });
       const req = {
         user: { id: VENDOR },
         params: { id: '100' },
-        body: { status: 'cancelled' },
+        body: { status: 'service_completed' },
         files: {},
         app: { get: () => null },
       };
@@ -158,8 +163,17 @@ describe('Booking status allow-list', () => {
       await updateBookingStatus(req, res);
       expect(res.status).not.toHaveBeenCalledWith(400);
       expect(prisma.booking.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ status: 'cancelled' }) })
+        expect.objectContaining({ data: expect.objectContaining({ status: 'service_completed' }) })
       );
+    });
+
+    test('a known status that is not a vendor transition ("cancelled") is 400 before the DB', async () => {
+      const req = { user: { id: VENDOR }, params: { id: '100' }, body: { status: 'cancelled' }, files: {} };
+      const res = makeRes();
+      await updateBookingStatus(req, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(prisma.booking.findFirst).not.toHaveBeenCalled();
+      expect(prisma.booking.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -180,12 +194,21 @@ describe('Booking status allow-list', () => {
         status: 'confirmed',
         payment: null,
       });
-      prisma.booking.update.mockResolvedValue({
+      // The cancel is now a guarded updateMany (status must still be
+      // cancellable in the WHERE) followed by a re-read for the response.
+      prisma.booking.findUnique.mockResolvedValueOnce({
+        id: 100,
+        userId: USER,
+        status: 'confirmed',
+        payment: null,
+      }).mockResolvedValueOnce({
         id: 100,
         userId: USER,
         status: 'cancelled',
         service: { id: 7, name: 'Detailing' },
       });
+      prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bookingEarlyStart.updateMany.mockResolvedValue({ count: 0 });
       const req = {
         user: { id: USER },
         params: { id: '100' },
@@ -194,7 +217,7 @@ describe('Booking status allow-list', () => {
       const res = makeRes();
       await updateBooking(req, res);
       expect(res.status).not.toHaveBeenCalledWith(400);
-      expect(prisma.booking.update).toHaveBeenCalledWith(
+      expect(prisma.booking.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'cancelled' }) })
       );
     });

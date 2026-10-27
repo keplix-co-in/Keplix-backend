@@ -13,7 +13,12 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
   default: {
     vehicle: { findUnique: jest.fn() },
     service: { findUnique: jest.fn() },
-    booking: { findUnique: jest.fn(), update: jest.fn(), findFirst: jest.fn() },
+    // updateMany: the dispute write is now guarded on status
+    // 'service_completed' in its WHERE.
+    booking: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
+    // createBooking now checks the requested time against the vendor's
+    // opening hours before the transaction (see checkSlotBookable).
+    vendorProfile: { findUnique: jest.fn() },
     user: { findUnique: jest.fn().mockResolvedValue({ pushToken: null, email: 'vendor@audit.test' }) },
     $transaction: jest.fn(),
     $executeRaw: jest.fn().mockResolvedValue(0),
@@ -86,6 +91,12 @@ describe('D-past-date — createBooking accepted a booking_date already in the p
 
   test('still accepts a future booking_date', async () => {
     const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    // Open every day so 10:00 is an offered slot.
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      operating_hours: '9:00 AM - 6:00 PM',
+      breaks: '[]',
+      holidays: '[]',
+    });
     prisma.service.findUnique.mockResolvedValue({
       id: SERVICE_ID,
       vendorId: VENDOR_ID,
@@ -153,8 +164,12 @@ describe('D-dispute-guard — dispute was reachable with no vendor-completion pr
 
     await disputeServiceCompletion(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(400);
+    // 409, was 400: the request is well-formed, the booking is just in the
+    // wrong state -- the same status code every other state conflict on the
+    // booking endpoints now returns, so the app can branch on it.
+    expect(res.status).toHaveBeenCalledWith(409);
     expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
   });
 
   test('allows a dispute once the vendor has marked the service completed', async () => {
@@ -165,7 +180,7 @@ describe('D-dispute-guard — dispute was reachable with no vendor-completion pr
       service: { vendorId: VENDOR_ID, name: 'Oil Change' },
       payment: { status: 'success' },
     });
-    prisma.booking.update.mockResolvedValue({});
+    prisma.booking.updateMany.mockResolvedValue({ count: 1 });
 
     const req = {
       params: { userId: String(CUSTOMER_ID), id: String(BOOKING_ID) },
@@ -176,8 +191,17 @@ describe('D-dispute-guard — dispute was reachable with no vendor-completion pr
 
     await disputeServiceCompletion(req, res);
 
-    expect(prisma.booking.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: BOOKING_ID }, data: { status: 'disputed' } }),
+    // Guarded write that also persists the customer's reason and when they
+    // raised it (both shown to the admin resolving the dispute).
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: BOOKING_ID, userId: CUSTOMER_ID, status: 'service_completed' },
+        data: {
+          status: 'disputed',
+          dispute_reason: 'The brakes were not actually replaced as claimed.',
+          disputed_at: expect.any(Date),
+        },
+      }),
     );
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });

@@ -126,6 +126,16 @@ describe('respondToEarlyStart', () => {
         booking: {
           update: jest.fn().mockResolvedValue({ id: 100, status: 'in_progress', booking_time: '11:00' }),
           findFirst: jest.fn().mockResolvedValue(null),
+          // The accept now re-reads the booking inside the transaction
+          // (select: status/vendor_status -- it must still be confirmed or
+          // scheduled and accepted), writes with a guarded updateMany, and
+          // re-reads the result for the response.
+          findUnique: jest.fn(async (args) =>
+            args.select
+              ? { status: 'confirmed', vendor_status: 'accepted' }
+              : { id: 100, status: 'in_progress', booking_time: '11:00' }
+          ),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
         $queryRaw: jest.fn(),
         $executeRaw: jest.fn().mockResolvedValue(0),
@@ -185,6 +195,9 @@ describe('respondToEarlyStart', () => {
         booking: {
           update: jest.fn(),
           findFirst: jest.fn().mockResolvedValue({ id: 555 }), // a clashing booking
+          // Still live and accepted, so the 409 below comes from the clash.
+          findUnique: jest.fn().mockResolvedValue({ status: 'confirmed', vendor_status: 'accepted' }),
+          updateMany: jest.fn(),
         },
         $queryRaw: jest.fn(),
         $executeRaw: jest.fn().mockResolvedValue(0),

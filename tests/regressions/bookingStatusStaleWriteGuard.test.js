@@ -68,12 +68,21 @@ describe('updateBookingStatus stale-write guard — FIXED, regression guard', ()
     const req = { user: { id: VENDOR }, params: { id: String(BOOKING_ID) }, body: { status: 'completed' }, files: {}, app: { get: () => null } };
     await updateBookingStatus(req, mockRes());
 
+    // Legacy 'completed' is now stored as service_completed (with the
+    // timestamp that starts the auto-confirm window), and service_completed
+    // is no longer in its own allowedFrom: re-marking a completed job would
+    // re-stamp service_completed_at and silently restart the customer's
+    // confirm-or-dispute clock.
     expect(mockPrisma.booking.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           id: BOOKING_ID,
           service: { vendorId: VENDOR },
-          status: { in: ['in_progress', 'confirmed', 'scheduled', 'service_completed'] },
+          status: { in: ['in_progress', 'confirmed', 'scheduled'] },
+        }),
+        data: expect.objectContaining({
+          status: 'service_completed',
+          service_completed_at: expect.any(Date),
         }),
       })
     );
@@ -97,17 +106,17 @@ describe('updateBookingStatus stale-write guard — FIXED, regression guard', ()
     expect(mockPrisma.payment.updateMany).not.toHaveBeenCalled();
   });
 
-  test('sanity check: a status with no transition guard (cancelled) is not restricted by allowedFrom', async () => {
-    mockPrisma.booking.findFirst.mockResolvedValue({ id: BOOKING_ID, status: 'pending', createdAt: new Date() });
-    mockPrisma.booking.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.booking.findUnique.mockResolvedValue({ id: BOOKING_ID, status: 'cancelled', service: { id: 7, vendorId: VENDOR } });
-
+  // This used to be "a status with no transition guard (cancelled) is not
+  // restricted by allowedFrom" -- i.e. an unguarded write that let a vendor
+  // cancel (or roll back) any booking, paid ones included. Every vendor
+  // target now needs an explicit entry in VENDOR_STATUS_TRANSITIONS, so an
+  // unlisted status is refused before any read or write.
+  test('a status with no transition entry (cancelled) is refused with 400 and never written', async () => {
     const req = { user: { id: VENDOR }, params: { id: String(BOOKING_ID) }, body: { status: 'cancelled' }, files: {}, app: { get: () => null } };
     const res = mockRes();
     await updateBookingStatus(req, res);
 
-    expect(res.status).not.toHaveBeenCalledWith(400);
-    const call = mockPrisma.booking.updateMany.mock.calls[0][0];
-    expect(call.where.status).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockPrisma.booking.updateMany).not.toHaveBeenCalled();
   });
 });

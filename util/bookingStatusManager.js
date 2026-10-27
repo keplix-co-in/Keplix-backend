@@ -5,6 +5,8 @@ import { createNotification } from './notificationHelper.js';
 import { renderNotification, NOTIFICATION_TYPES } from './notificationTemplates.js';
 import { parseTimeToMinutes } from './slots.js';
 import { getISTDate } from './time.js';
+import { RESERVED_STATUSES } from '../services/refundService.js';
+import { confirmBookingAndQueuePayout } from '../services/bookingConfirmationService.js';
 
 /**
  * How long after its slot an un-started booking is written off.
@@ -41,6 +43,34 @@ const PENDING_TIMEOUT_MINUTES = Number(
 );
 
 /**
+ * How long a customer has, after the workshop marks a job service_completed,
+ * to confirm or dispute it before it is confirmed on their behalf and the
+ * workshop's payout released (autoConfirmCompletedBookings below).
+ *
+ * Without this a customer who simply never opened the app again held the
+ * workshop's money in escrow forever: confirmBookingAndQueuePayout was only
+ * ever reached from the customer's own Confirm button. 48 hours is the owner's
+ * chosen window; BOOKING_AUTO_CONFIRM_HOURS overrides it. Read here rather than
+ * through config/env.js, the same way PENDING_TIMEOUT_MINUTES is. A value that
+ * is not a positive number falls back to 48 rather than to "release
+ * immediately".
+ */
+const AUTO_CONFIRM_HOURS = (() => {
+  const configured = Number(process.env.BOOKING_AUTO_CONFIRM_HOURS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 48;
+})();
+
+// Upper bound per tick, so a backlog (first deploy, or the cron having been
+// down) is worked through over several ticks instead of one long burst of
+// payout transactions.
+const AUTO_CONFIRM_BATCH_SIZE = 50;
+
+// vendorPayoutStatus values meaning the payout is already claimed. Must match
+// the list confirmBookingAndQueuePayout refuses
+// (services/bookingConfirmationService.js); see autoConfirmCompletedBookings.
+const CLAIMED_PAYOUT_STATUSES = ['paid', 'settled', 'processing'];
+
+/**
  * Booking Status Manager
  * Handles automatic time-based status transitions for bookings
  */
@@ -72,6 +102,30 @@ class BookingStatusManager {
     // Also run immediately on startup
     this.processBookingStatusUpdates().catch(error => {
       Logger.error('Error in initial booking status update:', error);
+    });
+
+    // Auto-confirm runs on its own, slower schedule: its window is measured in
+    // hours, so a once-a-minute check would only add load, and keeping it out
+    // of processBookingStatusUpdates means a slow payout transaction can never
+    // delay the minute-sensitive activation/expiry jobs. Same in-process
+    // dispatcher as above -- the backend is deliberately single-instance (see
+    // CLAUDE.md), so there is no second copy of this job to race.
+    cron.schedule('*/10 * * * *', async () => {
+      try {
+        await this.autoConfirmCompletedBookings(new Date());
+      } catch (error) {
+        Logger.error('Error in auto-confirm cron job:', error);
+      }
+    });
+
+    // And once on startup, as the minute job does above. Cloud Run scales this
+    // service to zero (--min-instances 0 in deploy.yml), and a cold start
+    // serving one short request may never live long enough to reach a
+    // */10 tick, so without this the window could be overrun indefinitely.
+    // autoConfirmCompletedBookings catches its own query errors; the .catch is
+    // for anything else.
+    this.autoConfirmCompletedBookings(new Date()).catch(error => {
+      Logger.error('Error in initial auto-confirm run:', error);
     });
 
     this.isRunning = true;
@@ -159,8 +213,9 @@ class BookingStatusManager {
           // The bound is now EXPIRY_AFTER_MINUTES so the two jobs share one
           // boundary and cannot disagree about which owns a given booking.
           if (minutesDiff >= 0 && minutesDiff <= EXPIRY_AFTER_MINUTES) {
-            await this.activateBooking(booking);
-            activatedCount++;
+            if (await this.activateBooking(booking)) {
+              activatedCount++;
+            }
           }
         } catch (error) {
           Logger.error(`Error processing booking ${booking.id}:`, error);
@@ -177,7 +232,28 @@ class BookingStatusManager {
   }
 
   /**
-   * Handle bookings that have passed their scheduled time without being started
+   * Handle bookings whose slot passed more than EXPIRY_AFTER_MINUTES ago
+   * without the activation job having started them.
+   *
+   * These are now STARTED LATE, not cancelled (2026-10-24, replacing the
+   * 2026-10-20 "cancel and fully refund a paid no-show" rule). Why: nothing
+   * but this cron ever starts a normal booking -- the partner app has no Start
+   * button for one (only walk-ins and early start), and an accepted booking is
+   * confirmed at accept time, paid or not. activateBookingsAtScheduledTime
+   * starts every such booking the minute its slot arrives, so a booking only
+   * reaches this branch when no tick ran for 30+ minutes: the backend deploys
+   * with --min-instances 0 (deploy.yml) and the in-process cron does not run
+   * while Cloud Run has scaled it to zero. "Expired" meant "our server was
+   * asleep", not "the workshop did not show". Cancelling (and refunding) it
+   * killed a real job for our downtime -- the vendor could no longer complete
+   * a cancelled booking, and the customer lost a slot they still wanted.
+   * Starting it late gives exactly the outcome an on-time tick would have.
+   * A genuine no-show is NOT covered by any self-serve path yet: the customer
+   * cannot cancel an in_progress booking (USER_CANCELLABLE_STATUSES) or
+   * dispute one before service_completed (serviceConfirmationController), so
+   * today it needs an admin refund via the finance refund endpoint, and the
+   * booking stays in_progress. That gap predates this change (an on-time
+   * activation leads to the same place); see PROJECT_LOG backlog.
    */
   async handleExpiredBookings(now) {
     try {
@@ -194,7 +270,7 @@ class BookingStatusManager {
         include: { service: true },
       });
 
-      let expiredCount = 0;
+      let lateStartCount = 0;
 
       for (const booking of expiredBookings) {
         try {
@@ -211,17 +287,25 @@ class BookingStatusManager {
 
           // Same boundary the activation job stops at, so a booking is always
           // owned by exactly one of the two jobs and never falls between them.
+          // activateBooking's write is guarded, so a booking the customer
+          // cancelled (or the vendor started) since the findMany is left alone.
           if (minutesDiff > EXPIRY_AFTER_MINUTES) {
-            await this.expireBooking(booking);
-            expiredCount++;
+            if (await this.activateBooking(booking)) {
+              lateStartCount++;
+              // There is no admin notification channel; a tagged log line is
+              // how ops finds these (same convention as paymentService.js).
+              Logger.warn(
+                `[ADMIN NOTICE] Booking ${booking.id} started ${Math.round(minutesDiff)} min after its slot -- the booking cron did not run in time (likely a scale-to-zero gap). Check the job actually happened.`
+              );
+            }
           }
         } catch (error) {
           Logger.error(`Error processing expired booking ${booking.id}:`, error);
         }
       }
 
-      if (expiredCount > 0) {
-        Logger.info(`Expired ${expiredCount} bookings that passed scheduled time`);
+      if (lateStartCount > 0) {
+        Logger.info(`Started ${lateStartCount} bookings late that passed their scheduled time`);
       }
 
     } catch (error) {
@@ -338,14 +422,30 @@ class BookingStatusManager {
       // per-booking lookup.
       const service = booking.service;
 
-      // Update booking status
-      await prisma.booking.update({
-        where: { id: booking.id },
+      // updateMany with the findMany's preconditions repeated in the WHERE,
+      // not update({ where: { id } }) -- same reasoning as the pending-timeout
+      // job above. The read happened at the top of this tick; in the gap the
+      // customer may have cancelled, or the vendor already started or even
+      // completed the job. An unconditional write flipped a cancelled booking
+      // back to in_progress, or rolled a service_completed one backwards.
+      // count === 0 means someone else moved it first: no write, no
+      // "service started" notifications.
+      const activated = await prisma.booking.updateMany({
+        where: {
+          id: booking.id,
+          status: { in: ['confirmed', 'scheduled'] },
+          vendor_status: 'accepted',
+        },
         data: {
           status: 'in_progress',
           updatedAt: new Date()
         }
       });
+
+      if (activated.count === 0) {
+        Logger.info(`Booking ${booking.id} changed status before it could be activated; leaving it alone.`);
+        return false;
+      }
 
       // Create notification for user
       await createNotification({
@@ -368,6 +468,7 @@ class BookingStatusManager {
       }
 
       Logger.info(`Activated booking ${booking.id} - moved to in_progress status`);
+      return true;
 
     } catch (error) {
       Logger.error(`Error activating booking ${booking.id}:`, error);
@@ -376,49 +477,97 @@ class BookingStatusManager {
   }
 
   /**
-   * Handle expired booking (past scheduled time without being started)
+   * Confirm bookings the customer left in service_completed past the
+   * auto-confirm window (AUTO_CONFIRM_HOURS), releasing the workshop's payout.
+   *
+   * Goes through confirmBookingAndQueuePayout -- the same function as the
+   * customer's own Confirm button -- with no rating, so every guard on that
+   * path applies unchanged: payment row lock, payment must be 'success',
+   * payout not already claimed, no refund in flight, and (since the guarded
+   * write in that function) a dispute that commits concurrently wins and the
+   * whole confirmation rolls back.
    */
-  async expireBooking(booking) {
+  async autoConfirmCompletedBookings(now) {
+    const cutoff = new Date(now.getTime() - AUTO_CONFIRM_HOURS * 60 * 60 * 1000);
+
+    let candidates;
     try {
-      // booking.service comes from the caller's findMany include -- see the
-      // note there (audit #53/#133) for why this is no longer a fresh
-      // per-booking lookup.
-      const service = booking.service;
-
-      // Update booking status to cancelled or expired
-      await prisma.booking.update({
-        where: { id: booking.id },
-        data: {
-          status: 'cancelled',
-          notes: (booking.notes || '') + ' [Auto-cancelled: Scheduled time passed without service start]',
-          updatedAt: new Date()
-        }
+      candidates = await prisma.booking.findMany({
+        where: {
+          status: 'service_completed',
+          // Rows that reached service_completed before service_completed_at
+          // existed have it NULL. They are skipped deliberately (lt already
+          // excludes NULL in SQL; `not: null` just says so): with no
+          // timestamp there is no way to know when the customer's window
+          // started, and guessing (e.g. from updatedAt, which any later write
+          // bumps) could release a payout the customer is still entitled to
+          // object to. Those few legacy rows stay on the manual path.
+          service_completed_at: { not: null, lt: cutoff },
+          // Only bookings the confirmation can actually succeed on: a
+          // successful payment with no refund in flight. Anything else would
+          // fail inside confirmBookingAndQueuePayout on every tick forever.
+          //
+          // The payout must also still be unclaimed. confirmBookingAndQueuePayout
+          // refuses a payment whose vendorPayoutStatus is paid/settled/processing
+          // (an admin settled it by hand, or a payout is already queued).
+          // Without this filter those rows matched on every tick, sorted first
+          // by service_completed_at, failed inside the confirmation, and could
+          // fill the whole batch of AUTO_CONFIRM_BATCH_SIZE, so no other
+          // booking was ever auto-confirmed. NULL is listed explicitly because
+          // SQL `NOT IN` never matches NULL.
+          payment: {
+            is: {
+              status: 'success',
+              refunds: { none: { status: { in: RESERVED_STATUSES } } },
+              OR: [
+                { vendorPayoutStatus: null },
+                { vendorPayoutStatus: { notIn: CLAIMED_PAYOUT_STATUSES } },
+              ],
+            },
+          },
+        },
+        include: { service: { select: { name: true } } },
+        orderBy: { service_completed_at: 'asc' },
+        take: AUTO_CONFIRM_BATCH_SIZE,
       });
-
-        // Create notification for user
-        await createNotification({
-          userId: booking.userId,
-          ...renderNotification(NOTIFICATION_TYPES.BOOKING_EXPIRED, {
-            serviceName: service?.name,
-            bookingId: booking.id,
-          }),
-        });
-
-        // Create notification for vendor
-        if (service) {
-          await createNotification({
-            userId: service.vendorId,
-            ...renderNotification(NOTIFICATION_TYPES.BOOKING_MISSED_EXPIRED, {
-              serviceName: service.name,
-              bookingId: booking.id,
-            }),
-          });
-        }      Logger.info(`Expired booking ${booking.id} - moved to cancelled status`);
-
     } catch (error) {
-      Logger.error(`Error expiring booking ${booking.id}:`, error);
-      throw error;
+      Logger.error('Error finding bookings to auto-confirm:', error);
+      return 0;
     }
+
+    let confirmedCount = 0;
+
+    for (const booking of candidates) {
+      try {
+        await confirmBookingAndQueuePayout({
+          userId: booking.userId,
+          bookingId: booking.id,
+        });
+      } catch (error) {
+        // Per booking, so one failure does not stop the batch. The usual
+        // cause is benign: the customer disputed (or confirmed) between the
+        // findMany and the confirmation -- that is the dispute winning, as
+        // intended. Anything persistent shows up here every tick.
+        Logger.warn(`Auto-confirm skipped booking ${booking.id}: ${error.message}`);
+        continue;
+      }
+
+      confirmedCount++;
+      Logger.info(`Auto-confirmed booking ${booking.id} after ${AUTO_CONFIRM_HOURS}h in service_completed`);
+
+      await createNotification({
+        userId: booking.userId,
+        ...renderNotification(NOTIFICATION_TYPES.SERVICE_AUTO_CONFIRMED, {
+          serviceName: booking.service?.name,
+          bookingId: booking.id,
+        }),
+      });
+    }
+
+    if (confirmedCount > 0) {
+      Logger.info(`Auto-confirmed ${confirmedCount} completed bookings`);
+    }
+    return confirmedCount;
   }
 
   /**

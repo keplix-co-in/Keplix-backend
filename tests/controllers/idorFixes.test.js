@@ -13,6 +13,9 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      // The dispute write is now a guarded updateMany (status must still be
+      // service_completed in the WHERE), not an update by id.
+      updateMany: jest.fn(),
     },
     payment: {
       update: jest.fn(),
@@ -92,6 +95,11 @@ jest.unstable_mockModule('../../util/slots.js', () => ({
   minutesToLabel: jest.fn(),
   parseTimeToMinutes: jest.fn(),
   toCanonicalTime: jest.fn(),
+  // Added with the slot-validation work: bookingController now imports these
+  // at module load, so an ESM mock that omits them fails to link at all.
+  bookingDayKey: jest.fn(),
+  bookingDayRange: jest.fn(),
+  checkSlotBookable: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../util/time.js', () => ({
@@ -152,7 +160,10 @@ describe('confirmServiceCompletion (IDOR)', () => {
       const tx = {
         $queryRaw: jest.fn().mockResolvedValue([]),
       $executeRaw: jest.fn().mockResolvedValue(0),
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn() },
+        // updateMany: the confirmation write is guarded on
+        // status='service_completed' so a concurrent dispute wins; count 1
+        // means nothing raced it here.
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
         payment: { update: jest.fn() },
         review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
         refund: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -197,6 +208,8 @@ describe('disputeServiceCompletion (IDOR)', () => {
       service: { vendorId: 10, name: 'Plumbing' },
     });
     prisma.booking.update.mockResolvedValue({});
+    // Guarded dispute write: count 1 = the booking was still service_completed.
+    prisma.booking.updateMany.mockResolvedValue({ count: 1 });
     prisma.user.findUnique.mockResolvedValue({ pushToken: null, email: 'v@x.com' });
 
     const req = buildReq(7);

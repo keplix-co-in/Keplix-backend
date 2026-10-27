@@ -11,7 +11,10 @@ import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: {
-    booking: { findUnique: jest.fn(), update: jest.fn() },
+    // updateMany: the resolve write is guarded on status 'disputed' so two
+    // admins resolving the same dispute can't both win; the booking is then
+    // re-read with findUnique for the response.
+    booking: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   },
 }));
 jest.unstable_mockModule('../../../queues/notificationQueue.js', () => ({
@@ -52,6 +55,7 @@ const mockRes = () => {
 beforeEach(() => {
   jest.clearAllMocks();
   prisma.booking.update.mockImplementation(async ({ data }) => ({ ...disputedBooking(), ...data }));
+  prisma.booking.updateMany.mockResolvedValue({ count: 1 });
 });
 
 describe('resolveDisputeForCustomer', () => {
@@ -80,10 +84,15 @@ describe('resolveDisputeForCustomer', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(prisma.booking.update).not.toHaveBeenCalled();
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
   });
 
   test('cancels the booking and notifies both customer and vendor', async () => {
-    prisma.booking.findUnique.mockResolvedValue(disputedBooking());
+    // First read: the disputed booking. Second read: the row after the
+    // guarded write, returned to the admin panel.
+    prisma.booking.findUnique
+      .mockResolvedValueOnce(disputedBooking())
+      .mockResolvedValueOnce(disputedBooking({ status: 'cancelled' }));
     const res = mockRes();
 
     await resolveDisputeForCustomer(
@@ -91,9 +100,11 @@ describe('resolveDisputeForCustomer', () => {
       res,
     );
 
-    expect(prisma.booking.update).toHaveBeenCalledWith(
+    // The write carries status 'disputed' in its WHERE, so it can only land
+    // on a booking that is still disputed at write time.
+    expect(prisma.booking.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: BOOKING_ID },
+        where: { id: BOOKING_ID, status: 'disputed' },
         data: expect.objectContaining({ status: 'cancelled' }),
       }),
     );
@@ -106,6 +117,28 @@ describe('resolveDisputeForCustomer', () => {
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ booking: expect.objectContaining({ status: 'cancelled' }) }),
     );
+  });
+
+  test('409s, and notifies nobody, when the dispute was resolved between the read and the write', async () => {
+    // e.g. another admin force-completed it in the vendor's favour first.
+    prisma.booking.findUnique.mockResolvedValue(disputedBooking());
+    prisma.booking.updateMany.mockResolvedValue({ count: 0 });
+    const res = mockRes();
+
+    await resolveDisputeForCustomer(mockReq({ reason: 'Vendor did not do the requested work.' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(addNotificationJob).not.toHaveBeenCalled();
+  });
+
+  test('400s on a non-numeric booking id instead of reaching Prisma', async () => {
+    const res = mockRes();
+    await resolveDisputeForCustomer(
+      mockReq({ reason: 'Vendor did not do the requested work.' }, { id: 'abc' }),
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(prisma.booking.findUnique).not.toHaveBeenCalled();
   });
 
   test('does not call the payment gateway or any refund service', async () => {

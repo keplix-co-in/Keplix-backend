@@ -28,7 +28,15 @@ const mockPrisma = {
       // serialise concurrent verifies, so the fake tx must provide $queryRaw.
       $queryRaw: jest.fn().mockResolvedValue([]),
       payment: { upsert: mockPrisma.payment.upsert },
-      booking: { update: jest.fn().mockResolvedValue({ id: 1, service: { vendorId: 42 } }) },
+      // The booking advance is now a guarded updateMany (only pending or
+      // confirmed + vendor-accepted bookings move to confirmed; a payment can
+      // never revive a cancelled one), followed by a re-read. count 1 = the
+      // booking advanced normally.
+      booking: {
+        update: jest.fn().mockResolvedValue({ id: 1, service: { vendorId: 42 } }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({ id: 1, status: 'confirmed', vendor_status: 'accepted', service: { vendorId: 42 } }),
+      },
     }),
   ),
 };

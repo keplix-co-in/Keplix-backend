@@ -128,10 +128,22 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
         throw new Error("Cannot release payout: a refund is in progress for this payment");
       }
 
-      await tx.booking.update({
-        where: { id: bookingId },
+      // Guarded. The lock above is on the PAYMENT row, which a customer
+      // dispute (serviceConfirmationController) never touches -- so a dispute
+      // could commit between the status read above and this write, and an
+      // unconditional update then overwrote 'disputed' with 'user_confirmed'
+      // and released the payout the customer was objecting to. This matters
+      // more now that the auto-confirm cron (util/bookingStatusManager.js)
+      // calls this without the customer present: the dispute must win.
+      // Throwing rolls back the whole transaction, review and payout claim
+      // included.
+      const { count: confirmedCount } = await tx.booking.updateMany({
+        where: { id: bookingId, status: "service_completed" },
         data: { status: "user_confirmed" }
       });
+      if (confirmedCount === 0) {
+        throw new Error("Booking status has changed before it could be confirmed");
+      }
 
       if (rating !== undefined && rating !== null) {
         const ratingValue = Math.round(parseFloat(rating));
