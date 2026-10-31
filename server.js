@@ -9,6 +9,7 @@ import bookingStatusManager from "./util/bookingStatusManager.js";
 import refundReconciler from "./util/refundReconciler.js";
 import { startPaymentReconciliation, stopPaymentReconciliation } from "./util/paymentReconciliation.js";
 import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
+import { scheduleAbandonedAccountCleanup, stopAbandonedAccountCleanup } from "./queues/abandonedAccountCleanup.js";
 import cron from "node-cron";
 import {
   registerJobHandler,
@@ -107,6 +108,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     refundReconciler.start();
     startJobDispatcher();
     scheduleOtpCleanup().catch((err) => Logger.error('Failed to schedule cleanup job:', err));
+    // Deletes sign-ups never completed after 7 days (queues/abandonedAccountCleanup.js).
+    scheduleAbandonedAccountCleanup().catch((err) => Logger.error('Failed to schedule abandoned-account cleanup:', err));
     startPaymentReconciliation();
   } else {
     Logger.info('RUN_WORKERS=false — background jobs not dispatched by this process.');
@@ -120,6 +123,7 @@ const gracefulShutdown = () => {
   bookingStatusManager.stop();
   refundReconciler.stop();
   stopOtpCleanup();
+  stopAbandonedAccountCleanup();
   stopPaymentReconciliation();
 
   // Stopping the schedules is all that is needed now. There are no queue
