@@ -11,6 +11,7 @@ import { startPaymentReconciliation, stopPaymentReconciliation } from "./util/pa
 import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
 import { scheduleAbandonedAccountCleanup, stopAbandonedAccountCleanup } from "./queues/abandonedAccountCleanup.js";
 import cron from "node-cron";
+import { isMaintenanceMode } from "./middleware/maintenanceMiddleware.js";
 import {
   registerJobHandler,
   runDueJobs,
@@ -103,7 +104,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // reconciliation cron redundantly, the exact multiplication problem
   // RUN_WORKERS exists to prevent for the job dispatcher. All background
   // work now shares one gate.
-  if (RUN_WORKERS) {
+  // Maintenance mode also stops background work (auto-decline, refunds,
+  // payouts, cleanups) so nothing writes to the database while it is being
+  // repaired. MAINTENANCE_MODE changes need a new revision, so checking once
+  // at startup is enough.
+  if (RUN_WORKERS && isMaintenanceMode()) {
+    Logger.warn('MAINTENANCE_MODE=true — background jobs not started.');
+  } else if (RUN_WORKERS) {
     bookingStatusManager.start();
     refundReconciler.start();
     startJobDispatcher();

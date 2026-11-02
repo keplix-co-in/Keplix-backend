@@ -10,6 +10,7 @@ import swaggerUi from "swagger-ui-express";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import loggerMiddleware from "./middleware/loggerMiddleware.js";
+import maintenanceMiddleware from "./middleware/maintenanceMiddleware.js";
 import corsOptions, { allowedOrigins } from "./util/cors.js";
 import { limiter, authLimiter, authedReadLimiter } from "./middleware/rateLimitMiddleware.js";
 import Logger from "./util/logger.js";
@@ -190,6 +191,13 @@ app.get('/health', async (req, res) => {
     checks
   });
 });
+
+// Maintenance mode (MAINTENANCE_MODE=true): 503 for everything except
+// /health, /admin and /api-docs. Mounted after /health and CORS (so the apps
+// can read the 503 body) and before the limiter and every route. See
+// middleware/maintenanceMiddleware.js for why this exists next to the
+// Firebase Remote Config switch the apps use.
+app.use(maintenanceMiddleware);
 
 // Swagger.
 //
