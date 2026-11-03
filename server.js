@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { env } from "./config/env.js";
+import { env, trimmedRazorpayVars } from "./config/env.js";
+import { keyMode } from "./util/razorpayCredentials.js";
 import { createServer } from "http";
 
 import app from "./app.js";
@@ -94,6 +95,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`🚀 Keplix Backend Running`);
   Logger.info(`🌍 URL: http://0.0.0.0:${PORT}`);
   Logger.info(`⚙️ Mode: ${env.NODE_ENV}`);
+  // Which Razorpay mode the keys are in -- prefix only, never the key. A
+  // test/live mix between key id and secret is a 401 on every order.
+  Logger.info(`💳 Razorpay keys: ${keyMode(env.RAZORPAY_KEY_ID)} mode`);
+  if (trimmedRazorpayVars.length) {
+    Logger.warn(`Razorpay env vars had surrounding whitespace (trimmed): ${trimmedRazorpayVars.join(', ')}`);
+  }
   Logger.info(`=================================`);
 
   // Three of these started unconditionally regardless of RUN_WORKERS (audit

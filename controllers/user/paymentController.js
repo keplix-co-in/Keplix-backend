@@ -8,6 +8,7 @@ import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError 
 import { resolveBookingAmount } from "../../util/servicePricing.js";
 import { isBookingPayable } from "../../util/bookingStatus.js";
 import { parseIdParam } from "../../util/parseIdParam.js";
+import { describeGatewayError } from "../../util/razorpayCredentials.js";
 
 
 
@@ -73,6 +74,18 @@ export const createPaymentOrder = async (req, res) => {
     // must agree, or the webhook's cross-check below fails every payment.
     const amount = resolveBookingAmount(booking);
 
+    // Razorpay's minimum order is ₹1 (100 paise). A booking priced at 0 (a
+    // missing price_snapshot or a ₹0 service) used to reach the gateway and
+    // come back as an opaque 502. Refuse it here with a reason instead.
+    if (!Number.isFinite(Number(amount)) || Math.round(Number(amount) * 100) < 100) {
+      console.error(`Create payment order: booking ${bookingIdNum} resolved to an unpayable amount (${amount})`);
+      return res.status(422).json({
+        message: "This booking has no payable amount",
+        error: "This booking's price is missing, so it can't be paid online. Please contact support.",
+        code: "INVALID_BOOKING_AMOUNT",
+      });
+    }
+
     const receipt = `rcpt_bk_${bookingId}`;
 
     // Idempotency by receipt lookup rather than the X-Razorpay-Idempotency-Key
@@ -135,11 +148,12 @@ export const createPaymentOrder = async (req, res) => {
     // response. A failure Razorpay itself reported is an upstream/gateway
     // failure from our API's point of view, so it's surfaced as 502 with the
     // gateway's own description, not our own bug.
+    // describeGatewayError (util/razorpayCredentials.js) gives a 401 (bad
+    // keys) and a 400 amount error a message a user can read, and keeps the
+    // gateway's raw text in `gatewayError` for support.
     if (error && typeof error.statusCode === 'number') {
-      return res.status(502).json({
-        message: "Payment gateway rejected the request",
-        error: error.error?.description || error.message || 'Unknown gateway error',
-      });
+      const { status, body } = describeGatewayError(error);
+      return res.status(status).json(body);
     }
     res.status(500).json({ message: "Payment order failed", error: error.message });
   }

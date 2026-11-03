@@ -76,9 +76,11 @@ describe('payment order creation — gateway failures surface as 502, not 500 (r
 
     await createPaymentOrder(req, res);
 
+    // 2026-11-03: the user-facing `error` is now a readable message; the
+    // gateway's own text moved to `gatewayError` (util/razorpayCredentials.js).
     expect(res.status).toHaveBeenCalledWith(502);
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'Authentication failed' })
+      expect.objectContaining({ code: 'GATEWAY_AUTH_FAILED', gatewayError: 'Authentication failed' })
     );
     expect(res.status).not.toHaveBeenCalledWith(500);
   });
