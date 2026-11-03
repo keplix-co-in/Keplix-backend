@@ -1,16 +1,15 @@
-import Razorpay from 'razorpay';
 import prisma from '../util/prisma.js';
 import Logger from './logger.js';
+import { createRazorpayXClient, FAILED_PAYOUT_STATES, payoutModeFor } from './razorpayXClient.js';
 
-
-
-// Initialize with Env Vars. In production, fail fast instead of silently
-// falling back to placeholder credentials that would let payout calls fail
-// (or worse, hit Razorpay's real test placeholders) without anyone noticing.
+// In production, fail fast instead of silently running without payout
+// credentials (payouts would then fail days later, one by one).
 if (process.env.NODE_ENV === 'production') {
     const required = [
         'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET',
-        'RAZORPAYX_KEY_ID', 'RAZORPAYX_KEY_SECRET'
+        'RAZORPAYX_KEY_ID', 'RAZORPAYX_KEY_SECRET',
+        // Without it every payout fails at send time; better to refuse to boot.
+        'RAZORPAYX_ACCOUNT_NUMBER'
     ];
     const missing = required.filter((key) => !process.env[key]);
     if (missing.length) {
@@ -18,15 +17,25 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
-});
+// WHY a REST client and not `new Razorpay(...)`: the npm SDK has no
+// contacts/payouts resources, so every payout call used to crash before
+// reaching Razorpay. See util/razorpayXClient.js. Created lazily so tests
+// (and the backfill script) can set env vars or inject a fake first.
+let razorpayX = null;
+const getClient = () => {
+    if (!razorpayX) {
+        razorpayX = createRazorpayXClient({
+            keyId: process.env.RAZORPAYX_KEY_ID,
+            keySecret: process.env.RAZORPAYX_KEY_SECRET,
+        });
+    }
+    return razorpayX;
+};
 
-const razorpayX = new Razorpay({
-    key_id: process.env.RAZORPAYX_KEY_ID || 'rzp_test_placeholder',
-    key_secret: process.env.RAZORPAYX_KEY_SECRET || 'secret_placeholder'
-});
+/** Test-only: swap in a fake RazorpayX client (pass null to reset). */
+export const __setRazorpayXClientForTests = (client) => {
+    razorpayX = client;
+};
 
 /**
  * Setup RazorpayX payout account for vendor
@@ -49,7 +58,7 @@ export const setupVendorPayoutAccount = async (vendorId, vendorProfile) => {
         }
 
         // Create RazorpayX contact
-        const contact = await razorpayX.contacts.create({
+        const contact = await getClient().createContact({
             name: business_name || `Vendor ${vendorId}`,
             email: email || `vendor${vendorId}@keplix.com`,
             contact: phone || '9999999999',
@@ -64,7 +73,7 @@ export const setupVendorPayoutAccount = async (vendorId, vendorProfile) => {
         // Create fund account based on available details
         if (bank_account_number && ifsc_code) {
             // Bank account fund account
-            fundAccount = await razorpayX.fund_accounts.create({
+            fundAccount = await getClient().createFundAccount({
                 contact_id: contact.id,
                 account_type: 'bank_account',
                 bank_account: {
@@ -81,7 +90,7 @@ export const setupVendorPayoutAccount = async (vendorId, vendorProfile) => {
             Logger.info(`[RazorpayX] Created bank fund account ${fundAccount.id} for vendor ${vendorId}`);
         } else if (upi_id) {
             // UPI fund account
-            fundAccount = await razorpayX.fund_accounts.create({
+            fundAccount = await getClient().createFundAccount({
                 contact_id: contact.id,
                 account_type: 'vpa',
                 vpa: {
@@ -140,28 +149,50 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
             return existingAccount;
         }
 
-        // Deactivate old fund account
-        await razorpayX.fund_accounts.update(existingAccount.fundAccountId, {
-            active: false
-        });
+        // WHY compare first: the vendor app's BusinessProfile screen sends the
+        // bank/UPI fields on EVERY profile save, even when only the shop name
+        // changed. Swapping the fund account each time would pile up
+        // deactivated accounts and could swap one mid-payout. If the details
+        // RazorpayX already holds match, keep the current account.
+        const holderName = vendorProfile.bank_account_holder_name || vendorProfile.business_name || `Vendor ${vendorId}`;
+        let current = null;
+        try {
+            current = await getClient().fetchFundAccount(existingAccount.fundAccountId);
+        } catch (err) {
+            Logger.warn(`[RazorpayX] Could not fetch fund account for vendor ${vendorId}, replacing it: ${err.message}`);
+        }
+        const unchanged = current && (hasBankDetails
+            ? current.account_type === 'bank_account'
+              && current.bank_account?.account_number === bank_account_number
+              && current.bank_account?.ifsc?.toUpperCase() === String(ifsc_code).toUpperCase()
+              && current.bank_account?.name === holderName
+            : current.account_type === 'vpa' && current.vpa?.address === upi_id);
+        if (unchanged) {
+            Logger.info(`[RazorpayX] Payout details unchanged for vendor ${vendorId}; keeping fund account`);
+            return existingAccount;
+        }
 
+        // Create the new fund account BEFORE deactivating the old one (it
+        // used to be the other way round): if creation fails -- bad IFSC,
+        // RazorpayX down -- the vendor keeps a working account instead of
+        // being left with none.
         let newFundAccount;
 
         // Create new fund account
         if (hasBankDetails) {
-            newFundAccount = await razorpayX.fund_accounts.create({
+            newFundAccount = await getClient().createFundAccount({
                 contact_id: existingAccount.contactId,
                 account_type: 'bank_account',
                 bank_account: {
                     // See setupVendorPayoutAccount: holder name first, then
                     // business_name for vendors who predate the column.
-                    name: vendorProfile.bank_account_holder_name || vendorProfile.business_name || `Vendor ${vendorId}`,
+                    name: holderName,
                     ifsc: ifsc_code,
                     account_number: bank_account_number
                 }
             });
         } else if (hasUpiDetails) {
-            newFundAccount = await razorpayX.fund_accounts.create({
+            newFundAccount = await getClient().createFundAccount({
                 contact_id: existingAccount.contactId,
                 account_type: 'vpa',
                 vpa: {
@@ -178,6 +209,16 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
             }
         });
 
+        // Only now retire the old one. Razorpay may hand back the same id for
+        // identical details, so never deactivate the account just stored. A
+        // failure here is harmless (payouts use the new id), so don't fail
+        // the save over it.
+        if (existingAccount.fundAccountId && existingAccount.fundAccountId !== newFundAccount.id) {
+            await getClient().deactivateFundAccount(existingAccount.fundAccountId).catch((err) => {
+                Logger.warn(`[RazorpayX] Could not deactivate old fund account for vendor ${vendorId}: ${err.message}`);
+            });
+        }
+
         Logger.info(`[RazorpayX] Successfully updated payout account for vendor ${vendorId}`);
         return updatedAccount;
 
@@ -191,19 +232,25 @@ export const updateVendorPayoutAccount = async (vendorId, vendorProfile) => {
  * initiateVendorPayout
  *
  * Executes the actual gateway transfer for a vendor payout (Stripe or
- * RazorpayX, based on payment.method). Auto-provisions a sandbox RazorpayX
- * fund account for the vendor if none exists yet, so admin-triggered
- * settlements don't hard-fail in non-production environments.
+ * RazorpayX, based on payment.method). A vendor without an active payout
+ * account fails the payout (no placeholder fallback -- see below).
  *
  * Params:
  *   payment  - Payment record (needs .id, .vendorAmount, .method)
  *   vendorId - User.id of the vendor to pay out
+ *   opts.idempotencyKey - X-Payout-Idempotency value. The worker passes a
+ *     new one only after RazorpayX definitively refused the previous payout;
+ *     reusing a key would just return that refused payout again.
  *
  * Returns:
- *   { success: true, payoutId, status } on success
- *   { success: false, error | message } on failure
+ *   { success: true, payoutId, status } -- accepted. status may still be
+ *     queued/pending/processing; only "processed" means the money arrived.
+ *   { success: false, terminal: true, payoutId, status, error } -- RazorpayX
+ *     refused this payout. Retrying with the same key cannot help.
+ *   { success: false, error | message } -- anything else (network, HTTP
+ *     error); safe to retry with the SAME key.
  */
-export const initiateVendorPayout = async (payment, vendorId) => {
+export const initiateVendorPayout = async (payment, vendorId, { idempotencyKey } = {}) => {
     Logger.info(`[Payout System] Initiating Payout for Payment ID: ${payment.id}`);
     Logger.info(`[Payout System] Amount to Vendor: ${payment.vendorAmount}`);
     Logger.info(`[Payout System] Vendor ID: ${vendorId}`);
@@ -241,26 +288,51 @@ export const initiateVendorPayout = async (payment, vendorId) => {
              // payout instead of creating a second transfer. reference_id alone
              // is stored for search/lookup on Razorpay's side, but it is not a
              // deduplication key — only the idempotency header is.
-             const payout = await razorpayX.payouts.create({
-                 account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER, // Keplix X account
+             const accountNumber = process.env.RAZORPAYX_ACCOUNT_NUMBER;
+             if (!accountNumber) {
+                 throw new Error('RAZORPAYX_ACCOUNT_NUMBER is not configured');
+             }
+             const fundAccount = await getClient().fetchFundAccount(payoutAccount.fundAccountId);
+             const payout = await getClient().createPayout({
+                 account_number: accountNumber, // Keplix RazorpayX account
                  fund_account_id: payoutAccount.fundAccountId,
                  amount: Math.round(Number(payment.vendorAmount) * 100), // paise
                  currency: "INR",
-                 mode: "IMPS",
+                 mode: payoutModeFor(fundAccount),
                  purpose: "payout",
+                 queue_if_low_balance: true,
                  reference_id: `payment_${payment.id}`,
-             }, {
-                 "X-Payout-Idempotency": `payout_payment_${payment.id}`,
-             });
+             }, idempotencyKey || `payout_payment_${payment.id}`);
 
-             return { success: true, payoutId: payout.id, status: 'paid' };
+             // RazorpayX can refuse a payout in the response itself (e.g.
+             // rejected for compliance). Reporting that as success would mark
+             // the vendor "paid" while no money moved.
+             if (FAILED_PAYOUT_STATES.includes(payout.status)) {
+                 return { success: false, terminal: true, payoutId: payout.id, status: payout.status, error: describePayoutFailure(payout) };
+             }
+
+             return { success: true, payoutId: payout.id, status: payout.status };
         }
 
-        return { success: false, message: "Unknown payment method" };
+        // `error`, not `message`: the worker reads `error`, so this used to
+        // surface only as "Payout failed" with no reason.
+        return { success: false, error: `Unknown payment method: ${payment.method}` };
 
     } catch (error) {
         Logger.error(`[Payout System] Error: ${error.message}`);
         return { success: false, error: error.message };
     }
 };
+
+/** Human-readable reason for a refused/undone payout. */
+export const describePayoutFailure = (payout) => {
+    const reason = payout.status_details?.description || payout.failure_reason || payout.status;
+    return `RazorpayX payout ${payout.id} ${payout.status}: ${reason}`;
+};
+
+/**
+ * Current state of a payout on RazorpayX. Used by the worker to finish
+ * payouts that were accepted but not yet processed. Throws on gateway error.
+ */
+export const fetchVendorPayout = (payoutId) => getClient().fetchPayout(payoutId);
 

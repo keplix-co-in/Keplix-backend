@@ -7,6 +7,19 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+// Smallest refund Razorpay accepts, in rupees.
+export const MIN_GATEWAY_REFUND = 1;
+
+/**
+ * Readable reason from a Razorpay SDK error. The SDK rejects with a plain
+ * object ({ statusCode, error: { description } }), not an Error, so reading
+ * .message alone logged "Gateway refund failed: undefined" (2026-11-03).
+ */
+export const gatewayErrorText = (err) => {
+  const description = err?.error?.description || err?.message || 'Unknown gateway error';
+  return err?.statusCode ? `${description} (HTTP ${err.statusCode})` : description;
+};
+
 /**
  * Thrown by service functions to carry an intended HTTP status code, so the
  * controller can map it to a response without the service layer knowing
@@ -140,6 +153,15 @@ export const issueRefund = async ({ paymentId, amount, reason, idempotencyKey, i
     if (!(requested > 0) || requested > remaining + 0.005) {
       throw new RefundError(`Refund amount must be between 0 and ${remaining.toFixed(2)}`, 400);
     }
+    // Razorpay refuses refunds under ₹1 (2026-11-03: a ₹1 payment less its
+    // ₹0.02 fee came to ₹0.98 and was rejected). Say so plainly here instead
+    // of reserving a row that can only fail at the gateway.
+    if (requested < MIN_GATEWAY_REFUND) {
+      throw new RefundError(
+        `Razorpay can't refund less than ₹${MIN_GATEWAY_REFUND}. Requested ₹${requested.toFixed(2)}.`,
+        400,
+      );
+    }
 
     // A previously failed attempt with this key is retried by resetting it to
     // 'initiated' rather than creating a second row (idempotencyKey is unique).
@@ -187,11 +209,12 @@ export const issueRefund = async ({ paymentId, amount, reason, idempotencyKey, i
       notes: reason ? { reason } : undefined,
     });
   } catch (gatewayError) {
+    const why = gatewayErrorText(gatewayError);
     await prisma.refund.update({
       where: { id: refund.id },
-      data: { status: 'gateway_failed', attempts: { increment: 1 }, lastError: gatewayError.message },
+      data: { status: 'gateway_failed', attempts: { increment: 1 }, lastError: why },
     });
-    throw new RefundError(`Gateway refund failed: ${gatewayError.message}`, 502);
+    throw new RefundError(`Gateway refund failed: ${why}`, 502);
   }
 
   // The refund has happened at the gateway. Record that before anything else

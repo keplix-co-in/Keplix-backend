@@ -1,7 +1,7 @@
 import prisma from "../util/prisma.js";
 import Razorpay from "razorpay";
 import { getPlatformSettings } from "../util/platformSettings.js";
-import { issueRefund } from "./refundService.js";
+import { issueRefund, MIN_GATEWAY_REFUND } from "./refundService.js";
 
 /**
  * Refund POLICY.
@@ -140,7 +140,11 @@ export const resolveCancellationRefund = async ({ booking, payment, settings }) 
 
   if (config.refundGatewayFeeBorneBy === "customer") {
     const fee = await resolveGatewayFee(payment);
-    if (fee != null && fee < paidAmount) {
+    // Also skipped when taking the fee would leave less than Razorpay's ₹1
+    // refund minimum: the refund would be refused and the customer would get
+    // nothing back (2026-11-03, a ₹1 booking). Refunding in full costs the
+    // platform a few paise instead.
+    if (fee != null && fee < paidAmount && paidAmount - fee >= MIN_GATEWAY_REFUND) {
       feeDeducted = fee;
       amount = paidAmount - fee;
     }
