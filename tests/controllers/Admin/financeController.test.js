@@ -50,7 +50,8 @@ function basePayment(overrides = {}) {
     vendorPayoutStatus: 'pending',
     vendorAmount: 500,
     bookingId: 10,
-    booking: { service: { vendorId: 42 } },
+    // A finished job: settle now refuses bookings that aren't completed yet.
+    booking: { status: 'service_completed', service: { vendorId: 42 } },
     ...overrides,
   };
 }
@@ -109,6 +110,35 @@ describe('settlePayout', () => {
       expect.objectContaining({ success: false, message: 'Payment not found' })
     );
     expect(mockAddPayoutJob).not.toHaveBeenCalled();
+  });
+
+  // WHY (2026-11-03): settle used to accept a booking that was only confirmed
+  // or in progress, paying the vendor before the work was done.
+  it.each(["confirmed", "in_progress", "pending"])("refuses a booking that is %s (job not finished)", async (bookingStatus) => {
+    wireTransaction(basePayment({ booking: { status: bookingStatus, service: { vendorId: 42 } } }));
+    const res = mockRes();
+    await settlePayout(mockReq("1"), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("not finished") }));
+    expect(mockAddPayoutJob).not.toHaveBeenCalled();
+  });
+
+  it.each(["service_completed", "user_confirmed", "completed"])("allows a finished booking (%s)", async (bookingStatus) => {
+    wireTransaction(basePayment({ booking: { status: bookingStatus, service: { vendorId: 42 } } }));
+    mockAddPayoutJob.mockResolvedValue({});
+    const res = mockRes();
+    await settlePayout(mockReq("1"), res);
+    expect(mockAddPayoutJob).toHaveBeenCalled();
+  });
+
+  it("a finished partial refund no longer blocks the payout (only open ones do)", async () => {
+    const { tx } = wireTransaction(basePayment());
+    mockAddPayoutJob.mockResolvedValue({});
+    await settlePayout(mockReq("1"), mockRes());
+    expect(tx.refund.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { paymentId: 1, status: { in: ["initiated", "gateway_confirmed", "reconciliation_needed"] } },
+    }));
+    expect(mockAddPayoutJob).toHaveBeenCalled();
   });
 
   it('returns 400 when payment.status is not "success"', async () => {
@@ -175,7 +205,7 @@ describe('settlePayout', () => {
   });
 
   it('returns 400 when the booking has no resolvable vendor', async () => {
-    wireTransaction(basePayment({ booking: { service: {} } }));
+    wireTransaction(basePayment({ booking: { status: 'service_completed', service: {} } }));
     const res = mockRes();
 
     await settlePayout(mockReq('1'), res);

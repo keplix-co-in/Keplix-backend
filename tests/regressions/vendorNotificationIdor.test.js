@@ -72,6 +72,18 @@ describe('vendor notification IDOR — FIXED, regression guard', () => {
     );
   });
 
+  test('getVendorNotifications hides old "Payment received" rows but keeps untyped rows', async () => {
+    // Owner decision 2026-11-03: vendors aren't told a customer paid.
+    await getVendorNotifications({ params: {}, query: {}, user: { id: CALLER_ID } }, mockRes());
+    const { where } = prisma.notification.findMany.mock.calls[0][0];
+    expect(where.AND).toEqual([
+      { OR: [{ type: null }, { type: { not: 'PAYMENT_RECEIVED' } }] },
+      { NOT: { title: { startsWith: 'Payment received', mode: 'insensitive' } } },
+    ]);
+    // The count uses the same filter, so pagination matches what is shown.
+    expect(prisma.notification.count).toHaveBeenCalledWith({ where });
+  });
+
   test('markVendorRead scopes the update by id AND caller id, not id alone', async () => {
     prisma.notification.updateMany.mockResolvedValue({ count: 1 });
     const req = { params: { id: '42' }, user: { id: CALLER_ID } };

@@ -207,6 +207,35 @@ describe('verifyAndRecordPayment — exploit regressions', () => {
     expect(mockPrisma.payment.upsert).not.toHaveBeenCalled();
   });
 
+  test('replaying verify on a refunded payment does not flip it back to success', async () => {
+    // Before 2026-11-03 only "success" short-circuited, so a refunded payment
+    // fell through to the upsert and was set back to success -- re-arming a
+    // payout for money the customer already got back.
+    mockPrisma.booking.findUnique.mockResolvedValue(bookingFixture({ status: 'cancelled' }));
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: 99,
+      bookingId: 1,
+      status: 'refunded',
+      vendorPayoutStatus: 'pending',
+      platformFee: { toString: () => '500' },
+      vendorAmount: { toString: () => '4500' },
+    });
+
+    const result = await verifyAndRecordPayment({
+      bookingId: 1,
+      requestingUserId: 7,
+      orderId: 'order_1',
+      paymentId: 'pay_1',
+      signature: validSignature('order_1', 'pay_1'),
+      gateway: 'razorpay',
+    });
+
+    expect(result.alreadyRecorded).toBe(true);
+    expect(result.bookingActive).toBe(false);
+    expect(mockPrisma.payment.upsert).not.toHaveBeenCalled();
+    expect(mockPaymentsFetch).not.toHaveBeenCalled();
+  });
+
   test('rejects a payment that is not actually captured at the gateway (V7)', async () => {
     mockPrisma.booking.findUnique.mockResolvedValue(bookingFixture());
     mockPaymentsFetch.mockResolvedValue(capturedPaymentFixture({ status: 'authorized' }));

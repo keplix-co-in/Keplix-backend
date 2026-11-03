@@ -1,6 +1,8 @@
 import prisma from "../util/prisma.js";
 import { addPayoutJob } from "../queues/payoutQueue.js";
-import { RESERVED_STATUSES } from "./refundService.js";
+import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES } from "../util/payoutRules.js";
+
+export { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES };
 
 /**
  * Thrown by service functions to carry an intended HTTP status code, so the
@@ -84,18 +86,25 @@ export const claimAndQueuePayout = async (paymentId) => {
 
       // 1. A booking that is cancelled, refunded or disputed has no settled
       //    amount to pay out, whatever the payment row alone suggests.
-      if (["cancelled", "refunded", "disputed"].includes(p.booking?.status)) {
+      if (PAYOUT_DEAD_BOOKING_STATUSES.includes(p.booking?.status)) {
         return {
           error: `Payout blocked: booking is ${p.booking.status}`,
           status: 400,
         };
       }
+      if (!PAYOUT_READY_BOOKING_STATUSES.includes(p.booking?.status)) {
+        return {
+          error: `Payout blocked: the job is not finished yet (booking is ${p.booking?.status ?? "missing"})`,
+          status: 400,
+        };
+      }
 
-      // 2. Any refund already laying claim to this payment's balance. Uses
-      //    refundService's own RESERVED_STATUSES so the two definitions of
-      //    "this money is spoken for" cannot drift apart.
+      // 2. Any refund whose outcome is still open. Uses refundService's
+      //    PAYOUT_BLOCKING_STATUSES so the two sides can't drift apart. A
+      //    finished partial refund no longer blocks: it already cut
+      //    vendorAmount to 90% of what is left (owner decision 2026-11-03).
       const reservedRefund = await tx.refund.findFirst({
-        where: { paymentId: p.id, status: { in: RESERVED_STATUSES } },
+        where: { paymentId: p.id, status: { in: PAYOUT_BLOCKING_STATUSES } },
         select: { id: true, status: true },
       });
       if (reservedRefund) {

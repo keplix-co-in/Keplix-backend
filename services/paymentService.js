@@ -2,7 +2,7 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolveBookingAmount } from "../util/servicePricing.js";
-import { resolvePlatformFeeRate } from "../util/platformSettings.js";
+import { resolvePlatformFeeRate, computeSplit } from "../util/platformSettings.js";
 import { executeCancellationRefund } from "./refundPolicy.js";
 import { createNotification } from "../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
@@ -105,6 +105,22 @@ export const verifyAndRecordPayment = async ({
     where: { bookingId: Number(bookingId) },
   });
 
+  // A refunded payment is just as terminal. Before 2026-11-03 only "success"
+  // short-circuited, so replaying /verify on a refunded payment fell through
+  // to the upsert and set it back to "success" -- re-arming a payout for money
+  // the customer already got back. The webhook path already refused this.
+  if (existing && existing.status === "refunded") {
+    return {
+      payment: existing,
+      updatedBooking: booking,
+      platformFee: existing.platformFee ? parseFloat(existing.platformFee.toString()) : 0,
+      vendorAmount: existing.vendorAmount ? parseFloat(existing.vendorAmount.toString()) : 0,
+      alreadyRecorded: true,
+      bookingActive: false,
+      refundOutcome: { refunded: true },
+    };
+  }
+
   if (existing && existing.status === "success") {
     return {
       payment: existing,
@@ -146,8 +162,8 @@ export const verifyAndRecordPayment = async ({
   // Read from PlatformSettings, not a constant — the admin commission toggle
   // is what decides this. Resolved here, at record time, and persisted below;
   // never re-derived later. See resolvePlatformFeeRate.
-  const platformFee = totalAmount * (await resolvePlatformFeeRate());
-  const vendorAmount = totalAmount - platformFee;
+  // computeSplit rounds the fee to the paisa so fee + vendor share = amount.
+  const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
 
   // The signature only proves this (orderId, paymentId) pair was produced by
   // Razorpay for our key — it does NOT prove the payment was actually
@@ -389,8 +405,8 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
 
   // Must use the same resolver as the client-verify path above, or the two
   // routes to recording one payment could split it differently.
-  const platformFee = totalAmount * (await resolvePlatformFeeRate());
-  const vendorAmount = totalAmount - platformFee;
+  // computeSplit rounds the fee to the paisa so fee + vendor share = amount.
+  const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
 
   const { payment, updatedBooking, bookingActive, refundOutcome } = await recordSuccessfulPayment({
     bookingId,

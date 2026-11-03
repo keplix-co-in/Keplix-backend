@@ -1,7 +1,7 @@
 import prisma from "../util/prisma.js";
 import { addPayoutJob } from "../queues/payoutQueue.js";
 import { updateVendorRatingStats } from "../util/ratingHelper.js";
-import { RESERVED_STATUSES } from "./refundService.js";
+import { PAYOUT_BLOCKING_STATUSES } from "../util/payoutRules.js";
 
 /**
  * Thrown by service functions to carry an intended HTTP status code, so the
@@ -121,7 +121,9 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
       // customer saying they are happy. Making them wait 24 hours after
       // explicitly confirming would punish the good path for no benefit.
       const reservedRefund = await tx.refund.findFirst({
-        where: { paymentId: payment.id, status: { in: RESERVED_STATUSES } },
+        // Only refunds still in flight block (PAYOUT_BLOCKING_STATUSES): a finished
+        // partial refund has already reduced vendorAmount to 90% of what is left.
+        where: { paymentId: payment.id, status: { in: PAYOUT_BLOCKING_STATUSES } },
         select: { id: true },
       });
       if (reservedRefund) {
