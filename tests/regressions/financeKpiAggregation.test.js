@@ -80,7 +80,9 @@ describe('finance KPI aggregation — FIXED, regression guard', () => {
     expect(paymentCalls.some((c) => c.where?.status === 'refunded')).toBe(false);
   });
 
-  test('totalCollected and commission include refunded payments, not status:success alone', async () => {
+  // 2026-11-03: commission now counts booking payments still 'success' only.
+  // A fully refunded booking kept no fee (covered in financeRefundsList.test.js).
+  test('totalCollected includes refunded payments; commission counts kept booking fees only', async () => {
     await getFinanceKpis({}, mockRes());
 
     const calls = mockPrisma.payment.aggregate.mock.calls.map((c) => c[0]);
@@ -88,7 +90,7 @@ describe('finance KPI aggregation — FIXED, regression guard', () => {
     const commissionCall = calls.find((c) => c._sum.platformFee);
 
     expect(totalCollectedCall.where.status).toEqual({ in: ['success', 'refunded'] });
-    expect(commissionCall.where.status).toEqual({ in: ['success', 'refunded'] });
+    expect(commissionCall.where).toEqual({ status: 'success', bookingId: { not: null } });
   });
 
   test('pendingDisbursement includes "processing", not just "pending"', async () => {

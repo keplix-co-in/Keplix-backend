@@ -4,6 +4,7 @@ import { FAILED_PAYOUT_STATES, PAID_PAYOUT_STATE } from "../util/razorpayXClient
 import { createNotification } from "../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
 import Logger from "../util/logger.js";
+import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES } from "../util/payoutRules.js";
 
 /**
  * processPayoutJob
@@ -101,6 +102,23 @@ export const processPayoutJob = async (job) => {
       return;
     }
   } else {
+    // Last check before money moves. WHY (2026-11-03 review): the job can sit
+    // in the queue for a while, and a refund or cancellation that lands in
+    // that gap used to be ignored -- the customer got refunded AND the vendor
+    // got paid. Nothing has been sent yet on this path, so stopping is safe.
+    const stopReason = await payoutStopReason(payment);
+    if (stopReason) {
+      Logger.warn(`[Payout Worker] Payment ${paymentId}: payout stopped before sending. ${stopReason}`);
+      await prisma.payoutSettlement.update({
+        where: { paymentId },
+        data: { status: "gateway_failed", lastError: `Stopped before sending: ${stopReason}` },
+      });
+      // Back to "pending": no money moved. The admin queue hides cancelled
+      // and refunded bookings, and one whose refund later fails can be paid.
+      await prisma.payment.update({ where: { id: paymentId }, data: { vendorPayoutStatus: "pending" } });
+      return;
+    }
+
     // WHY the key changes only after a refusal: the idempotency key makes
     // RazorpayX return the original payout for a repeated request. That is
     // what stops a retry after a network blip paying twice -- so network and
@@ -209,6 +227,25 @@ export const processPayoutJob = async (job) => {
     // here would be pointless at best (gatewayAlreadyConfirmed makes it a
     // safe status check) and confusing at worst.
   }
+};
+
+/**
+ * Why this payout must not be sent right now, or null if it may. Re-reads
+ * refunds from the database rather than trusting the job snapshot.
+ */
+const payoutStopReason = async (payment) => {
+  if (payment.status !== "success") return `payment is ${payment.status}`;
+  const bookingStatus = payment.booking?.status;
+  if (PAYOUT_DEAD_BOOKING_STATUSES.includes(bookingStatus)) return `booking is ${bookingStatus}`;
+  if (!PAYOUT_READY_BOOKING_STATUSES.includes(bookingStatus)) {
+    return `job not finished (booking is ${bookingStatus ?? "missing"})`;
+  }
+  const openRefund = await prisma.refund.findFirst({
+    where: { paymentId: payment.id, status: { in: PAYOUT_BLOCKING_STATUSES } },
+    select: { id: true, status: true },
+  });
+  if (openRefund) return `refund ${openRefund.id} is ${openRefund.status}`;
+  return null;
 };
 
 /**

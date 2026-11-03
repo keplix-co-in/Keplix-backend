@@ -79,6 +79,25 @@ export async function resolvePlatformFeeRate() {
 }
 
 /**
+ * Splits a payment into Keplix's fee and the vendor's share, in rupees.
+ *
+ * WHY (2026-11-03 review): the fee was amount * rate with no rounding, so
+ * ₹999.99 at 10% stored a fee of 99.999 and a vendor share of 899.991. The
+ * payout sends whole paise, so the books and the money moved could disagree
+ * by a fraction of a paisa. The fee is now rounded to the paisa and the vendor
+ * gets exactly the rest, so fee + vendorAmount always equals the amount.
+ *
+ * @param {number} amount rupees paid by the customer
+ * @param {number} rate 0..1, from resolvePlatformFeeRate()
+ * @returns {{platformFee:number, vendorAmount:number}}
+ */
+export function computeSplit(amount, rate) {
+  const paise = Math.round(Number(amount) * 100);
+  const feePaise = Math.round(paise * Number(rate));
+  return { platformFee: feePaise / 100, vendorAmount: (paise - feePaise) / 100 };
+}
+
+/**
  * When a payout for a booking completed now becomes releasable.
  *
  * Computed at completion time and stored on Payment.payoutHoldUntil rather

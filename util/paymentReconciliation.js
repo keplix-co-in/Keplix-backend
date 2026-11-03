@@ -3,6 +3,7 @@ import Razorpay from 'razorpay';
 import prisma from './prisma.js';
 import Logger from './logger.js';
 import { resolveBookingAmount } from './servicePricing.js';
+import { computeSplit, resolvePlatformFeeRate } from './platformSettings.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -74,8 +75,10 @@ export const reconcileStalePayments = async () => {
         continue;
       }
 
-      const platformFee = totalAmount * 0.1;
-      const vendorAmount = totalAmount - platformFee;
+      // WHY (2026-11-03): this was a hardcoded 0.1, so a payment recovered
+      // here ignored the admin commission switch and could be split
+      // differently from the same payment recorded by verify or the webhook.
+      const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
 
       const bookingAdvanced = await prisma.$transaction(async (tx) => {
         await tx.payment.upsert({

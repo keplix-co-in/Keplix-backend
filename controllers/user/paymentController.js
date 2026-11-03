@@ -9,6 +9,7 @@ import { resolveBookingAmount } from "../../util/servicePricing.js";
 import { isBookingPayable } from "../../util/bookingStatus.js";
 import { parseIdParam } from "../../util/parseIdParam.js";
 import { describeGatewayError } from "../../util/razorpayCredentials.js";
+import { applyGatewayRefundOutcome, recordDashboardRefund } from "../../services/refundService.js";
 
 
 
@@ -167,7 +168,7 @@ export const verifyPayment = async (req, res) => {
   try {
     const { orderId, paymentId, signature, bookingId, gateway } = req.body;
 
-    const { payment, updatedBooking, platformFee, vendorAmount, bookingActive, refundOutcome } = await verifyAndRecordPayment({
+    const { payment, updatedBooking, platformFee, vendorAmount, bookingActive, refundOutcome, alreadyRecorded } = await verifyAndRecordPayment({
       bookingId,
       requestingUserId: req.user.id,
       orderId,
@@ -192,30 +193,33 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // Notify Vendor about successful payment
-    if (updatedBooking) {
-      if (updatedBooking.service && updatedBooking.service.vendorId) {
-        const paymentNotification = renderNotification(NOTIFICATION_TYPES.PAYMENT_RECEIVED, {
-          serviceName: updatedBooking.service?.name,
-          bookingId: updatedBooking.id,
-        });
-        await createNotification(
-          updatedBooking.service.vendorId,
-          paymentNotification.title,
-          paymentNotification.body,
-          { type: paymentNotification.type, data: paymentNotification.data, bookingId: updatedBooking.id }
-        );
+    // Tell the vendor the job is on -- WITHOUT saying the customer paid.
+    // Owner decision 2026-11-03: only Keplix needs to know about the payment.
+    // This used to send PAYMENT_RECEIVED ("A customer has paid...") plus a
+    // "payment_received" socket event carrying the amount. Now it is a neutral
+    // BOOKING_READY notice and a plain "booking_updated" refresh signal.
+    //
+    // Skipped on a replayed verify (alreadyRecorded): the app retrying the
+    // same verify used to notify the vendor a second time.
+    const vendorId = updatedBooking?.service?.vendorId;
+    if (vendorId && !alreadyRecorded) {
+      const notice = renderNotification(NOTIFICATION_TYPES.BOOKING_READY, {
+        serviceName: updatedBooking.service?.name,
+        bookingId: updatedBooking.id,
+      });
+      await createNotification(vendorId, notice.title, notice.body, {
+        type: notice.type,
+        data: notice.data,
+        bookingId: updatedBooking.id,
+      });
 
-        // Notify vendor via socket
-        const io = req.app.get("io");
-        if (io) {
-          io.to(`user_${updatedBooking.service.vendorId}`).emit("payment_received", {
-            bookingId: updatedBooking.id,
-            service: updatedBooking.service.name,
-            amount: payment.amount,
-            message: "Payment received! You can now start the service."
-          });
-        }
+      const io = req.app.get("io");
+      if (io) {
+        // No amount and no payment wording: screens only need to refresh.
+        io.to(`user_${vendorId}`).emit("booking_updated", {
+          bookingId: updatedBooking.id,
+          status: updatedBooking.status,
+        });
       }
     }
 
@@ -440,9 +444,9 @@ async function handlePaymentFailed(payment) {
 
 // Helper: Handle refund processed event
 //
-// issueRefund optimistically marks a row 'processed' once its own bookkeeping
-// succeeds, but the gateway is the authority on whether the money actually
-// reached the customer. This is the confirmation.
+// Razorpay is the authority on whether the money reached the customer.
+// issueRefund leaves a refund 'gateway_confirmed' until Razorpay says
+// 'processed'; this (and util/refundReconciler.js) is that confirmation.
 async function handleRefundProcessed(refundEntity) {
   try {
     const { id, payment_id } = refundEntity;
@@ -450,27 +454,28 @@ async function handleRefundProcessed(refundEntity) {
     const refund = await prisma.refund.findFirst({ where: { gatewayRefundId: id } });
 
     if (!refund) {
-      // A refund we have no record of — issued directly from the Razorpay
-      // dashboard, most likely. Worth knowing about: our Payment row still
-      // says the money is ours.
-      Logger.warn(
-        `[Webhook] refund.processed for unknown refund ${id} (payment ${payment_id}) — ` +
-        `possibly issued outside the app.`
-      );
+      // No row: made by hand in the Razorpay dashboard. Record it so the
+      // payment, the vendor's share and admin's Refunds list all reflect it.
+      const recorded = await recordDashboardRefund(refundEntity);
+      if (!recorded) {
+        Logger.warn(`[Webhook] refund.processed for refund ${id}: payment ${payment_id} is not one of ours`);
+        return;
+      }
+      if (recorded.ours) {
+        Logger.info(`[Webhook] refund.processed for ${id} arrived before refund ${recorded.ours.id} saved its id; the reconciler will finish it`);
+        return;
+      }
+      Logger.warn(`[Webhook] Recorded dashboard refund ${id} for payment ${recorded.payment.id}`);
+      if (recorded.payoutAlreadySettled) {
+        Logger.error(
+          `[MANUAL ACTION] Dashboard refund ${id} landed after the vendor payout for payment ${recorded.payment.id} -- the vendor's share needs recovering.`
+        );
+      }
       return;
     }
 
-    if (refund.status === 'processed') {
-      Logger.info(`[Webhook] Refund ${id} already processed, ignoring duplicate`);
-      return;
-    }
-
-    await prisma.refund.update({
-      where: { id: refund.id },
-      data: { status: 'processed', gatewayResponse: JSON.stringify(refundEntity) },
-    });
-
-    Logger.info(`[Webhook] Refund ${id} confirmed processed`);
+    const { changed } = await applyGatewayRefundOutcome(refund, 'processed', refundEntity);
+    Logger.info(changed ? `[Webhook] Refund ${id} confirmed processed` : `[Webhook] Refund ${id} already processed, ignoring duplicate`);
   } catch (error) {
     Logger.error(`[Webhook] handleRefundProcessed error: ${error.message}`);
     // Same rationale as handlePaymentCaptured above.
@@ -480,9 +485,9 @@ async function handleRefundProcessed(refundEntity) {
 
 // Helper: Handle refund failed event
 //
-// The money did NOT reach the customer. Marked gateway_failed, which is the
-// one status refundService will let a retry re-reserve — deliberately, because
-// there the funds provably did not move.
+// The money did NOT reach the customer. applyGatewayRefundOutcome marks it
+// gateway_failed (the one status refundService lets a retry re-reserve), puts
+// a 'refunded' payment back to 'success' and restores the vendor's share.
 async function handleRefundFailed(refundEntity) {
   try {
     const { id, payment_id } = refundEntity;
@@ -490,58 +495,51 @@ async function handleRefundFailed(refundEntity) {
     const refund = await prisma.refund.findFirst({ where: { gatewayRefundId: id } });
 
     if (!refund) {
+      // A failed dashboard refund moved no money, so there is nothing to record.
       Logger.warn(`[Webhook] refund.failed for unknown refund ${id} (payment ${payment_id})`);
       return;
     }
 
-    // Never walk back a refund the gateway already confirmed as processed —
-    // deliveries can arrive out of order, and marking a completed refund as
-    // failed would invite a second one.
-    if (refund.status === 'processed') {
-      Logger.warn(`[Webhook] Ignored stale refund.failed for already-processed refund ${id}`);
+    const { changed } = await applyGatewayRefundOutcome(refund, 'failed', refundEntity);
+    if (!changed) {
+      // Out-of-order delivery: never walk back a refund Razorpay already
+      // confirmed, or it would invite a second one.
+      Logger.warn(`[Webhook] Ignored stale refund.failed for refund ${id} (status ${refund.status})`);
       return;
     }
 
-    await prisma.refund.update({
-      where: { id: refund.id },
-      data: {
-        status: 'gateway_failed',
-        lastError: refundEntity?.error_description || 'Gateway reported refund failure',
-        gatewayResponse: JSON.stringify(refundEntity),
-      },
-    });
-
     Logger.error(`[MANUAL ACTION] Refund ${id} failed at the gateway — customer has NOT been refunded.`);
-
-    // Before this, that "MANUAL ACTION" was a server log only -- the
-    // customer had no way to know their refund hadn't gone through
-    // (audit #87). Best-effort: the refund is already recorded as failed
-    // above regardless of whether this notification succeeds.
-    try {
-      const bookingWithService = await prisma.payment.findUnique({
-        where: { id: refund.paymentId },
-        select: { booking: { select: { id: true, userId: true, service: { select: { name: true } } } } },
-      });
-      const booking = bookingWithService?.booking;
-      if (booking?.userId) {
-        const failedNotification = renderNotification(NOTIFICATION_TYPES.REFUND_FAILED, {
-          serviceName: booking.service?.name,
-          bookingId: booking.id,
-        });
-        await createNotification(
-          booking.userId,
-          failedNotification.title,
-          failedNotification.body,
-          { type: failedNotification.type, data: failedNotification.data, bookingId: booking.id },
-        );
-      }
-    } catch (notifyError) {
-      Logger.error(`[Webhook] Failed to notify customer of refund failure for refund ${id}: ${notifyError.message}`);
-    }
+    await notifyRefundFailed(refund.paymentId, id);
   } catch (error) {
     Logger.error(`[Webhook] handleRefundFailed error: ${error.message}`);
     // Same rationale as handlePaymentCaptured above.
     throw error;
+  }
+}
+
+// Tells the customer their refund did not go through (audit #87). Best-effort:
+// the refund is already recorded as failed whether or not this succeeds.
+export async function notifyRefundFailed(paymentId, gatewayRefundId) {
+  try {
+    const bookingWithService = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { booking: { select: { id: true, userId: true, service: { select: { name: true } } } } },
+    });
+    const booking = bookingWithService?.booking;
+    if (booking?.userId) {
+      const failedNotification = renderNotification(NOTIFICATION_TYPES.REFUND_FAILED, {
+        serviceName: booking.service?.name,
+        bookingId: booking.id,
+      });
+      await createNotification(
+        booking.userId,
+        failedNotification.title,
+        failedNotification.body,
+        { type: failedNotification.type, data: failedNotification.data, bookingId: booking.id },
+      );
+    }
+  } catch (notifyError) {
+    Logger.error(`[Webhook] Failed to notify customer of refund failure for refund ${gatewayRefundId}: ${notifyError.message}`);
   }
 }
 

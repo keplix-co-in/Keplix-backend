@@ -55,6 +55,8 @@ jest.unstable_mockModule('../../util/notificationHelper.js', () => ({
 }));
 jest.unstable_mockModule('../../util/platformSettings.js', () => ({
   resolvePlatformFeeRate: jest.fn().mockResolvedValue(0.1),
+  // Same paisa-rounded split as util/platformSettings.js.
+  computeSplit: (amount, rate) => { const p = Math.round(amount * 100); const f = Math.round(p * rate); return { platformFee: f / 100, vendorAmount: (p - f) / 100 }; },
 }));
 
 const { verifyAndRecordPayment } = await import('../../services/paymentService.js');

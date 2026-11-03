@@ -16,7 +16,19 @@ export const getVendorNotifications = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const isRead = req.query.isRead;
 
-        const where = { userId: userId };
+        const where = {
+            userId: userId,
+            // Hide old "Payment received" rows. Owner decision 2026-11-03:
+            // vendors aren't told a customer paid any more (verifyPayment now
+            // sends a neutral BOOKING_READY), so the rows already sent are
+            // hidden too. Matched by type, and by title for rows written
+            // before the `type` column existed. `type` is nullable, and a
+            // plain NOT on it would also drop every null-type row, hence the OR.
+            AND: [
+                { OR: [{ type: null }, { type: { not: 'PAYMENT_RECEIVED' } }] },
+                { NOT: { title: { startsWith: 'Payment received', mode: 'insensitive' } } },
+            ],
+        };
         if (isRead !== undefined) {
             where.is_read = isRead === 'true';
         }

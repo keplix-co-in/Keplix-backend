@@ -49,8 +49,15 @@ export const NOTIFICATION_TYPES = {
   BOOKING_REQUEST_EXPIRED: 'BOOKING_REQUEST_EXPIRED',
   SERVICE_TIME_ARRIVED: 'SERVICE_TIME_ARRIVED',
   BOOKING_MISSED_EXPIRED: 'BOOKING_MISSED_EXPIRED',
+  // Sent to the vendor once a booking is paid and ready to work on. It says
+  // nothing about payment or amount on purpose: owner decision 2026-11-03 --
+  // only Keplix needs to know the customer paid, the vendor just needs to
+  // know the job is on. Replaces PAYMENT_RECEIVED for vendors.
+  BOOKING_READY: 'BOOKING_READY',
 
   // Money
+  // No longer sent (see BOOKING_READY). Kept so old rows still render and so
+  // the vendor notification list can filter them out by name.
   PAYMENT_RECEIVED: 'PAYMENT_RECEIVED',
   PAYOUT_SETTLED: 'PAYOUT_SETTLED',
   REFUND_ISSUED: 'REFUND_ISSUED',
@@ -347,6 +354,13 @@ export const notificationTemplates = {
     title: 'Missed booking expired',
     body: `The ${serviceNoun(v.serviceName)} booking expired because the scheduled time was missed.`,
     data: bookingData(T.BOOKING_MISSED_EXPIRED, v),
+  }),
+
+  [T.BOOKING_READY]: (v = {}) => ({
+    type: T.BOOKING_READY,
+    title: 'Booking ready',
+    body: `Your booking for ${serviceName(v.serviceName)} is confirmed. You can start at the scheduled time.`,
+    data: bookingData(T.BOOKING_READY, v),
   }),
 
   // --- Money ---------------------------------------------------------------

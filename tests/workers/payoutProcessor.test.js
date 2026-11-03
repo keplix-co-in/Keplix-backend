@@ -9,6 +9,8 @@ import { jest } from '@jest/globals';
 const mockPrisma = {
   payment: { findUnique: jest.fn(), update: jest.fn() },
   payoutSettlement: { upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
+  // The worker re-checks for an open refund just before sending money.
+  refund: { findFirst: jest.fn() },
 };
 const mockInitiate = jest.fn();
 const mockFetchPayout = jest.fn();
@@ -28,7 +30,7 @@ jest.unstable_mockModule('../../util/logger.js', () => ({
 const { processPayoutJob, reconcileInFlightPayouts } = await import('../../workers/payoutProcessor.js');
 
 const job = { data: { paymentId: 77, vendorId: 5, bookingId: 9 } };
-const payment = { id: 77, vendorAmount: '450.00', vendorPayoutStatus: 'processing', bookingId: 9, booking: { id: 9, service: { name: 'Oil change', vendorId: 5 } } };
+const payment = { id: 77, status: 'success', vendorAmount: '450.00', vendorPayoutStatus: 'processing', bookingId: 9, booking: { id: 9, status: 'user_confirmed', service: { name: 'Oil change', vendorId: 5 } } };
 const settlement = (over = {}) => ({ paymentId: 77, status: 'initiated', gatewayPayoutId: null, gatewayResponse: null, ...over });
 
 beforeEach(() => {
@@ -38,6 +40,7 @@ beforeEach(() => {
   mockPrisma.payoutSettlement.update.mockResolvedValue({});
   mockPrisma.payoutSettlement.updateMany.mockResolvedValue({ count: 1 });
   mockNotify.mockResolvedValue({});
+  mockPrisma.refund.findFirst.mockResolvedValue(null);
 });
 
 describe('new payout', () => {
@@ -195,5 +198,59 @@ describe('reconcileInFlightPayouts', () => {
   test('a failed query returns checked 0 instead of throwing', async () => {
     mockPrisma.payoutSettlement.findMany.mockRejectedValue(new Error('db down'));
     await expect(reconcileInFlightPayouts()).resolves.toEqual({ checked: 0 });
+  });
+});
+
+// A refund or cancellation can land while the job waits in the queue. The
+// worker must re-check right before money moves (2026-11-03 review).
+describe("last check before sending", () => {
+  beforeEach(() => {
+    mockPrisma.payoutSettlement.upsert.mockResolvedValue(settlement());
+  });
+
+  const expectStopped = (reason) => {
+    expect(mockInitiate).not.toHaveBeenCalled();
+    expect(mockPrisma.payoutSettlement.update).toHaveBeenCalledWith({
+      where: { paymentId: 77 },
+      data: { status: "gateway_failed", lastError: expect.stringContaining(reason) },
+    });
+    expect(mockPrisma.payment.update).toHaveBeenCalledWith({ where: { id: 77 }, data: { vendorPayoutStatus: "pending" } });
+    expect(mockNotify).not.toHaveBeenCalled();
+  };
+
+  it("stops when a refund is still open", async () => {
+    mockPrisma.refund.findFirst.mockResolvedValue({ id: 3, status: "gateway_confirmed" });
+    await processPayoutJob(job);
+    expectStopped("refund 3 is gateway_confirmed");
+    expect(mockPrisma.refund.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { paymentId: 77, status: { in: ["initiated", "gateway_confirmed", "reconciliation_needed"] } },
+    }));
+  });
+
+  it("stops when the booking was cancelled", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({ ...payment, booking: { ...payment.booking, status: "cancelled" } });
+    await processPayoutJob(job);
+    expectStopped("booking is cancelled");
+  });
+
+  it("stops when the payment was fully refunded", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({ ...payment, status: "refunded" });
+    await processPayoutJob(job);
+    expectStopped("payment is refunded");
+  });
+
+  it("stops when the job is not finished", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({ ...payment, booking: { ...payment.booking, status: "in_progress" } });
+    await processPayoutJob(job);
+    expectStopped("job not finished");
+  });
+
+  it("does not re-check a payout RazorpayX already accepted (never strands real money)", async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({ ...payment, booking: { ...payment.booking, status: "cancelled" } });
+    mockPrisma.payoutSettlement.upsert.mockResolvedValue(settlement({ status: "gateway_confirmed", gatewayPayoutId: "pout_1" }));
+    mockFetchPayout.mockResolvedValue({ id: "pout_1", status: "processed" });
+    await processPayoutJob(job);
+    expect(mockFetchPayout).toHaveBeenCalledWith("pout_1");
+    expect(mockInitiate).not.toHaveBeenCalled();
   });
 });

@@ -37,6 +37,15 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     ),
   },
 }));
+// The configured fee rate (10%), read from settings since 2026-11-03.
+jest.unstable_mockModule('../../util/platformSettings.js', () => ({
+  resolvePlatformFeeRate: jest.fn().mockResolvedValue(0.1),
+  computeSplit: (amount, rate) => {
+    const paise = Math.round(Number(amount) * 100);
+    const fee = Math.round(paise * rate);
+    return { platformFee: fee / 100, vendorAmount: (paise - fee) / 100 };
+  },
+}));
 jest.unstable_mockModule('../../util/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), http: jest.fn() },
 }));

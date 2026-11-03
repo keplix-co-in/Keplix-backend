@@ -1,6 +1,7 @@
 import prisma from "../../util/prisma.js";
 import { claimAndQueuePayout, PayoutError } from "../../services/payoutService.js";
 import { issueRefund, RefundError, GATEWAY_REACHED_STATUSES } from "../../services/refundService.js";
+import { PAYOUT_DEAD_BOOKING_STATUSES } from "../../util/payoutRules.js";
 
 export const getFinanceKpis = async (req, res) => {
   try {
@@ -26,12 +27,15 @@ export const getFinanceKpis = async (req, res) => {
         _sum: { vendorAmount: true },
         where: { vendorPayoutStatus: { in: ["settled", "paid"] }, status: "success" }
       }),
-      // Platform Commission. Same fix as totalCollected: a refunded booking's
-      // platform fee may well have been retained, so refunding it should not
-      // silently understate commission by dropping the row from 'success'.
+      // Platform Commission: the 10% Keplix keeps from customer bookings.
+      // 2026-11-03: only booking payments count (bookingId set) -- vendor
+      // subscription / ad payments are not commission. A FULLY refunded
+      // booking ('refunded') kept nothing either, since the customer got the
+      // whole amount back. A partial refund stays 'success' and its fee is
+      // already cut to 10% of what is left (refundService.recomputeSplitAfterRefunds).
       prisma.payment.aggregate({
         _sum: { platformFee: true },
-        where: { status: { in: ["success", "refunded"] } }
+        where: { status: "success", bookingId: { not: null } }
       }),
       // Pending Disbursement. Was missing "processing" -- a payment claimed
       // for payout but stranded there if the queue enqueue failed (see the
@@ -79,12 +83,18 @@ export const getPendingPayouts = async (req, res) => {
   try {
     const payouts = await prisma.payment.findMany({
       where: {
-        vendorPayoutStatus: "pending",
-        status: "success"
+        // 'failed' is listed too (2026-11-03) so admin can retry it -- before,
+        // a failed payout was only a number in the KPIs with no way to act.
+        vendorPayoutStatus: { in: ["pending", "failed"] },
+        status: "success",
+        // A cancelled / refunded / disputed booking owes the vendor nothing;
+        // listing it made it look owed and Pay Now then failed on it.
+        booking: { status: { notIn: PAYOUT_DEAD_BOOKING_STATUSES } }
       },
       select: {
         id: true,
         vendorAmount: true,
+        vendorPayoutStatus: true,
         createdAt: true,
         booking: {
           select: {
@@ -222,8 +232,10 @@ export const refundPayment = async (req, res) => {
       alreadyProcessed: result.alreadyProcessed,
       payoutAlreadySettled: result.payoutAlreadySettled,
       message: result.payoutAlreadySettled
-        ? "Refund processed. The vendor's payout for this booking was already settled — this amount needs to be manually recovered from the vendor."
-        : "Refund processed",
+        // "sent", not "processed": Razorpay often answers 'pending' and the
+        // money lands later. The Refunds list shows when it is done.
+        ? "Refund sent to Razorpay. The vendor's payout for this booking was already settled — this amount needs to be manually recovered from the vendor."
+        : "Refund sent to Razorpay",
     });
   } catch (error) {
     console.error("Refund error:", error);
@@ -231,5 +243,143 @@ export const refundPayment = async (req, res) => {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     res.status(500).json({ success: false, message: error.message || "Refund failed" });
+  }
+};
+
+// Paid bookings in these states should have had their money returned.
+const REFUND_EXPECTED_BOOKING_STATUSES = ["cancelled", "canceled", "refunded"];
+
+// Refund.status -> the group the admin filters by.
+const REFUND_GROUP_OF = {
+  initiated: "processing",
+  gateway_confirmed: "processing",
+  processed: "refunded",
+  // The money did go back; only our own bookkeeping after it failed.
+  reconciliation_needed: "refunded",
+  gateway_failed: "failed",
+};
+export const REFUND_LIST_GROUPS = ["all", "needs_refund", "processing", "refunded", "failed"];
+
+const REFUND_LIST_PAYMENT_SELECT = {
+  id: true,
+  amount: true,
+  transactionId: true,
+  status: true,
+  vendorPayoutStatus: true,
+  booking: {
+    select: {
+      id: true,
+      status: true,
+      user: { select: { id: true, email: true } },
+      service: {
+        select: {
+          name: true,
+          vendor: { select: { id: true, vendorProfile: { select: { business_name: true } } } },
+        },
+      },
+    },
+  },
+};
+
+const bookingSummary = (payment) => ({
+  bookingId: payment?.booking?.id ?? null,
+  bookingStatus: payment?.booking?.status ?? null,
+  service: payment?.booking?.service?.name ?? null,
+  customer: payment?.booking?.user ?? null,
+  vendor: payment?.booking?.service?.vendor
+    ? {
+        id: payment.booking.service.vendor.id,
+        name: payment.booking.service.vendor.vendorProfile?.business_name ?? null,
+      }
+    : null,
+});
+
+/**
+ * getRefunds -- the admin "Refunds" list (2026-11-03).
+ *
+ * One list of every refund of any kind, plus the ones that SHOULD exist but
+ * don't: a paid booking that was cancelled (or marked refunded) where no
+ * refund has gone out or is under way. Those show as "needs_refund" so an
+ * admin can send it -- before this, such a booking left no trace anywhere.
+ *
+ * Query: ?status=all|needs_refund|processing|refunded|failed (default all)
+ */
+export const getRefunds = async (req, res) => {
+  try {
+    const group = req.query?.status || "all";
+    if (!REFUND_LIST_GROUPS.includes(group)) {
+      return res.status(400).json({ message: `Unknown refund filter: ${String(group)}`, allowed: REFUND_LIST_GROUPS });
+    }
+
+    const wantRows = group !== "needs_refund";
+    const wantNeeds = group === "all" || group === "needs_refund";
+    const rowStatuses = wantRows && group !== "all"
+      ? Object.keys(REFUND_GROUP_OF).filter((s) => REFUND_GROUP_OF[s] === group)
+      : null;
+
+    const [refundRows, unrefunded] = await Promise.all([
+      wantRows
+        ? prisma.refund.findMany({
+            where: rowStatuses ? { status: { in: rowStatuses } } : {},
+            orderBy: { createdAt: "desc" },
+            take: 200,
+            include: { payment: { select: REFUND_LIST_PAYMENT_SELECT } },
+          })
+        : [],
+      wantNeeds
+        ? prisma.payment.findMany({
+            where: {
+              status: "success",
+              booking: { status: { in: REFUND_EXPECTED_BOOKING_STATUSES } },
+              // Nothing returned and nothing on its way. A failed attempt
+              // does not count, so it shows here again as still owed.
+              refunds: { none: { status: { in: ["initiated", ...GATEWAY_REACHED_STATUSES] } } },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 200,
+            select: REFUND_LIST_PAYMENT_SELECT,
+          })
+        : [],
+    ]);
+
+    const needs = unrefunded.map((p) => ({
+      kind: "needs_refund",
+      group: "needs_refund",
+      refundId: null,
+      paymentId: p.id,
+      amount: Number(p.amount),
+      status: "needs_refund",
+      reason: "Paid booking was cancelled but no refund has been sent",
+      gatewayRefundId: null,
+      gatewayPaymentId: p.transactionId,
+      vendorPayoutStatus: p.vendorPayoutStatus,
+      createdAt: null,
+      ...bookingSummary(p),
+    }));
+
+    const rows = refundRows.map((r) => ({
+      kind: "refund",
+      group: REFUND_GROUP_OF[r.status] || "processing",
+      refundId: r.id,
+      paymentId: r.paymentId,
+      amount: Number(r.amount),
+      status: r.status,
+      reason: r.reason,
+      // Who started it: an admin id, or null for automatic / dashboard refunds.
+      initiatedBy: r.initiatedBy,
+      fromDashboard: String(r.idempotencyKey || "").startsWith("dashboard:"),
+      lastError: r.lastError,
+      gatewayRefundId: r.gatewayRefundId,
+      gatewayPaymentId: r.payment?.transactionId ?? null,
+      vendorPayoutStatus: r.payment?.vendorPayoutStatus ?? null,
+      createdAt: r.createdAt,
+      ...bookingSummary(r.payment),
+    }));
+
+    // Owed refunds first: they are the ones that need someone to act.
+    res.json({ group, items: [...needs, ...rows] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to fetch refunds" });
   }
 };

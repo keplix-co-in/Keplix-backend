@@ -1,5 +1,5 @@
 import express from 'express';
-import { getPendingPayouts, settlePayout, getFinanceKpis, refundPayment } from '../../controllers/Admin/financeController.js';
+import { getPendingPayouts, settlePayout, getFinanceKpis, refundPayment, getRefunds } from '../../controllers/Admin/financeController.js';
 import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
 
 const router = express.Router();
@@ -31,6 +31,28 @@ router.get("/finance/kpis", authAdmin, authorizeAdmin, getFinanceKpis);
  *         description: Pending payouts retrieved successfully
  */
 router.get("/finance/payouts", authAdmin, authorizeAdmin, getPendingPayouts);
+
+/**
+ * @swagger
+ * /admin/finance/refunds:
+ *   get:
+ *     summary: List refunds of every kind, plus paid cancelled bookings still owed a refund
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [all, needs_refund, processing, refunded, failed]
+ *     responses:
+ *       200:
+ *         description: "{ group, items: [...] }"
+ *       400:
+ *         description: Unknown status filter
+ */
+router.get("/finance/refunds", authAdmin, authorizeAdmin, getRefunds);
 
 /**
  * @swagger
