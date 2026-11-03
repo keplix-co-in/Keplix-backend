@@ -21,7 +21,7 @@ import {
   JOB_TYPES,
 } from "./util/jobQueue.js";
 import { processNotificationJob } from "./workers/notificationProcessor.js";
-import { processPayoutJob } from "./workers/payoutProcessor.js";
+import { processPayoutJob, reconcileInFlightPayouts } from "./workers/payoutProcessor.js";
 
 /**
  * Whether THIS process runs background jobs. Defaults to true, so a plain
@@ -66,6 +66,9 @@ const startJobDispatcher = () => {
   jobMaintenanceTask = cron.schedule("*/5 * * * *", async () => {
     await reclaimStuckJobs();
     await pruneCompletedJobs();
+    // Payouts RazorpayX accepted but has not processed yet: there is no
+    // payout webhook, so poll their real status here (never throws).
+    await reconcileInFlightPayouts();
   });
 
   Logger.info(`Background job dispatcher started (every ${JOB_POLL_SECONDS}s).`);

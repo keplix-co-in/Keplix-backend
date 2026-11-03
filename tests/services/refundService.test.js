@@ -180,6 +180,38 @@ describe('issueRefund', () => {
     expect(result.payoutAlreadySettled).toBe(true);
   });
 
+  test('a refund under ₹1 is refused with a 400 before any gateway call', async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(paymentFixture());
+
+    await expect(
+      issueRefund({ paymentId: 1, amount: 0.98, idempotencyKey: 'k_small' }),
+    ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('less than ₹1') });
+
+    expect(mockPrisma.refund.create).not.toHaveBeenCalled();
+    expect(mockRefundCreate).not.toHaveBeenCalled();
+  });
+
+  // The Razorpay SDK rejects with a plain object, not an Error. Reading only
+  // .message logged 'Gateway refund failed: undefined' (2026-11-03).
+  test('a Razorpay SDK error object gives a readable reason, not undefined', async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue(paymentFixture());
+    mockRefundCreate.mockRejectedValue({
+      statusCode: 400,
+      error: { code: 'BAD_REQUEST_ERROR', description: 'The amount must be atleast INR 1.00' },
+    });
+
+    const err = await issueRefund({ paymentId: 1, idempotencyKey: 'k_sdk' }).catch((e) => e);
+
+    expect(err.statusCode).toBe(502);
+    expect(err.message).toBe('Gateway refund failed: The amount must be atleast INR 1.00 (HTTP 400)');
+    expect(mockPrisma.refund.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'gateway_failed',
+        lastError: 'The amount must be atleast INR 1.00 (HTTP 400)',
+      }),
+    }));
+  });
+
   test('a gateway failure marks the refund row gateway_failed and surfaces a 502', async () => {
     mockPrisma.payment.findUnique.mockResolvedValue(paymentFixture());
     mockRefundCreate.mockRejectedValue(new Error('gateway down'));

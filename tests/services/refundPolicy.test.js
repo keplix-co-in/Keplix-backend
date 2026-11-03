@@ -21,6 +21,7 @@ jest.unstable_mockModule('razorpay', () => ({
 const mockIssueRefund = jest.fn();
 jest.unstable_mockModule('../../services/refundService.js', () => ({
   issueRefund: mockIssueRefund,
+  MIN_GATEWAY_REFUND: 1,
   RESERVED_STATUSES: ['initiated', 'gateway_confirmed', 'processed', 'reconciliation_needed'],
 }));
 
@@ -91,6 +92,20 @@ describe('resolveCancellationRefund', () => {
     expect(decision.eligible).toBe(true);
     expect(decision.amount).toBe(2440);
     expect(decision.feeDeducted).toBe(59);
+  });
+
+  // 2026-11-03: a ₹1 payment less its ₹0.02 fee left ₹0.98, below Razorpay's
+  // ₹1 minimum, so the refund failed and the customer got nothing.
+  test('skips the fee when deducting it would leave less than ₹1', async () => {
+    const decision = await resolveCancellationRefund({
+      booking: { id: 1, status: 'confirmed' },
+      payment: paymentFixture({ amount: { toString: () => '1' }, gatewayFee: { toString: () => '0.02' } }),
+      settings: settingsFixture({ refundGatewayFeeBorneBy: 'customer' }),
+    });
+
+    expect(decision.eligible).toBe(true);
+    expect(decision.amount).toBe(1);
+    expect(decision.feeDeducted).toBe(0);
   });
 
   // The safety rule: a failed lookup must never quietly short-change someone.
