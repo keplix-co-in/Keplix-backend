@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { trimRazorpayEnv } from "../util/razorpayCredentials.js";
+
+// Trim Razorpay keys before anything builds a Razorpay client: a trailing
+// newline pasted into a GitHub secret turns a valid key into a 401 (the
+// 2026-11-03 "payment failed with status code 502" incident). See
+// util/razorpayCredentials.js.
+export const trimmedRazorpayVars = trimRazorpayEnv(process.env);
 
 // Vars that are only ever read by prisma/seed*.js, never by the running
 // server. Missing them must not stop the app from booting -- they are

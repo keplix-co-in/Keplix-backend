@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { env } from "./config/env.js";
+import { env, trimmedRazorpayVars } from "./config/env.js";
+import { keyMode } from "./util/razorpayCredentials.js";
 import { createServer } from "http";
 
 import app from "./app.js";
@@ -11,6 +12,7 @@ import { startPaymentReconciliation, stopPaymentReconciliation } from "./util/pa
 import { scheduleOtpCleanup, stopOtpCleanup } from "./queues/otpCleanupQueue.js";
 import { scheduleAbandonedAccountCleanup, stopAbandonedAccountCleanup } from "./queues/abandonedAccountCleanup.js";
 import cron from "node-cron";
+import { isMaintenanceMode } from "./middleware/maintenanceMiddleware.js";
 import {
   registerJobHandler,
   runDueJobs,
@@ -93,6 +95,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   Logger.info(`🚀 Keplix Backend Running`);
   Logger.info(`🌍 URL: http://0.0.0.0:${PORT}`);
   Logger.info(`⚙️ Mode: ${env.NODE_ENV}`);
+  // Which Razorpay mode the keys are in -- prefix only, never the key. A
+  // test/live mix between key id and secret is a 401 on every order.
+  Logger.info(`💳 Razorpay keys: ${keyMode(env.RAZORPAY_KEY_ID)} mode`);
+  if (trimmedRazorpayVars.length) {
+    Logger.warn(`Razorpay env vars had surrounding whitespace (trimmed): ${trimmedRazorpayVars.join(', ')}`);
+  }
   Logger.info(`=================================`);
 
   // Three of these started unconditionally regardless of RUN_WORKERS (audit
@@ -103,7 +111,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // reconciliation cron redundantly, the exact multiplication problem
   // RUN_WORKERS exists to prevent for the job dispatcher. All background
   // work now shares one gate.
-  if (RUN_WORKERS) {
+  // Maintenance mode also stops background work (auto-decline, refunds,
+  // payouts, cleanups) so nothing writes to the database while it is being
+  // repaired. MAINTENANCE_MODE changes need a new revision, so checking once
+  // at startup is enough.
+  if (RUN_WORKERS && isMaintenanceMode()) {
+    Logger.warn('MAINTENANCE_MODE=true — background jobs not started.');
+  } else if (RUN_WORKERS) {
     bookingStatusManager.start();
     refundReconciler.start();
     startJobDispatcher();
