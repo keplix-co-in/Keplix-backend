@@ -1,6 +1,7 @@
 import prisma from '../util/prisma.js';
 import Logger from './logger.js';
 import { createRazorpayXClient, FAILED_PAYOUT_STATES, payoutModeFor } from './razorpayXClient.js';
+import { createProxyFetch } from './proxyFetch.js';
 
 // In production, fail fast instead of silently running without payout
 // credentials (payouts would then fail days later, one by one).
@@ -24,9 +25,15 @@ if (process.env.NODE_ENV === 'production') {
 let razorpayX = null;
 const getClient = () => {
     if (!razorpayX) {
+        // RazorpayX only accepts payout calls from allowlisted IPs and Cloud
+        // Run has no fixed outbound IP, so payout calls go out through the
+        // proxy on the n8n VM (see util/proxyFetch.js). Unset = direct, which
+        // keeps local dev and tests unchanged.
+        const proxyUrl = process.env.RAZORPAYX_PROXY_URL?.trim();
         razorpayX = createRazorpayXClient({
             keyId: process.env.RAZORPAYX_KEY_ID,
             keySecret: process.env.RAZORPAYX_KEY_SECRET,
+            ...(proxyUrl ? { fetchImpl: createProxyFetch(proxyUrl) } : {}),
         });
     }
     return razorpayX;

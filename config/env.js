@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { trimRazorpayEnv } from "../util/razorpayCredentials.js";
+import { createProxyFetch } from "../util/proxyFetch.js";
 
 // Trim Razorpay keys before anything builds a Razorpay client: a trailing
 // newline pasted into a GitHub secret turns a valid key into a 401 (the
@@ -34,6 +35,9 @@ const razorpayFields = {
   RAZORPAYX_ACCOUNT_NUMBER: z.string().optional(),
   RAZORPAYX_KEY_ID: z.string().optional(),
   RAZORPAYX_KEY_SECRET: z.string().optional(),
+  // http://user:pass@host:port of the payout proxy on the n8n VM. RazorpayX
+  // only accepts payout calls from allowlisted IPs (see util/proxyFetch.js).
+  RAZORPAYX_PROXY_URL: z.string().optional(),
 };
 const REQUIRED_IN_PRODUCTION = [
   "RAZORPAY_KEY_ID",
@@ -196,6 +200,16 @@ const envSchema = z
             message: `${key} is required when NODE_ENV=production`,
           });
         }
+      }
+    }
+    // A malformed payout proxy URL would otherwise boot fine and then fail
+    // every vendor payout. Parse it here with the same code that uses it.
+    const proxyUrl = vars.RAZORPAYX_PROXY_URL?.trim();
+    if (proxyUrl) {
+      try {
+        createProxyFetch(proxyUrl);
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["RAZORPAYX_PROXY_URL"], message: err.message });
       }
     }
   });

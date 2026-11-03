@@ -50,6 +50,19 @@ describe('config/env.js', () => {
     await expect(import('../../config/env.js')).rejects.toThrow(/RAZORPAY_KEY_ID/);
   });
 
+  test('fails boot on a malformed RAZORPAYX_PROXY_URL, without printing the password', async () => {
+    Object.assign(process.env, REQUIRED_BASE, { RAZORPAYX_PROXY_URL: 'http://keplix:pw0rdx@130.210.37.123' });
+    const err = await import('../../config/env.js').catch((e) => e);
+    expect(String(err.message)).toMatch(/RAZORPAYX_PROXY_URL/);
+    expect(String(err.message)).not.toMatch(/pw0rdx/);
+  });
+
+  test('accepts a well-formed RAZORPAYX_PROXY_URL', async () => {
+    Object.assign(process.env, REQUIRED_BASE, { RAZORPAYX_PROXY_URL: ' http://keplix:pw@130.210.37.123:8888 ' });
+    const { env } = await import('../../config/env.js');
+    expect(env.NODE_ENV).toBe('development');
+  });
+
   test('does not require Razorpay vars outside production', async () => {
     Object.assign(process.env, REQUIRED_BASE, { NODE_ENV: 'development' });
     delete process.env.RAZORPAY_KEY_ID;
