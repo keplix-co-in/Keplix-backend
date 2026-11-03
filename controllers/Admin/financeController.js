@@ -43,7 +43,14 @@ export const getFinanceKpis = async (req, res) => {
       // attention.
       prisma.payment.aggregate({
         _sum: { vendorAmount: true },
-        where: { vendorPayoutStatus: { in: ["pending", "processing"] }, status: "success" }
+        // 2026-11-03: same dead-booking filter as the Payout Queue. Without it a
+        // cancelled / refunded / disputed booking counted here as "owed to the
+        // vendor" (prod showed ₹3,814 pending while the queue was empty).
+        where: {
+          vendorPayoutStatus: { in: ["pending", "processing"] },
+          status: "success",
+          booking: { status: { notIn: PAYOUT_DEAD_BOOKING_STATUSES } }
+        }
       }),
       // Refunds Issued. Was summing Payment.amount where status:"refunded",
       // which refundService.js only sets on a FULL refund -- every partial
@@ -61,7 +68,11 @@ export const getFinanceKpis = async (req, res) => {
       // whether the payment itself ever succeeded.
       prisma.payment.aggregate({
         _sum: { vendorAmount: true },
-        where: { vendorPayoutStatus: "failed", status: "success" }
+        where: {
+          vendorPayoutStatus: "failed",
+          status: "success",
+          booking: { status: { notIn: PAYOUT_DEAD_BOOKING_STATUSES } }
+        }
       })
     ]);
 
