@@ -27,10 +27,11 @@ export const getDashboardMetrics = async (req, res) => {
       }),
 
       // Platform Revenue
+      // 2026-11-06: fully refunded on-top payments kept their fee (see financeController).
       prisma.payment.aggregate({
         _sum: { platformFee: true },
         where: {
-          status: "success"
+          OR: [{ status: "success" }, { status: "refunded", feeModel: "on_top" }]
         }
       }),
 

@@ -125,7 +125,11 @@ describe('getFinanceKpis commission', () => {
     const commission = mockPrisma.payment.aggregate.mock.calls
       .map(([a]) => a)
       .find((a) => a._sum.platformFee);
-    expect(commission.where).toEqual({ status: 'success', bookingId: { not: null } });
+    expect(commission.where).toEqual({
+      bookingId: { not: null },
+      // 2026-11-06: fully refunded on-top payments kept their fee.
+      OR: [{ status: 'success' }, { status: 'refunded', feeModel: 'on_top' }],
+    });
   });
 });
 

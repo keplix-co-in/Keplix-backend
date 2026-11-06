@@ -48,10 +48,9 @@ export async function isHealthSheetRequiredFor(createdAt) {
  * admin switch changed precisely nothing about the money. This is the reader
  * that makes the switch real.
  *
- * Returns 0 when the fee is switched off, which makes vendorAmount equal the
- * full amount — the customer's total is untouched either way, because the fee
- * is carved OUT of the service price rather than added on top of it (see
- * resolveBookingAmount in util/servicePricing.js).
+ * Returns 0 when the fee is switched off. Since 2026-11-06 the fee is added ON
+ * TOP of the vendor's price for new payments (computeCharge); legacy payments
+ * had it carved out of the price (computeSplit).
  *
  * A missing settings row falls back to DEFAULTS (fee ON at 10%), NOT to zero:
  * an absent row must never silently waive the platform's entire revenue. Same
@@ -95,6 +94,33 @@ export function computeSplit(amount, rate) {
   const paise = Math.round(Number(amount) * 100);
   const feePaise = Math.round(paise * Number(rate));
   return { platformFee: feePaise / 100, vendorAmount: (paise - feePaise) / 100 };
+}
+
+/**
+ * Fee-ON-TOP charge (owner decision 2026-11-06): the customer pays the
+ * vendor's price PLUS Keplix's fee, and the vendor keeps their full price.
+ * Replaces computeSplit for NEW payments only; computeSplit stays for legacy
+ * (deducted-fee) payments recorded before the switch, which must keep their
+ * original maths for verify, refunds and payouts.
+ *
+ * All arithmetic is in integer paise; the fee is rounded half-up to the paisa
+ * (Math.round on a non-negative value) so servicePrice + platformFee === total
+ * exactly, with no float drift.
+ *
+ * @param {number} price vendor's price in rupees (resolveBookingAmount)
+ * @param {number} rate 0..1, from resolvePlatformFeeRate()
+ * @returns {{servicePrice:number, platformFee:number, feeRate:number, total:number}} rupees
+ */
+export function computeCharge(price, rate) {
+  const pricePaise = Math.round(Number(price) * 100);
+  const r = Number(rate);
+  const feePaise = Math.round(pricePaise * r);
+  return {
+    servicePrice: pricePaise / 100,
+    platformFee: feePaise / 100,
+    feeRate: r,
+    total: (pricePaise + feePaise) / 100,
+  };
 }
 
 /**

@@ -255,3 +255,21 @@ describe("last check before sending", () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 });
+
+// Fee on top (2026-11-06): a payment of ₹1,100 = ₹1,000 price + ₹100 fee
+// pays the vendor the full ₹1,000 price, never the customer's total.
+describe('fee-on-top payment', () => {
+  test('settlement and payout use vendorAmount (full price), not amount', async () => {
+    const onTop = { ...payment, amount: '1100.00', platformFee: '100.00', vendorAmount: '1000.00', feeModel: 'on_top' };
+    mockPrisma.payment.findUnique.mockResolvedValue(onTop);
+    mockPrisma.payoutSettlement.upsert.mockResolvedValue(settlement());
+    mockInitiate.mockResolvedValue({ success: true, payoutId: 'pout_1', status: 'processed' });
+
+    await processPayoutJob(job);
+
+    expect(mockPrisma.payoutSettlement.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ amount: 1000 }),
+    }));
+    expect(mockInitiate).toHaveBeenCalledWith(onTop, 5, expect.anything());
+  });
+});

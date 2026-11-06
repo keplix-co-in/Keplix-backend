@@ -298,6 +298,11 @@ model Payment {
   gatewayFee         Decimal?
   platformFee        Decimal?
   vendorAmount       Decimal?
+  // Fee model (2026-11-06). 'on_top' = customer paid price + platformFee, the
+  // vendor gets the full price, and Keplix keeps the fee on refund. NULL =
+  // legacy payment where the fee was deducted from the price. Additive and
+  // nullable so existing rows keep their original behaviour untouched.
+  feeModel           String?
   // Security A-017/A-018: set on vendor-initiated payments (subscription /
   // vendor checkout) so the vendor's payment history can be scoped to the
   // vendor who actually paid. null on booking payments and on older rows.

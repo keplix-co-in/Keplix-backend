@@ -562,3 +562,38 @@ describe('updateVendorProfile — payout holder name and image uploads', () => {
     expect(data.image).toBe('https://res.cloudinary.com/single.jpg');
   });
 });
+
+// Vendor location update (2026-11-06): lat/lng are saved, and changing an
+// address component rebuilds the combined address from current + new parts.
+describe('updateVendorProfile — location', () => {
+  test('saves latitude/longitude and rebuilds the combined address', async () => {
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      street: 'Old St', area: 'Indiranagar', city: 'Bengaluru', state: 'KA', pincode: '560038', address: 'old',
+    });
+    const res = mockRes();
+    await updateVendorProfile(mockReq({ body: { latitude: 12.97, longitude: 77.64, street: '12 New Rd' } }), res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.latitude).toBe(12.97);
+    expect(data.longitude).toBe(77.64);
+    expect(data.address).toBe('12 New Rd, Indiranagar, Bengaluru, KA, 560038');
+  });
+
+  test('lat/lng alone do not touch the address', async () => {
+    await updateVendorProfile(mockReq({ body: { latitude: -33.9, longitude: 151.2 } }), mockRes());
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ latitude: -33.9, longitude: 151.2 });
+    expect(data.address).toBeUndefined();
+  });
+});
+
+describe('updateVendorProfileSchema — coordinate bounds', () => {
+  test('accepts in-range values and rejects out-of-range ones', async () => {
+    const { updateVendorProfileSchema } = await import('../../../validators/vendor/profileValidators.js');
+    expect(updateVendorProfileSchema.safeParse({ latitude: '90', longitude: '-180' }).success).toBe(true);
+    expect(updateVendorProfileSchema.safeParse({ latitude: 90.01 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ latitude: -91 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ longitude: 180.5 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ longitude: -181 }).success).toBe(false);
+  });
+});

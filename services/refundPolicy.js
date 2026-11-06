@@ -2,6 +2,7 @@ import prisma from "../util/prisma.js";
 import Razorpay from "razorpay";
 import { getPlatformSettings } from "../util/platformSettings.js";
 import { issueRefund, MIN_GATEWAY_REFUND } from "./refundService.js";
+import { refundableBase } from "../util/feeModel.js";
 
 /**
  * Refund POLICY.
@@ -124,7 +125,9 @@ export const resolveCancellationRefund = async ({ booking, payment, settings }) 
     };
   }
 
-  const paidAmount = parseFloat(payment.amount.toString());
+  // On-top payments: Keplix's fee is kept, so only the vendor's price is
+  // refundable; the gateway-fee rule below then applies on top of that.
+  const paidAmount = refundableBase(payment);
   if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
     return {
       eligible: false,

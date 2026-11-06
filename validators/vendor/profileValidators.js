@@ -27,8 +27,10 @@ export const createVendorProfileSchema = z.object({
   landmark: z.string().optional(),
 
   // Location
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  // Bounded (2026-11-06, vendor location update): out-of-range coordinates
+  // would save a garage that can never appear in a nearby search.
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
 
   // Tax
   gst_number: z.string().optional(),

@@ -1,8 +1,7 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
-import { resolveBookingAmount } from "../util/servicePricing.js";
-import { resolvePlatformFeeRate, computeSplit } from "../util/platformSettings.js";
+import { resolveExpectedCharge } from "../util/paymentCharge.js";
 import { executeCancellationRefund } from "./refundPolicy.js";
 import { createNotification } from "../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
@@ -25,6 +24,27 @@ const razorpay = new Razorpay({
 // initiated by the vendor or an admin who witnessed the cash, never asserted by
 // the person who owes it.
 const ONLINE_GATEWAYS = ['razorpay'];
+
+/**
+ * Order notes carry the frozen fee (2026-11-06, fee on top). The payment
+ * entity's own notes are tried first; if they lack feeModel, the order is
+ * fetched. A failed fetch falls back to "no notes" = legacy maths — for an
+ * on-top order that yields an amount mismatch (rejected, never mis-recorded).
+ */
+// Review fix 2026-11-06: the ORDER's notes are authoritative. Payment-entity
+// notes can be set by the client via checkout options, so trusting them first
+// let a legacy (fee-deducted) in-flight order be recorded as on_top with
+// platformFee 0. Payment notes are only a fallback when the order fetch fails.
+const resolveOrderNotes = async (orderId, paymentNotes) => {
+  if (!orderId) return paymentNotes ?? null;
+  try {
+    const order = await razorpay.orders.fetch(orderId);
+    if (order?.notes) return order.notes;
+  } catch {
+    // fall through
+  }
+  return paymentNotes ?? null;
+};
 
 /**
  * Constant-time string comparison. Lengths are compared first because
@@ -154,17 +174,6 @@ export const verifyAndRecordPayment = async ({
     throw new PaymentError("Invalid payment signature", 400);
   }
 
-  // Same resolver as createPaymentOrder and the webhook fallback below — see
-  // util/servicePricing.js. All three must agree, or a signature that is
-  // valid for the order amount will fail this file's OWN captured-amount
-  // check a few lines down.
-  const totalAmount = resolveBookingAmount(booking);
-  // Read from PlatformSettings, not a constant — the admin commission toggle
-  // is what decides this. Resolved here, at record time, and persisted below;
-  // never re-derived later. See resolvePlatformFeeRate.
-  // computeSplit rounds the fee to the paisa so fee + vendor share = amount.
-  const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
-
   // The signature only proves this (orderId, paymentId) pair was produced by
   // Razorpay for our key — it does NOT prove the payment was actually
   // captured, or for how much, or against this order. Ask Razorpay directly
@@ -187,16 +196,24 @@ export const verifyAndRecordPayment = async ({
     );
   }
 
-  const expectedPaise = Math.round(totalAmount * 100);
-  if (razorpayPayment.amount !== expectedPaise) {
+  // Expected amount + split: from the order's frozen notes for on-top orders,
+  // else legacy (booking price, fee deducted at today's rate) so orders
+  // created before the switch still verify. See util/paymentCharge.js.
+  const charge = await resolveExpectedCharge(
+    booking,
+    await resolveOrderNotes(orderId, razorpayPayment.notes),
+  );
+  if (!charge || razorpayPayment.amount !== Math.round(charge.amount * 100)) {
     throw new PaymentError("Captured amount does not match booking price", 400);
   }
+  const { amount: totalAmount, platformFee, vendorAmount, feeModel } = charge;
 
   const { payment, updatedBooking, bookingActive, refundOutcome } = await recordSuccessfulPayment({
     bookingId: Number(bookingId),
     amount: totalAmount,
     platformFee,
     vendorAmount,
+    feeModel,
     method: gateway || "razorpay",
     transactionId: paymentId || `TXN${Date.now()}`,
   });
@@ -216,8 +233,9 @@ export const verifyAndRecordPayment = async ({
  * is set only on create — a re-run of this on an existing row must never
  * reach back in and reset a payout that has already been initiated.
  */
-const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorAmount, method, transactionId }) => {
+const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorAmount, feeModel = null, method, transactionId }) => {
   const paymentData = {
+    feeModel,
     amount,
     currency: "INR",
     status: "success",
@@ -354,7 +372,7 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
  * @param {number} params.amountPaise - amount actually captured, from the webhook payload
  * @param {string} [params.bookingIdHint] - order notes.bookingId, if present
  */
-export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amountPaise, bookingIdHint }) => {
+export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amountPaise, bookingIdHint, notes }) => {
   const existing = await prisma.payment.findFirst({ where: { transactionId: paymentId } });
   if (existing) {
     // Promote only a row that has not settled yet. This was `!== 'success'`,
@@ -394,25 +412,21 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
     return { created: false };
   }
 
-  const totalAmount = resolveBookingAmount(booking);
-  const expectedPaise = Math.round(totalAmount * 100);
-  if (amountPaise !== expectedPaise) {
+  // Same resolver as verify (frozen notes for on-top orders, legacy otherwise).
+  const charge = await resolveExpectedCharge(booking, await resolveOrderNotes(orderId, notes));
+  if (!charge || amountPaise !== Math.round(charge.amount * 100)) {
     // Captured amount doesn't match what this booking is worth — do not
     // silently record it as a full payment. Flag for manual review rather
     // than trusting the webhook's amount blindly.
     return { created: false, unresolved: true, mismatch: true };
   }
 
-  // Must use the same resolver as the client-verify path above, or the two
-  // routes to recording one payment could split it differently.
-  // computeSplit rounds the fee to the paisa so fee + vendor share = amount.
-  const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
-
   const { payment, updatedBooking, bookingActive, refundOutcome } = await recordSuccessfulPayment({
     bookingId,
-    amount: totalAmount,
-    platformFee,
-    vendorAmount,
+    amount: charge.amount,
+    platformFee: charge.platformFee,
+    vendorAmount: charge.vendorAmount,
+    feeModel: charge.feeModel,
     method: "razorpay",
     transactionId: paymentId,
   });

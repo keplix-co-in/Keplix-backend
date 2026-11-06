@@ -23,6 +23,8 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
         service: { id: 1, price: '0.00', vendorId: 9 }, bookingVehicle: null,
       }),
     },
+    // Fee switched off so the ₹1 boundary is the price itself (fee is added on top since 2026-11-06).
+    platformSettings: { findFirst: jest.fn().mockResolvedValue({ isPlatformFeeEnabled: false }) },
   },
 }));
 jest.unstable_mockModule('razorpay', () => ({

@@ -33,9 +33,14 @@ export const getFinanceKpis = async (req, res) => {
       // booking ('refunded') kept nothing either, since the customer got the
       // whole amount back. A partial refund stays 'success' and its fee is
       // already cut to 10% of what is left (refundService.recomputeSplitAfterRefunds).
+      // 2026-11-06 fee on top: an on-top payment refunded in full still kept
+      // its fee (only the vendor's price goes back), so it counts too.
       prisma.payment.aggregate({
         _sum: { platformFee: true },
-        where: { status: "success", bookingId: { not: null } }
+        where: {
+          bookingId: { not: null },
+          OR: [{ status: "success" }, { status: "refunded", feeModel: "on_top" }],
+        }
       }),
       // Pending Disbursement. Was missing "processing" -- a payment claimed
       // for payout but stranded there if the queue enqueue failed (see the
