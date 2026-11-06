@@ -1,5 +1,11 @@
 import express from 'express';
 import { getVendorProfile, updateVendorProfile, createVendorProfile, updateOnlineStatus } from '../../controllers/vendor/profileController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
+import { requestPayoutOtp } from '../../services/payoutChangeService.js';
+import { stepUpOtpLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import {uploadSingle, uploadFieldss} from '../../middleware/uploadMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -21,7 +27,7 @@ const router = express.Router();
  *       404:
  *         description: Vendor profile not found
  */
-router.get('/', protect, getVendorProfile);
+router.get('/', protect, vendorOnly, getVendorProfile);
 
 // Add upload middleware to handle FormData (image + text fields)
 const uploadFields = uploadFieldss([
@@ -107,7 +113,7 @@ const uploadFields = uploadFieldss([
  *       404:
  *         description: Profile not found (will auto-create)
  */
-router.put('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.put('/', protect, vendorOnly, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
 
 /**
  * @swagger
@@ -185,7 +191,7 @@ router.put('/', protect, uploadFields, validateRequest(updateVendorProfileSchema
  *       200:
  *         description: Vendor profile updated successfully
  */
-router.patch('/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.patch('/', protect, vendorOnly, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
 
 /**
  * @swagger
@@ -208,7 +214,7 @@ router.patch('/', protect, uploadFields, validateRequest(updateVendorProfileSche
  *       200:
  *         description: Online status updated successfully
  */
-router.patch('/online-status', protect, updateOnlineStatus);
+router.patch('/online-status', protect, vendorOnly, updateOnlineStatus);
 
 /**
  * @swagger
@@ -292,13 +298,17 @@ router.patch('/online-status', protect, updateOnlineStatus);
  *       400:
  *         description: Profile already exists
  */
-router.post('/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
+router.post('/', protect, vendorOnly, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 // Trailing slash support
-router.get('/profile/', protect, getVendorProfile);
-router.put('/profile/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.patch('/profile/', protect, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
-router.post('/profile/', protect, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
+// Security A-023: emails the step-up code required (as payout_otp) when a
+// vendor changes existing bank/UPI payout details.
+router.post('/profile/payout-otp', protect, vendorOnly, stepUpOtpLimiter, requestPayoutOtp);
+
+router.get('/profile/', protect, vendorOnly, getVendorProfile);
+router.put('/profile/', protect, vendorOnly, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.patch('/profile/', protect, vendorOnly, uploadFields, validateRequest(updateVendorProfileSchema), updateVendorProfile);
+router.post('/profile/', protect, vendorOnly, uploadFields, validateRequest(createVendorProfileSchema), createVendorProfile);
 
 
 export default router;

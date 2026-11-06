@@ -1,5 +1,5 @@
 import express from 'express';
-import {createPaymentOrder, verifyPayment, handleRazorpayWebhook } from '../../controllers/user/paymentController.js';
+import {createPaymentOrder, verifyPayment, handleRazorpayWebhook, getPaymentQuote } from '../../controllers/user/paymentController.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createPaymentSchema, verifyPaymentSchema } from '../../validators/user/paymentValidators.js';
@@ -44,6 +44,26 @@ router.post('/payments/razorpay-webhook', handleRazorpayWebhook);
  *         description: Order created successfully
  */
 router.post('/payments/order/create', protect , validateRequest(createPaymentSchema), createPaymentOrder);
+
+/**
+ * @swagger
+ * /service_api/payments/quote/{bookingId}:
+ *   get:
+ *     summary: Price + platform fee breakdown for a booking (rupees)
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: "{ success, data: { servicePrice, platformFee, feeRate, total } }"
+ */
+router.get('/payments/quote/:bookingId', protect, getPaymentQuote);
 
 /**
  * @swagger

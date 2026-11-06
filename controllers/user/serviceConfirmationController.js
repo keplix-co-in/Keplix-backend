@@ -55,9 +55,9 @@ export const confirmServiceCompletion = async (req, res) => {
       return res.status(error.statusCode).json({ message: error.message });
     }
 
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
     res.status(500).json({
       message: "Service confirmation failed",
-      error: error.message
     });
   }
 };
@@ -195,9 +195,9 @@ export const disputeServiceCompletion = async (req, res) => {
 
   } catch (error) {
     console.error("Dispute creation error:", error);
-    res.status(500).json({ 
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({
       message: "Failed to create dispute",
-      error: error.message 
     });
   }
 };

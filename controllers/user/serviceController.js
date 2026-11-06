@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from "../../util/prisma.js";
 import { Prisma } from "@prisma/client";
 import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
@@ -84,7 +85,7 @@ export const getAllServices = async (req, res) => {
         JOIN "VendorProfile" vp ON s."vendorId" = vp."userId"
         WHERE ${whereClause}
         ORDER BY distance ASC
-        LIMIT ${Number(limit)} OFFSET ${Number(skip)}
+        LIMIT ${clampLimit(limit)} OFFSET ${Number(skip)}
       `;
 
       // For total count in location search
@@ -114,7 +115,7 @@ export const getAllServices = async (req, res) => {
       services = await prisma.service.findMany({
         where,
         skip: Number(skip),
-        take: Number(limit),
+        take: clampLimit(limit),
         include: { vendor: PUBLIC_VENDOR_INCLUDE },
         orderBy: { id: "desc" },
       });
@@ -477,7 +478,7 @@ export const getServicesByVendor = async (req, res) => {
       include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
-      take: Number(limit),
+      take: clampLimit(limit),
     });
 
     const enrichedServices = services.map((service) => {

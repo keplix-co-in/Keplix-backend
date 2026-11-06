@@ -4,7 +4,7 @@ import { FAILED_PAYOUT_STATES, PAID_PAYOUT_STATE } from "../util/razorpayXClient
 import { createNotification } from "../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
 import Logger from "../util/logger.js";
-import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES } from "../util/payoutRules.js";
+import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES, payoutAccountHoldReason } from "../util/payoutRules.js";
 
 /**
  * processPayoutJob
@@ -245,6 +245,17 @@ const payoutStopReason = async (payment) => {
     select: { id: true, status: true },
   });
   if (openRefund) return `refund ${openRefund.id} is ${openRefund.status}`;
+  // Security A-023: 24h hold after a payout-account change. Stopping here
+  // leaves the payment "pending", so it can be paid once the hold ends.
+  const vendorId = payment.booking?.service?.vendorId;
+  if (vendorId) {
+    const vp = await prisma.vendorProfile.findUnique({
+      where: { userId: vendorId },
+      select: { payoutAccountChangedAt: true },
+    });
+    const hold = payoutAccountHoldReason(vp?.payoutAccountChangedAt);
+    if (hold) return hold;
+  }
   return null;
 };
 

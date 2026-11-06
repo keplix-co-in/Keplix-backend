@@ -33,9 +33,14 @@ export const getFinanceKpis = async (req, res) => {
       // booking ('refunded') kept nothing either, since the customer got the
       // whole amount back. A partial refund stays 'success' and its fee is
       // already cut to 10% of what is left (refundService.recomputeSplitAfterRefunds).
+      // 2026-11-06 fee on top: an on-top payment refunded in full still kept
+      // its fee (only the vendor's price goes back), so it counts too.
       prisma.payment.aggregate({
         _sum: { platformFee: true },
-        where: { status: "success", bookingId: { not: null } }
+        where: {
+          bookingId: { not: null },
+          OR: [{ status: "success" }, { status: "refunded", feeModel: "on_top" }],
+        }
       }),
       // Pending Disbursement. Was missing "processing" -- a payment claimed
       // for payout but stranded there if the queue enqueue failed (see the
@@ -202,7 +207,8 @@ export const settlePayout = async (req, res) => {
     if (error instanceof PayoutError) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
-    res.status(500).json({ success: false, message: error.message || "Failed to settle payout entirely" });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: "Failed to settle payout entirely" });
   }
 };
 
@@ -253,7 +259,8 @@ export const refundPayment = async (req, res) => {
     if (error instanceof RefundError) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
-    res.status(500).json({ success: false, message: error.message || "Refund failed" });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: "Refund failed" });
   }
 };
 

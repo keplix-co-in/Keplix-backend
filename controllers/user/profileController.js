@@ -1,9 +1,16 @@
-﻿import prisma from "../../util/prisma.js";
+﻿import { acceptOwnCloudinaryUrl, signPrivateUrl } from "../../util/cloudinary.js";
+import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
 import { eraseUserPii } from "../../services/accountErasureService.js";
 import { getUserDataExport } from "../../services/accountExportService.js";
 
 
+
+const signProfileDocs = (p) => ({
+  ...p,
+  id_proof_front: signPrivateUrl(p.id_proof_front),
+  id_proof_back: signPrivateUrl(p.id_proof_back),
+});
 
 // @desc    Get user profile
 // @route   GET /service_api/user/:userId/profile
@@ -33,7 +40,8 @@ export const getUserProfileData = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(user);
+    // Security A-015: private ID proofs go out as short-lived signed URLs.
+    res.json(user.userProfile ? { ...user, userProfile: signProfileDocs(user.userProfile) } : user);
   } catch (error) {
     Logger.error(`[Profile] Get error: ${error.message}`);
     res.status(500).json({ message: "Server Error" });
@@ -65,6 +73,11 @@ export const updateUserProfile = async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
+    // Security A-014: body URLs only if they are our own Cloudinary assets
+    // (the uploaded file above is trusted; it came from our middleware).
+    if (!req.file) profile_picture = acceptOwnCloudinaryUrl(profile_picture);
+    id_proof_front = acceptOwnCloudinaryUrl(id_proof_front);
+    id_proof_back = acceptOwnCloudinaryUrl(id_proof_back);
     if (profile_picture !== undefined) updateData.profile_picture = profile_picture;
     if (id_proof_front !== undefined) updateData.id_proof_front = id_proof_front;
     if (id_proof_back !== undefined) updateData.id_proof_back = id_proof_back;
@@ -85,7 +98,7 @@ export const updateUserProfile = async (req, res) => {
     });
 
     Logger.info(`[Profile] Updated for user ${userId}`);
-    res.json(profile);
+    res.json(signProfileDocs(profile));
   } catch (error) {
     Logger.error(`[Profile] Update error: ${error.message}`);
     res.status(500).json({ message: "Server Error" });
@@ -106,7 +119,7 @@ export const deleteUserAccount = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    const result = await eraseUserPii(userId);
+    const result = await eraseUserPii(userId, { io: req.app?.get?.("io") });
 
     Logger.info(`[Profile] Self-service account erasure for user ${userId}`);
     res.json({

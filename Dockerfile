@@ -21,8 +21,15 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Security A-027: `npm ci` installs exactly what package-lock.json pins
+# (`npm install` could resolve newer versions at build time). CI's test job
+# already runs `npm ci` against this lockfile, so it is known to be in sync.
+# Dev dependencies are deliberately KEPT: the deploy workflow runs
+# `npx prisma db push` from this image and `prisma` is a devDependency, so
+# `--omit=dev` / `npm prune --production` would break schema sync. Move
+# `prisma` to dependencies first if you want a dev-free image.
 # Install all dependencies (including dev for prisma CLI)
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
 # Copy prisma schema
 COPY prisma ./prisma/

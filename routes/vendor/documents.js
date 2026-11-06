@@ -1,5 +1,9 @@
 import express from 'express';
 import { getDocuments, uploadDocument } from '../../controllers/vendor/documentController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import {uploadSingle} from '../../middleware/uploadMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -19,7 +23,7 @@ const router = express.Router();
  *       200:
  *         description: List of vendor documents
  */
-router.get('/', protect, getDocuments);
+router.get('/', protect, vendorOnly, getDocuments);
 
 /**
  * @swagger
@@ -48,6 +52,6 @@ router.get('/', protect, getDocuments);
  *       201:
  *         description: Document uploaded successfully
  */
-router.post('/', protect, uploadSingle('file_url'), validateRequest(uploadDocumentSchema), uploadDocument);
+router.post('/', protect, vendorOnly, uploadSingle('file_url'), validateRequest(uploadDocumentSchema), uploadDocument);
 
 export default router;

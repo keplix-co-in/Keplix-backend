@@ -1,5 +1,9 @@
 import express from 'express';
 import { getVendorServices, createService, updateService, deleteService } from '../../controllers/vendor/serviceController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import {uploadSingle} from '../../middleware/uploadMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
@@ -28,7 +32,7 @@ const router = express.Router();
  *       404:
  *         description: Vendor not found
  */
-router.get('/:vendorId/services', protect, getVendorServices);
+router.get('/:vendorId/services', protect, vendorOnly, getVendorServices);
 
 /**
  * @swagger
@@ -76,7 +80,7 @@ router.get('/:vendorId/services', protect, getVendorServices);
  *       201:
  *         description: Service created successfully
  */
-router.post('/:vendorId/services/create', protect, uploadSingle('image'), validateRequest(createServiceSchema), createService);
+router.post('/:vendorId/services/create', protect, vendorOnly, uploadSingle('image'), validateRequest(createServiceSchema), createService);
 
 /**
  * @swagger
@@ -123,7 +127,7 @@ router.post('/:vendorId/services/create', protect, uploadSingle('image'), valida
  *       200:
  *         description: Service updated successfully
  */
-router.put('/:vendorId/services/update/:id', protect,uploadSingle('image'),  validateRequest(updateServiceSchema), updateService);
+router.put('/:vendorId/services/update/:id', protect, vendorOnly,uploadSingle('image'),  validateRequest(updateServiceSchema), updateService);
 
 /**
  * @swagger
@@ -148,6 +152,6 @@ router.put('/:vendorId/services/update/:id', protect,uploadSingle('image'),  val
  *       200:
  *         description: Service deleted successfully
  */
-router.delete('/:vendorId/services/delete/:id', protect, deleteService);
+router.delete('/:vendorId/services/delete/:id', protect, vendorOnly, deleteService);
 
 export default router;

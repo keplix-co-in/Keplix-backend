@@ -21,6 +21,17 @@ const getTwilioClient = async () => {
     return twilio.default(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 };
 
+// Security A-006: SMS/WhatsApp bodies carry OTPs and job-sheet links. The
+// mock/fallback log lines used to print them verbatim, so in production a
+// misconfigured Twilio (or any Twilio outage, via the fallback path) wrote
+// live codes into Cloud Logging where anyone with log access could use them.
+// The body is only logged in local development now.
+export const redactForLog = (text) => {
+    if (process.env.NODE_ENV === 'development') return text;
+    if (text === undefined || text === null) return '(empty)';
+    return `[redacted ${String(text).length} chars]`;
+};
+
 export const sendEmail = async (to, subject, text, html = null) => {
     // Check if Resend is configured
     if (!process.env.RESEND_API_KEY) {
@@ -55,7 +66,7 @@ export const sendSMS = async (to, message) => {
     // Check if Twilio is configured
     if (!hasTwilioCredentials()) {
         Logger.warn("[SMS] Twilio not configured (Missing TWILIO credentials). Skipping.");
-        Logger.info(`[MOCK SMS] To: ${to} | Message: ${message}`);
+        Logger.info(`[MOCK SMS] To: ${to} | Message: ${redactForLog(message)}`);
         return false;
     }
 
@@ -72,7 +83,7 @@ export const sendSMS = async (to, message) => {
         return true;
     } catch (error) {
         Logger.error(`[SMS] Failed to send: ${error.message}`);
-        Logger.info(`[FALLBACK MOCK SMS] To: ${to} | Message: ${message}`);
+        Logger.info(`[FALLBACK MOCK SMS] To: ${to} | Message: ${redactForLog(message)}`);
         return false;
     }
 };
@@ -101,7 +112,7 @@ export const sendSMS = async (to, message) => {
 export const sendWhatsApp = async (to, contentSid, variables = {}, fallbackText = null) => {
     if (!hasTwilioCredentials() || !process.env.TWILIO_WHATSAPP_FROM) {
         Logger.warn("[WhatsApp] Twilio WhatsApp not configured (Missing TWILIO_WHATSAPP_FROM or account credentials). Skipping.");
-        Logger.info(`[MOCK WHATSAPP] To: ${to} | Template: ${contentSid || '(none, would use fallback text)'} | Vars: ${JSON.stringify(variables)}`);
+        Logger.info(`[MOCK WHATSAPP] To: ${to} | Template: ${contentSid || '(none, would use fallback text)'} | Vars: ${redactForLog(JSON.stringify(variables))}`);
         return false;
     }
 

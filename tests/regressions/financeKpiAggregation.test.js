@@ -90,7 +90,11 @@ describe('finance KPI aggregation — FIXED, regression guard', () => {
     const commissionCall = calls.find((c) => c._sum.platformFee);
 
     expect(totalCollectedCall.where.status).toEqual({ in: ['success', 'refunded'] });
-    expect(commissionCall.where).toEqual({ status: 'success', bookingId: { not: null } });
+    expect(commissionCall.where).toEqual({
+      bookingId: { not: null },
+      // 2026-11-06: fully refunded on-top payments kept their fee.
+      OR: [{ status: 'success' }, { status: 'refunded', feeModel: 'on_top' }],
+    });
   });
 
   test('pendingDisbursement includes "processing", not just "pending"', async () => {

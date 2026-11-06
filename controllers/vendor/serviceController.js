@@ -1,4 +1,5 @@
-﻿import prisma from "../../util/prisma.js";
+﻿import { acceptOwnCloudinaryUrl } from "../../util/cloudinary.js";
+import prisma from "../../util/prisma.js";
 
 
 
@@ -37,7 +38,8 @@ export const createService = async (req, res) => {
   // the middleware. Reading req.file.path here meant every photo a vendor
   // picked was stored as undefined, so services created in the app were left
   // with a null image_url forever. Same bug already fixed in bookingController.
-  const image = req.file?.cloudinary?.secure_url ?? body_image_url ?? null;
+  // Security A-014: body image URLs must be our own Cloudinary assets.
+  const image = req.file?.cloudinary?.secure_url ?? acceptOwnCloudinaryUrl(body_image_url) ?? null;
 
   // Handle boolean conversion for FormData strings
   const isActive = is_active === "true" || is_active === true;
@@ -91,7 +93,8 @@ export const updateService = async (req, res) => {
   // when neither a file nor an image_url was sent — the spread below treats
   // undefined as "not part of this request" and keeps the existing photo, so
   // editing just a price doesn't wipe the image.
-  const image = req.file?.cloudinary?.secure_url ?? body_image_url;
+  // Security A-014: body image URLs must be our own Cloudinary assets.
+  const image = req.file?.cloudinary?.secure_url ?? acceptOwnCloudinaryUrl(body_image_url);
 
   try {
     // Check service exists & belongs to vendor

@@ -1,5 +1,9 @@
 import express from 'express';
 import { getVendorNotifications, markVendorRead } from '../../controllers/vendor/notificationController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -35,7 +39,7 @@ const router = express.Router();
  *       200:
  *         description: List of notifications with pagination info
  */
-router.get('/notifications', protect, getVendorNotifications); 
+router.get('/notifications', protect, vendorOnly, getVendorNotifications); 
 
 /**
  * @swagger
@@ -55,7 +59,7 @@ router.get('/notifications', protect, getVendorNotifications);
  *       200:
  *         description: Notification marked as read
  */
-router.put('/notifications/:id/mark-read', protect, markVendorRead);
+router.put('/notifications/:id/mark-read', protect, vendorOnly, markVendorRead);
 
 // Legacy support if needed, but cleaner:
 /**
@@ -91,6 +95,6 @@ router.put('/notifications/:id/mark-read', protect, markVendorRead);
  *       200:
  *         description: List of notifications
  */
-router.get('/users/:user_id/notifications', protect, getVendorNotifications);
+router.get('/users/:user_id/notifications', protect, vendorOnly, getVendorNotifications);
 
 export default router;

@@ -83,8 +83,9 @@ describe('pruneAbandonedAccounts', () => {
 
     const r = await pruneAbandonedAccounts({ now: NOW });
 
-    expect(mockDestroy).toHaveBeenCalledWith('pid:a');
-    expect(mockDestroy).toHaveBeenCalledWith('pid:b');
+    // A-015: destroyAsset now receives the stored URL (it parses type itself).
+    expect(mockDestroy).toHaveBeenCalledWith('a');
+    expect(mockDestroy).toHaveBeenCalledWith('b');
     const { where } = mockPrisma.user.deleteMany.mock.calls[0][0];
     expect(where.id).toEqual({ in: [1, 2] });
     expect(where.bookings).toEqual({ none: {} });

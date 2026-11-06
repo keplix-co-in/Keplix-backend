@@ -2,8 +2,7 @@ import cron from 'node-cron';
 import Razorpay from 'razorpay';
 import prisma from './prisma.js';
 import Logger from './logger.js';
-import { resolveBookingAmount } from './servicePricing.js';
-import { computeSplit, resolvePlatformFeeRate } from './platformSettings.js';
+import { resolveExpectedCharge } from './paymentCharge.js';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -66,8 +65,10 @@ export const reconcileStalePayments = async () => {
       const captured = payments?.items?.find((p) => p.status === 'captured');
       if (!captured) continue;
 
-      const totalAmount = resolveBookingAmount(booking);
-      const expectedPaise = Math.round(totalAmount * 100);
+      // Same resolver as verify/webhook: the order's frozen on-top fee if it
+      // has one, else the legacy deducted split (2026-11-06).
+      const charge = await resolveExpectedCharge(booking, order.notes);
+      const expectedPaise = charge ? Math.round(charge.amount * 100) : null;
       if (captured.amount !== expectedPaise) {
         Logger.error(
           `[Reconciliation] Booking ${booking.id}: captured amount ${captured.amount} does not match expected ${expectedPaise} — needs manual review`,
@@ -78,7 +79,7 @@ export const reconcileStalePayments = async () => {
       // WHY (2026-11-03): this was a hardcoded 0.1, so a payment recovered
       // here ignored the admin commission switch and could be split
       // differently from the same payment recorded by verify or the webhook.
-      const { platformFee, vendorAmount } = computeSplit(totalAmount, await resolvePlatformFeeRate());
+      const { amount: totalAmount, platformFee, vendorAmount, feeModel } = charge;
 
       const bookingAdvanced = await prisma.$transaction(async (tx) => {
         await tx.payment.upsert({
@@ -93,6 +94,7 @@ export const reconcileStalePayments = async () => {
             transactionId: captured.id,
             platformFee,
             vendorAmount,
+            feeModel,
             vendorPayoutStatus: 'pending',
           },
         });

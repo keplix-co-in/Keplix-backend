@@ -1,5 +1,9 @@
 import express from 'express';
 import { getVendorBookings, updateBookingStatus, respondToServiceRequest, requestEarlyStart } from '../../controllers/vendor/bookingController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly, requireApprovedVendor } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { updateBookingStatusSchema, respondToServiceRequestSchema, requestEarlyStartSchema } from '../../validators/vendor/bookingValidators.js';
@@ -25,7 +29,7 @@ const router = express.Router();
  *       200:
  *         description: List of vendor bookings
  */
-router.get('/:vendorId/bookings', protect, getVendorBookings);
+router.get('/:vendorId/bookings', protect, vendorOnly, getVendorBookings);
 
 /**
  * @swagger
@@ -58,7 +62,7 @@ router.get('/:vendorId/bookings', protect, getVendorBookings);
  *       200:
  *         description: Response recorded successfully
  */
-router.patch('/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
+router.patch('/bookings/:id/respond', protect, vendorOnly, requireApprovedVendor, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
 
 /**
  * @swagger
@@ -95,7 +99,7 @@ router.patch('/bookings/:id/respond', protect, validateRequest(respondToServiceR
  *       200:
  *         description: Response recorded successfully
  */
-router.patch('/:vendorId/bookings/:id/respond', protect, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
+router.patch('/:vendorId/bookings/:id/respond', protect, vendorOnly, requireApprovedVendor, validateRequest(respondToServiceRequestSchema), respondToServiceRequest);
 
 /**
  * @swagger
@@ -136,7 +140,7 @@ router.patch('/:vendorId/bookings/:id/respond', protect, validateRequest(respond
  *       200:
  *         description: Booking status updated successfully
  */
-router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
+router.post('/:vendorId/bookings/update/:id', protect, vendorOnly, requireApprovedVendor, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
   next();
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
@@ -179,7 +183,7 @@ router.post('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'i
  *       200:
  *         description: Booking status updated successfully
  */
-router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
+router.patch('/:vendorId/bookings/update/:id', protect, vendorOnly, requireApprovedVendor, uploadFieldss([{ name: 'images', maxCount: 10 }]), (req, res, next) => {
   next(); // Keep PATCH for backward compatibility if needed, but prefer POST for files
 }, validateRequest(updateBookingStatusSchema), updateBookingStatus);
 
@@ -215,6 +219,6 @@ router.patch('/:vendorId/bookings/update/:id', protect, uploadFieldss([{ name: '
  *       409:
  *         description: The earlier slot is already occupied
  */
-router.post('/:vendorId/bookings/:id/early-start', protect, validateRequest(requestEarlyStartSchema), requestEarlyStart);
+router.post('/:vendorId/bookings/:id/early-start', protect, vendorOnly, requireApprovedVendor, validateRequest(requestEarlyStartSchema), requestEarlyStart);
 
 export default router;

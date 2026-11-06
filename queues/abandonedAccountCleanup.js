@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import prisma from "../util/prisma.js";
 import Logger from "../util/logger.js";
-import { destroyAsset, publicIdFromUrl } from "../util/cloudinary.js";
+import { destroyAsset } from "../util/cloudinary.js";
 
 /**
  * Deletes sign-ups that were started and never finished.
@@ -102,7 +102,8 @@ export const pruneAbandonedAccounts = async ({ now = new Date(), batchSize = BAT
     ].filter(Boolean);
     for (const url of urls) {
       try {
-        const ok = await destroyAsset(publicIdFromUrl(url));
+        // Security A-015: pass the URL so the authenticated/upload type is honoured.
+        const ok = await destroyAsset(url);
         if (ok === false) assetsFailed += 1;
       } catch {
         assetsFailed += 1;

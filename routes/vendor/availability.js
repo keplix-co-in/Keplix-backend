@@ -1,5 +1,9 @@
 import express from 'express';
 import { getAvailability, createAvailability } from '../../controllers/vendor/availabilityController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { manageAvailabilitySchema } from '../../validators/vendor/availabilityValidators.js';
@@ -24,7 +28,7 @@ const router = express.Router();
  *       200:
  *         description: Vendor availability list
  */
-router.get('/vendor/:vendorId/availability', protect, getAvailability);
+router.get('/vendor/:vendorId/availability', protect, vendorOnly, getAvailability);
 
 /**
  * @swagger
@@ -66,9 +70,9 @@ router.get('/vendor/:vendorId/availability', protect, getAvailability);
  *       200:
  *         description: Availability created/updated successfully
  */
-router.post('/vendor/:vendorId/availability/create', protect, validateRequest(manageAvailabilitySchema), createAvailability);
+router.post('/vendor/:vendorId/availability/create', protect, vendorOnly, validateRequest(manageAvailabilitySchema), createAvailability);
 
 // Aliases
-router.get('/vendor/:vendorId/availability/', protect, getAvailability);
+router.get('/vendor/:vendorId/availability/', protect, vendorOnly, getAvailability);
 
 export default router;

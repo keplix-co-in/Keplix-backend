@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from '../../util/prisma.js';
 import Logger from '../../util/logger.js';
 import { generatePublicToken } from '../../util/publicToken.js';
@@ -17,10 +18,15 @@ export const createWalkInJob = async (req, res) => {
   try {
     // Already claimed by a signed-up user? Land the job in their garage
     // immediately rather than waiting for a future claim pass.
-    const phoneIdentity = await prisma.phoneIdentity.findUnique({
+    // Security A-024: only a phone the user actually VERIFIED (OTP) attaches a
+    // walk-in job (and the vehicle) to their account. An unverified
+    // PhoneIdentity row is just a claim, and attaching on it let a vendor push
+    // jobs into a stranger's garage or harvest one by typing a number.
+    const phoneIdentityRow = await prisma.phoneIdentity.findUnique({
       where: { phone_e164: customer_phone },
-      select: { userId: true },
+      select: { userId: true, verified_at: true },
     });
+    const phoneIdentity = phoneIdentityRow?.verified_at ? phoneIdentityRow : null;
 
     // Resolve catalogue services against THIS vendor before writing anything.
     // A client-supplied service_id is never trusted: an id belonging to another
@@ -142,7 +148,7 @@ export const createWalkInJob = async (req, res) => {
 export const listWalkInJobs = async (req, res) => {
   const vendorId = req.user.id;
   const { status, phone, registration, page = 1, limit = 50 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const skip = (Number(page) - 1) * clampLimit(limit);
 
   try {
     const where = {
@@ -175,12 +181,12 @@ export const listWalkInJobs = async (req, res) => {
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: Number(limit),
+        take: clampLimit(limit),
       }),
       prisma.walkInJob.count({ where }),
     ]);
 
-    return res.json({ data, page: Number(page), limit: Number(limit), total });
+    return res.json({ data, page: Number(page), limit: clampLimit(limit), total });
   } catch (error) {
     Logger.error(`[WalkInJob] listWalkInJobs failed: ${error.message}`);
     return res.status(500).json({ message: 'Server Error' });
@@ -288,6 +294,9 @@ export const updateWalkInJobStatus = async (req, res) => {
 
 // @desc    Manually resend the tracking-link notification
 // @route   POST /service_api/vendor/walk-in-jobs/:id/notify
+// Security A-024: minimum gap between manual notification re-sends per job.
+export const WALK_IN_NOTIFY_COOLDOWN_MS = 10 * 60 * 1000;
+
 export const resendWalkInJobNotification = async (req, res) => {
   const vendorId = req.user.id;
 
@@ -296,6 +305,26 @@ export const resendWalkInJobNotification = async (req, res) => {
       where: { id: parseInt(req.params.id), vendorId },
     });
     if (!job) return res.status(404).json({ message: 'Walk-in job not found' });
+
+    // Security A-024: cooldown on manual re-sends so this endpoint can't be
+    // used to spam a customer's phone (each send is an SMS/WhatsApp we pay for).
+    const now = new Date();
+    if (job.lastNotifiedAt && now - new Date(job.lastNotifiedAt) < WALK_IN_NOTIFY_COOLDOWN_MS) {
+      const retryAfterSec = Math.ceil((WALK_IN_NOTIFY_COOLDOWN_MS - (now - new Date(job.lastNotifiedAt))) / 1000);
+      res.set('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ message: 'A notification was sent recently. Please wait before resending.', retryAfterSec });
+    }
+    // Claim the slot atomically so two quick taps can't both send.
+    const claimed = await prisma.walkInJob.updateMany({
+      where: {
+        id: job.id,
+        OR: [{ lastNotifiedAt: null }, { lastNotifiedAt: { lt: new Date(now.getTime() - WALK_IN_NOTIFY_COOLDOWN_MS) } }],
+      },
+      data: { lastNotifiedAt: now },
+    });
+    if (!claimed || claimed.count === 0) {
+      return res.status(429).json({ message: 'A notification was sent recently. Please wait before resending.' });
+    }
 
     const vendorProfile = await prisma.vendorProfile.findUnique({
       where: { userId: vendorId },

@@ -1,5 +1,6 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { env } from '../config/env.js';
+import { normalizeIndianPhone } from '../util/phone.js';
 
 // --- RATE LIMITERS ---
 //
@@ -89,6 +90,58 @@ export const authedReadLimiter = rateLimit({
 // strict per-route limiter (correctly keyed, with a saner window) is the
 // recommended fix if abuse shows up.
 
+// Security O-001 / A-003: per-IDENTIFIER limiter for OTP verification.
+//
+// authLimiter is per IP, so an attacker spreading guesses over many addresses
+// was bounded only by the code's lifetime. This one is keyed on the account
+// being attacked (the normalized email or phone in the body), so the budget
+// for guessing one person's code is shared by every IP that tries. The
+// per-code attempt counter (util/otp.js consumeOtpAttempt) is the hard cap;
+// this limiter stops an attacker cycling "request new code, guess 5 times"
+// indefinitely.
+//
+// Mount it after the body parser (global) and before validateRequest, so the
+// key is read from the raw body. Without an identifier it falls back to IP.
+const otpIdentifierKey = (req) => {
+  const body = req.body || {};
+  if (typeof body.email === 'string' && body.email.trim()) {
+    return `otp:e:${body.email.toLowerCase().trim()}`;
+  }
+  const rawPhone = typeof body.phone_number === 'string' ? body.phone_number : body.phone;
+  if (typeof rawPhone === 'string') {
+    const phone = normalizeIndianPhone(rawPhone);
+    if (phone) return `otp:p:${phone}`;
+  }
+  return `otp:ip:${ipKeyGenerator(req.ip)}`;
+};
+
+export const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: otpIdentifierKey,
+  message: {
+    message: 'Too many verification attempts for this account. Please wait 15 minutes and request a new code.',
+    code: 'OTP_RATE_LIMITED',
+  },
+});
+
+// Security A-003: My Garage claim verification was unthrottled. Keyed per
+// signed-in user (it sits after `protect`), on top of otpVerifyLimiter's
+// per-phone budget.
+export const claimVerifyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUserOrIp,
+  message: { message: 'Too many attempts. Please try again in an hour.' },
+});
+
+// Exported for unit tests only.
+export const __otpIdentifierKeyForTests = otpIdentifierKey;
+
 // Public, unauthenticated job-sheet lookup by token — makes brute-forcing a
 // valid token materially slower without affecting a real customer, who looks
 // up one link once.
@@ -110,4 +163,15 @@ export const claimRequestLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Too many attempts. Please try again in an hour.' }
+});
+
+// Security A-005 / A-023: sending step-up codes (email change, payout account
+// change) costs an email each; keep one signed-in account from spamming.
+export const stepUpOtpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUserOrIp,
+  message: { success: false, code: 'OTP_RATE_LIMITED', message: 'Too many codes requested. Please try again later.' },
 });

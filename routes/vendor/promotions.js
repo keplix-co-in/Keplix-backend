@@ -1,5 +1,9 @@
 import express from 'express';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion } from '../../controllers/vendor/promotionController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createPromotionSchema } from '../../validators/vendor/promotionValidators.js';
@@ -24,7 +28,7 @@ const router = express.Router();
  *       200:
  *         description: List of vendor promotions
  */
-router.get('/:vendorId/promotions', protect, getPromotions);
+router.get('/:vendorId/promotions', protect, vendorOnly, getPromotions);
 
 /**
  * @swagger
@@ -69,7 +73,7 @@ router.get('/:vendorId/promotions', protect, getPromotions);
  *       201:
  *         description: Promotion created successfully
  */
-router.post('/:vendorId/promotions/create', protect, validateRequest(createPromotionSchema), createPromotion);
+router.post('/:vendorId/promotions/create', protect, vendorOnly, validateRequest(createPromotionSchema), createPromotion);
 
 /**
  * @swagger
@@ -114,7 +118,7 @@ router.post('/:vendorId/promotions/create', protect, validateRequest(createPromo
  *       200:
  *         description: Promotion updated successfully
  */
-router.put('/:vendorId/promotions/:promoId/update', protect, updatePromotion);
+router.put('/:vendorId/promotions/:promoId/update', protect, vendorOnly, updatePromotion);
 
 /**
  * @swagger
@@ -139,6 +143,6 @@ router.put('/:vendorId/promotions/:promoId/update', protect, updatePromotion);
  *       200:
  *         description: Promotion deleted successfully
  */
-router.delete('/:vendorId/promotions/:promoId/delete', protect, deletePromotion);
+router.delete('/:vendorId/promotions/:promoId/delete', protect, vendorOnly, deletePromotion);
 
 export default router;

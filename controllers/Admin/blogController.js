@@ -1,3 +1,5 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
+import { acceptOwnCloudinaryUrl } from "../../util/cloudinary.js";
 import prisma from "../../util/prisma.js";
 import { uniqueSlug } from "../../util/slugify.js";
 import { sanitizeBlogHtml, estimateReadTime } from "../../util/sanitizeHtml.js";
@@ -8,7 +10,7 @@ const AUTHOR_SELECT = { select: { id: true, name: true } };
 export const getBlogPosts = async (req, res) => {
   try {
     const { status = "all", page = 1, limit = 10, search = "" } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * clampLimit(limit);
 
     const where = {
       ...(status !== "all" ? { status } : {}),
@@ -27,7 +29,7 @@ export const getBlogPosts = async (req, res) => {
         where,
         orderBy: { createdAt: "desc" },
         skip: Number(skip),
-        take: Number(limit),
+        take: clampLimit(limit),
         include: { author: AUTHOR_SELECT },
       }),
       prisma.blogPost.count({ where }),
@@ -38,8 +40,8 @@ export const getBlogPosts = async (req, res) => {
       pagination: {
         total,
         page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        limit: clampLimit(limit),
+        totalPages: Math.ceil(total / clampLimit(limit)),
       },
     });
   } catch (error) {
@@ -68,7 +70,8 @@ export const createBlogPost = async (req, res) => {
     const { title, excerpt, content, category, status = "draft" } = req.body;
 
     // An uploaded file wins over a pasted URL.
-    const coverImage = req.file?.cloudinary?.secure_url || req.body.coverImage || null;
+    // Security A-014: body image URLs must be our own Cloudinary assets.
+    const coverImage = req.file?.cloudinary?.secure_url || acceptOwnCloudinaryUrl(req.body.coverImage) || null;
     const safeContent = sanitizeBlogHtml(content);
 
     const post = await prisma.blogPost.create({
@@ -103,7 +106,8 @@ export const updateBlogPost = async (req, res) => {
     if (!existing) return res.status(404).json({ message: "Post not found" });
 
     const { title, excerpt, content, category, status } = req.body;
-    const coverImage = req.file?.cloudinary?.secure_url || req.body.coverImage;
+    // Security A-014: body image URLs must be our own Cloudinary assets.
+    const coverImage = req.file?.cloudinary?.secure_url || acceptOwnCloudinaryUrl(req.body.coverImage);
 
     const safeContent = content !== undefined ? sanitizeBlogHtml(content) : undefined;
     const nextStatus = status ?? existing.status;

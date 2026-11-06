@@ -1,4 +1,5 @@
-﻿import prisma from "../../util/prisma.js";
+﻿import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
+import prisma from "../../util/prisma.js";
 
 
 
@@ -35,7 +36,7 @@ export const getFeedback = async (req, res) => {
                 where,
                 orderBy: { createdAt: 'desc' },
                 skip: Number(skip),
-                take: Number(limit)
+                take: clampLimit(limit)
             }),
             prisma.feedback.count({ where })
         ]);
@@ -45,7 +46,7 @@ export const getFeedback = async (req, res) => {
             pagination: {
                 total,
                 page: Number(page),
-                limit: Number(limit),
+                limit: clampLimit(limit),
                 totalPages: Math.ceil(total / limit)
             }
         });

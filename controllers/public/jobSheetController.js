@@ -12,6 +12,18 @@ const maskRegistration = (reg) => {
   return `${'•'.repeat(reg.length - 4)}${reg.slice(-4)}`;
 };
 
+// Security A-025 / SYS-005: health-sheet links used to live forever. New
+// sheets get token_expires_at = created + 90 days; rows from before the
+// column (null) are treated as expiring 90 days after createdAt, so old links
+// stop working on the same schedule without a backfill.
+export const HEALTH_SHEET_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+export const healthSheetTokenExpired = (sheet, now = new Date()) => {
+  const expiresAt = sheet.token_expires_at
+    ? new Date(sheet.token_expires_at)
+    : new Date(new Date(sheet.createdAt ?? sheet.submitted_at ?? 0).getTime() + HEALTH_SHEET_TOKEN_TTL_MS);
+  return !(expiresAt > now);
+};
+
 const firstName = (name) => (name || '').trim().split(/\s+/)[0] || '';
 
 function shapeHealthSheet(sheet) {
@@ -105,6 +117,10 @@ export const getJobSheetByToken = async (req, res) => {
         },
       },
     });
+
+    if (sheet && healthSheetTokenExpired(sheet)) {
+      return res.status(404).json({ message: 'Not found' });
+    }
 
     if (sheet && sheet.booking) {
       return res.json({

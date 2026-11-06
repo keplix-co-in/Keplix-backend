@@ -44,6 +44,7 @@ describe('payment order creation — gateway failures surface as 502, not 500 (r
             bookingVehicle: null,
           }),
         },
+        platformSettings: { findFirst: jest.fn().mockResolvedValue(null) },
       },
     }));
     jest.unstable_mockModule('razorpay', () => ({

@@ -125,7 +125,25 @@ describe('getFinanceKpis commission', () => {
     const commission = mockPrisma.payment.aggregate.mock.calls
       .map(([a]) => a)
       .find((a) => a._sum.platformFee);
-    expect(commission.where).toEqual({ status: 'success', bookingId: { not: null } });
+    expect(commission.where).toEqual({
+      bookingId: { not: null },
+      // 2026-11-06: fully refunded on-top payments kept their fee.
+      OR: [{ status: 'success' }, { status: 'refunded', feeModel: 'on_top' }],
+    });
+  });
+});
+
+describe('getFinanceKpis pending / failed', () => {
+  test('a dead booking is not counted as owed to the vendor', async () => {
+    mockPrisma.payment.aggregate.mockResolvedValue({ _sum: {} });
+    mockPrisma.refund.aggregate.mockResolvedValue({ _sum: {} });
+    await call(getFinanceKpis);
+    const wheres = mockPrisma.payment.aggregate.mock.calls.map(([a]) => a.where);
+    const pending = wheres.find((w) => w.vendorPayoutStatus?.in?.includes('pending'));
+    const failed = wheres.find((w) => w.vendorPayoutStatus === 'failed');
+    for (const w of [pending, failed]) {
+      expect(w.booking.status.notIn).toEqual(expect.arrayContaining(['cancelled', 'refunded', 'disputed']));
+    }
   });
 });
 

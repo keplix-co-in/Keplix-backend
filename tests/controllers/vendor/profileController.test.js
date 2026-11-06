@@ -25,6 +25,8 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     vendorPayoutAccount: {
       findUnique: jest.fn().mockResolvedValue({ vendorId: 1, isActive: true }),
     },
+    // Security A-020: onboarding_completed is derived from uploaded KYC docs.
+    document: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -419,7 +421,10 @@ describe('getVendorProfile — payout readiness reporting', () => {
  * vendors back into onboarding on every login.
  */
 describe('updateVendorProfile — onboarding_completed persistence', () => {
-  test('writes onboarding_completed into the prisma update data', async () => {
+  // Security A-020 / SYS-003: the client flag is a request, not a fact. The
+  // server writes true only when the required KYC document (pan_card) exists.
+  test('writes onboarding_completed=true when the required KYC document exists', async () => {
+    prisma.document.findMany.mockResolvedValue([{ document_type: 'pan_card' }]);
     const req = mockReq({ body: { onboarding_completed: true } });
     const res = mockRes();
 
@@ -433,16 +438,44 @@ describe('updateVendorProfile — onboarding_completed persistence', () => {
     );
   });
 
-  test('promotes the user role to vendor when onboarding completes', async () => {
+  test('writes onboarding_completed=false when KYC documents are missing', async () => {
+    prisma.document.findMany.mockResolvedValue([]);
     const req = mockReq({ body: { onboarding_completed: true } });
     const res = mockRes();
 
     await updateVendorProfile(req, res);
 
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: { role: 'vendor' },
-    });
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.onboarding_completed).toBe(false);
+  });
+
+  test('never changes the user role (Security A-020)', async () => {
+    prisma.document.findMany.mockResolvedValue([{ document_type: 'pan_card' }]);
+    const req = mockReq({ body: { onboarding_completed: true } });
+    const res = mockRes();
+
+    await updateVendorProfile(req, res);
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  // Review fix: the web portal's Documents page stores the PAN as "pan".
+  test('accepts the "pan" document type (web portal) as the PAN card', async () => {
+    prisma.vendorProfile.findUnique.mockResolvedValue({ onboarding_completed: false });
+    prisma.document.findMany.mockResolvedValue([{ document_type: 'PAN' }]);
+    const res = mockRes();
+    await updateVendorProfile(mockReq({ body: { onboarding_completed: true } }), res);
+    expect(prisma.vendorProfile.update.mock.calls[0][0].data.onboarding_completed).toBe(true);
+  });
+
+  // Review fix: vendors onboarded before the derived rule must not be flipped
+  // back to false (and sent back to onboarding) by a re-sent client flag.
+  test('never downgrades an already-onboarded vendor', async () => {
+    prisma.vendorProfile.findUnique.mockResolvedValue({ onboarding_completed: true });
+    prisma.document.findMany.mockResolvedValue([]);
+    const res = mockRes();
+    await updateVendorProfile(mockReq({ body: { onboarding_completed: true } }), res);
+    expect(prisma.vendorProfile.update.mock.calls[0][0].data.onboarding_completed).toBe(true);
   });
 
   test('does not touch onboarding_completed when the body omits it', async () => {
@@ -476,6 +509,8 @@ describe('updateVendorProfile — payout holder name and image uploads', () => {
         bank_account_holder_name: 'Ramesh Kumar',
       },
     });
+    // First-time setup (no fund account yet): no payout OTP needed (A-023).
+    prisma.vendorPayoutAccount.findUnique.mockResolvedValueOnce(null);
     const res = mockRes();
 
     await updateVendorProfile(req, res);
@@ -525,5 +560,40 @@ describe('updateVendorProfile — payout holder name and image uploads', () => {
 
     const data = prisma.vendorProfile.update.mock.calls[0][0].data;
     expect(data.image).toBe('https://res.cloudinary.com/single.jpg');
+  });
+});
+
+// Vendor location update (2026-11-06): lat/lng are saved, and changing an
+// address component rebuilds the combined address from current + new parts.
+describe('updateVendorProfile — location', () => {
+  test('saves latitude/longitude and rebuilds the combined address', async () => {
+    prisma.vendorProfile.findUnique.mockResolvedValue({
+      street: 'Old St', area: 'Indiranagar', city: 'Bengaluru', state: 'KA', pincode: '560038', address: 'old',
+    });
+    const res = mockRes();
+    await updateVendorProfile(mockReq({ body: { latitude: 12.97, longitude: 77.64, street: '12 New Rd' } }), res);
+
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data.latitude).toBe(12.97);
+    expect(data.longitude).toBe(77.64);
+    expect(data.address).toBe('12 New Rd, Indiranagar, Bengaluru, KA, 560038');
+  });
+
+  test('lat/lng alone do not touch the address', async () => {
+    await updateVendorProfile(mockReq({ body: { latitude: -33.9, longitude: 151.2 } }), mockRes());
+    const data = prisma.vendorProfile.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ latitude: -33.9, longitude: 151.2 });
+    expect(data.address).toBeUndefined();
+  });
+});
+
+describe('updateVendorProfileSchema — coordinate bounds', () => {
+  test('accepts in-range values and rejects out-of-range ones', async () => {
+    const { updateVendorProfileSchema } = await import('../../../validators/vendor/profileValidators.js');
+    expect(updateVendorProfileSchema.safeParse({ latitude: '90', longitude: '-180' }).success).toBe(true);
+    expect(updateVendorProfileSchema.safeParse({ latitude: 90.01 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ latitude: -91 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ longitude: 180.5 }).success).toBe(false);
+    expect(updateVendorProfileSchema.safeParse({ longitude: -181 }).success).toBe(false);
   });
 });

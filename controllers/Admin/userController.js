@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from "../../util/prisma.js";
 import { eraseUserPii } from "../../services/accountErasureService.js";
 
@@ -127,7 +128,7 @@ export const getUsers = async (req, res) => {
       },
 
       skip: Number(skip),
-      take: Number(limit)
+      take: clampLimit(limit)
     });
 
 
@@ -172,7 +173,7 @@ export const deleteUser = async (req, res) => {
     // documents all stayed exactly as they were, with no erasure path
     // reachable from this admin action at all (2026-09-12 audit, F11).
     // eraseUserPii deactivates AND redacts those fields.
-    const result = await eraseUserPii(userId);
+    const result = await eraseUserPii(userId, { io: req.app?.get?.("io") });
 
     res.json({
       message: "User deactivated and personal data erased (has existing booking history, so the account record itself was retained rather than deleted)",

@@ -6,6 +6,8 @@ import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationT
 import Logger from "../../util/logger.js";
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
 import { resolveBookingAmount } from "../../util/servicePricing.js";
+import { computeCharge, resolvePlatformFeeRate } from "../../util/platformSettings.js";
+import { FEE_MODEL_ON_TOP } from "../../util/feeModel.js";
 import { isBookingPayable } from "../../util/bookingStatus.js";
 import { parseIdParam } from "../../util/parseIdParam.js";
 import { describeGatewayError } from "../../util/razorpayCredentials.js";
@@ -73,19 +75,26 @@ export const createPaymentOrder = async (req, res) => {
     // booking was created) over a fresh lookup of the service's current
     // price. See util/servicePricing.js — this is one of three sites that
     // must agree, or the webhook's cross-check below fails every payment.
-    const amount = resolveBookingAmount(booking);
+    const servicePriceRupees = resolveBookingAmount(booking);
 
     // Razorpay's minimum order is ₹1 (100 paise). A booking priced at 0 (a
     // missing price_snapshot or a ₹0 service) used to reach the gateway and
     // come back as an opaque 502. Refuse it here with a reason instead.
-    if (!Number.isFinite(Number(amount)) || Math.round(Number(amount) * 100) < 100) {
-      console.error(`Create payment order: booking ${bookingIdNum} resolved to an unpayable amount (${amount})`);
+    if (!Number.isFinite(Number(servicePriceRupees)) || Math.round(Number(servicePriceRupees) * 100) < 100) {
+      console.error(`Create payment order: booking ${bookingIdNum} resolved to an unpayable amount (${servicePriceRupees})`);
       return res.status(422).json({
         message: "This booking has no payable amount",
         error: "This booking's price is missing, so it can't be paid online. Please contact support.",
         code: "INVALID_BOOKING_AMOUNT",
       });
     }
+
+    // Fee ON TOP (owner decision 2026-11-06): the customer is charged the
+    // vendor's price plus Keplix's fee. The rate is frozen HERE, into the
+    // order notes, so an admin changing it before capture can't change what
+    // this order records (verify/webhook read it back via resolveExpectedCharge).
+    const charge = computeCharge(servicePriceRupees, await resolvePlatformFeeRate());
+    const amountPaise = Math.round(charge.total * 100);
 
     const receipt = `rcpt_bk_${bookingId}`;
 
@@ -104,7 +113,11 @@ export const createPaymentOrder = async (req, res) => {
     try {
       const existing = await razorpay.orders.all({ receipt, count: 10 });
       order = (existing?.items ?? []).find(
-        (o) => o.status === 'created' && Number(o.amount) === Math.round(amount * 100)
+        // Only reuse an on-top order with today's exact charge: a legacy
+        // (pre-switch) order has no frozen fee in its notes.
+        (o) => o.status === 'created' && Number(o.amount) === amountPaise &&
+          o.notes?.feeModel === FEE_MODEL_ON_TOP &&
+          Math.round(Number(o.notes?.platformFee) * 100) === Math.round(charge.platformFee * 100)
       ) ?? null;
     } catch (lookupError) {
       // A failed lookup must not block payment — worst case we create a new
@@ -114,7 +127,7 @@ export const createPaymentOrder = async (req, res) => {
 
     if (!order) {
       order = await razorpay.orders.create({
-        amount: Math.round(amount * 100),
+        amount: amountPaise,
         currency,
         receipt,
         // The webhook handler needs a reliable way to resolve which booking a
@@ -122,7 +135,14 @@ export const createPaymentOrder = async (req, res) => {
         // itself (client died before calling /verify) — notes are echoed back
         // on both the order and payment webhook entities, unlike `receipt`
         // parsing which is a string convention rather than a real contract.
-        notes: { bookingId: String(bookingId) },
+        // Notes values must be strings (Razorpay); read back as numbers.
+        notes: {
+          bookingId: String(bookingId),
+          servicePrice: charge.servicePrice.toFixed(2),
+          platformFee: charge.platformFee.toFixed(2),
+          feeRate: String(charge.feeRate),
+          feeModel: FEE_MODEL_ON_TOP,
+        },
       });
     }
 
@@ -131,8 +151,11 @@ export const createPaymentOrder = async (req, res) => {
     const responseData = {
       id: finalOrderId, // This must be present and a string!
       orderId: finalOrderId, 
-      amount: order.amount,
+      amount: order.amount, // paise, = servicePrice + platformFee (what Razorpay charges)
       currency: order.currency,
+      // Rupees, for the checkout breakdown. Additive: older app builds ignore them.
+      servicePrice: charge.servicePrice,
+      platformFee: charge.platformFee,
       key_id: process.env.RAZORPAY_KEY_ID, 
       key: process.env.RAZORPAY_KEY_ID, 
       gateway: 'razorpay'
@@ -156,7 +179,43 @@ export const createPaymentOrder = async (req, res) => {
       const { status, body } = describeGatewayError(error);
       return res.status(status).json(body);
     }
-    res.status(500).json({ message: "Payment order failed", error: error.message });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ message: "Payment order failed" });
+  }
+};
+
+/**
+ * PAYMENT QUOTE — GET /service_api/payments/quote/:bookingId
+ * Shows the customer the price + fee breakdown before they pay. Uses the same
+ * computeCharge as createPaymentOrder so the quote and the charge can't drift
+ * (the rate could still change between quote and order; the order is what
+ * freezes it). Owner of the booking only.
+ */
+export const getPaymentQuote = async (req, res) => {
+  try {
+    const bookingIdNum = parseIdParam(req.params.bookingId);
+    if (bookingIdNum === null) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID" });
+    }
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingIdNum },
+      include: { service: true, bookingVehicle: true },
+    });
+    if (!booking || !booking.service) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+    // 404 not 403 would hide existence, but 403 matches createPaymentOrder.
+    if (booking.userId !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Not authorized for this booking" });
+    }
+    const { servicePrice, platformFee, feeRate, total } = computeCharge(
+      resolveBookingAmount(booking),
+      await resolvePlatformFeeRate(),
+    );
+    return res.json({ success: true, data: { servicePrice, platformFee, feeRate, total } });
+  } catch (error) {
+    console.error("Payment quote error:", error);
+    return res.status(500).json({ success: false, message: "Could not compute quote" });
   }
 };
 
@@ -370,6 +429,7 @@ async function handlePaymentCaptured(payment) {
       paymentId: id,
       amountPaise: amount,
       bookingIdHint: notes?.bookingId,
+      notes, // may carry the frozen on-top fee; service falls back to the order
     });
 
     if (result.mismatch) {

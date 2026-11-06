@@ -4,6 +4,8 @@ import jwt from "jsonwebtoken";
 import corsOptions from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
+import { isTokenBlacklisted } from "./middleware/authMiddleware.js";
+import { sessionRoom, tokenRoom } from "./util/socketSessions.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -75,6 +77,12 @@ export const initSocket = (httpServer) => {
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error("Authentication required"));
 
+      // Security A-012: a logged-out token must not open a socket. Same
+      // blacklist `protect` consults on every HTTP request.
+      if (await isTokenBlacklisted(token)) {
+        return next(new Error("Authentication required"));
+      }
+
       const decoded = jwt.verify(token, JWT_SECRET);
       // Same cross-table token-confusion guard as authMiddleware.js `protect`
       // — without it, an admin access token or a 30-day refresh token
@@ -85,13 +93,19 @@ export const initSocket = (httpServer) => {
       }
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
-        select: { id: true, role: true, is_active: true },
+        select: { id: true, role: true, is_active: true, passwordChangedAt: true },
       });
       if (!user || user.is_active === false) {
         return next(new Error("Authentication required"));
       }
+      // Security A-012: like `protect`, a token issued before the last
+      // password change (or account erasure) is dead.
+      if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime()) {
+        return next(new Error("Authentication required"));
+      }
 
       socket.authUser = user;
+      socket.authTokenRoom = tokenRoom(token);
       next();
     } catch (err) {
       next(new Error("Authentication required"));
@@ -100,6 +114,14 @@ export const initSocket = (httpServer) => {
 
   io.on("connection", (socket) => {
     Logger.debug(`[Socket] Client connected: ${socket.id} (user ${socket.authUser.id})`);
+
+    // Security SYS-002: every socket joins a server-managed room for its
+    // user, so logout / password change / erasure can drop all of that
+    // user's live connections (util/socketSessions.js) even if the client
+    // never joined user_<id> or vendor_<id> itself. Clients cannot join this
+    // room via join_room (isOwnPersonalRoom only matches user_/vendor_).
+    socket.join(sessionRoom(socket.authUser.id));
+    if (socket.authTokenRoom) socket.join(socket.authTokenRoom);
 
     socket.on("join_room", async (room) => {
       try {

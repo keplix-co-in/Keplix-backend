@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from "../../util/prisma.js";
 
 /** Fields safe to expose publicly — never leak draft content or author emails. */
@@ -19,7 +20,7 @@ const PUBLIC_SELECT = {
 export const listPublishedPosts = async (req, res) => {
   try {
     const { page = 1, limit = 24, category } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (Number(page) - 1) * clampLimit(limit);
 
     const where = {
       status: "published",
@@ -31,7 +32,7 @@ export const listPublishedPosts = async (req, res) => {
         where,
         orderBy: { publishedAt: "desc" },
         skip: Number(skip),
-        take: Number(limit),
+        take: clampLimit(limit),
         select: PUBLIC_SELECT,
       }),
       prisma.blogPost.count({ where }),
@@ -42,8 +43,8 @@ export const listPublishedPosts = async (req, res) => {
       pagination: {
         total,
         page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        limit: clampLimit(limit),
+        totalPages: Math.ceil(total / clampLimit(limit)),
       },
     });
   } catch (error) {

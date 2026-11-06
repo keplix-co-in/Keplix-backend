@@ -141,6 +141,11 @@ const envSchema = z
     // omits it and that's a fine default outside production.
     FRONTEND_URL: z.string().optional(),
 
+    // Security A-010 / SYS-006: comma-separated EXACT extra CORS origins
+    // (e.g. a single preview deployment). Read by util/cors.js. No
+    // wildcards; *.keplix.co.in is always allowed without listing it.
+    ALLOWED_ORIGINS: z.string().optional(),
+
     // Read directly via process.env in controllers/authController.js's
     // Google-login handler (not through this `env` object), but declared
     // here too so REQUIRED_IN_PRODUCTION's production check can see it and

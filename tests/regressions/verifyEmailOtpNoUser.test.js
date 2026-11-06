@@ -21,10 +21,15 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-for-verify-email
 process.env.JWT_REFRESH_SECRET =
   process.env.JWT_REFRESH_SECRET || 'test-refresh-secret-for-verify-email-otp-spec';
 
+const { hashOTP } = await import('../../util/otp.js');
+
+// Security O-005: OTP rows hold an HMAC of the code, not the code itself.
+const PLAIN_OTP = '123456';
 const record = {
   id: 'otp-1',
   email: 'nouser@test.local',
-  otp: '123456',
+  otp: hashOTP(PLAIN_OTP),
+  failedAttempts: 0,
   verified: false,
   expiresAt: new Date(Date.now() + 60_000),
 };
@@ -32,6 +37,9 @@ const record = {
 const emailOTP = {
   findFirst: jest.fn().mockResolvedValue(record),
   update: jest.fn().mockResolvedValue({ ...record, verified: true }),
+  // Security O-001: consumeOtpAttempt reserves an attempt before comparing.
+  updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+  deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
 };
 
 // No User row exists for this email: findUnique resolves null, and a
@@ -73,7 +81,7 @@ describe('verifyEmailOTP with no matching User', () => {
 
   it('returns 200 instead of 500 when the email has no User row yet', async () => {
     const res = makeRes();
-    await verifyEmailOTP({ body: { email: record.email, otp: record.otp } }, res);
+    await verifyEmailOTP({ body: { email: record.email, otp: PLAIN_OTP } }, res);
 
     expect(res.status).not.toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith(
@@ -83,7 +91,7 @@ describe('verifyEmailOTP with no matching User', () => {
 
   it('uses updateMany (never throws on zero matches), not update', async () => {
     const res = makeRes();
-    await verifyEmailOTP({ body: { email: record.email, otp: record.otp } }, res);
+    await verifyEmailOTP({ body: { email: record.email, otp: PLAIN_OTP } }, res);
 
     expect(userUpdateMany).toHaveBeenCalledWith({
       where: { email: record.email },

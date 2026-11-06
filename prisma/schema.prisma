@@ -169,6 +169,10 @@ model VendorProfile {
   // business name. RazorpayX validates the payee name against the account, so
   // payoutHelper used to send business_name and could misroute or reject.
   bank_account_holder_name String?
+  // Security A-023: when the payout bank/UPI details last changed (after the
+  // first setup). Payouts are refused for 24h after this so a hijacked
+  // session can't redirect money before the vendor sees the alert.
+  payoutAccountChangedAt DateTime?
   is_online            Boolean @default(true)
   // Denormalised review aggregates maintained by util/ratingHelper.js.
   // These were being read and written by that helper (from review creation,
@@ -294,6 +298,15 @@ model Payment {
   gatewayFee         Decimal?
   platformFee        Decimal?
   vendorAmount       Decimal?
+  // Fee model (2026-11-06). 'on_top' = customer paid price + platformFee, the
+  // vendor gets the full price, and Keplix keeps the fee on refund. NULL =
+  // legacy payment where the fee was deducted from the price. Additive and
+  // nullable so existing rows keep their original behaviour untouched.
+  feeModel           String?
+  // Security A-017/A-018: set on vendor-initiated payments (subscription /
+  // vendor checkout) so the vendor's payment history can be scoped to the
+  // vendor who actually paid. null on booking payments and on older rows.
+  vendorId           Int?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   booking            Booking?          @relation("BookingPayment", fields: [bookingId], references: [id], onDelete: Restrict)
@@ -547,10 +560,22 @@ model Feedback {
 model EmailOTP {
   id        Int      @id @default(autoincrement())
   email     String
+  // Security O-005: HMAC-SHA256 of the code (util/otp.js hashOTP), never the
+  // code itself. Pre-existing plaintext rows just fail to verify.
   otp       String
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+  // Security O-001: wrong guesses against this code. The row is deleted at
+  // OTP_MAX_ATTEMPTS (util/otp.js) so the user must request a new code.
+  failedAttempts Int @default(0)
+  // Security A-005 / A-023: what this code authorises. null = the original
+  // login / verification / password-reset flows. "email_change" and
+  // "payout_change" codes are only accepted by their own endpoints, so a
+  // login code can never confirm an email or payout change and vice versa.
+  purpose   String?
+  // A-005: the account the email_change code was issued for.
+  userId    Int?
 
   @@index([email])
 }
@@ -558,10 +583,13 @@ model EmailOTP {
 model PhoneOTP {
   id           Int      @id @default(autoincrement())
   phone_number String   @unique
+  // Security O-005: HMAC-SHA256 of the code (util/otp.js), not the code.
   otp          String
   expiresAt    DateTime
   verified     Boolean  @default(false)
   createdAt    DateTime @default(now())
+  // Security O-001 / A-003: wrong guesses; row deleted at OTP_MAX_ATTEMPTS.
+  failedAttempts Int    @default(0)
 }
 
 model VendorPayoutAccount {
@@ -842,6 +870,9 @@ model WalkInJob {
   // never getting their tracking link.
   notification_status String    @default("pending") // pending | sent | failed
   notified_at         DateTime?
+  // Security A-024: last manual re-send from POST /walk-in-jobs/:id/notify;
+  // enforces a cooldown so the endpoint can't be used to spam a phone.
+  lastNotifiedAt      DateTime?
 
   started_at   DateTime?
   completed_at DateTime?
@@ -907,6 +938,9 @@ model HealthSheet {
   overall_notes String?
 
   public_token String   @unique
+  // Security A-025 / SYS-005: the public link stops working after this. null
+  // (rows from before the column) means createdAt + 90 days.
+  token_expires_at DateTime?
   submitted_at DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

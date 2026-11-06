@@ -20,8 +20,16 @@ const JWT_SECRET = process.env.JWT_SECRET;
  * @param {number} expUnixSeconds - Token's `exp` claim (Unix seconds).
  * @returns {Promise<void>}
  */
+// Security A-007: longest lifetime any token we issue can have (refresh tokens
+// are 30d). A blacklist row never needs to outlive that, so an `exp` claim
+// further out than this is clamped rather than trusted.
+export const MAX_BLACKLIST_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 export const blacklistToken = async (token, expUnixSeconds) => {
-  const ttlSeconds = Math.max(expUnixSeconds - Math.floor(Date.now() / 1000), 0);
+  if (typeof token !== 'string' || !token || !Number.isFinite(expUnixSeconds)) return;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  expUnixSeconds = Math.min(expUnixSeconds, nowSeconds + MAX_BLACKLIST_TTL_SECONDS);
+  const ttlSeconds = Math.max(expUnixSeconds - nowSeconds, 0);
   if (ttlSeconds === 0) return;
 
   try {

@@ -1,7 +1,8 @@
 import express from 'express';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
-import { claimRequestLimiter } from '../../middleware/rateLimitMiddleware.js';
+// Security A-003: claim verification is throttled per user and per phone.
+import { claimRequestLimiter, claimVerifyLimiter, otpVerifyLimiter } from '../../middleware/rateLimitMiddleware.js';
 import {
   claimRequestSchema,
   claimVerifySchema,
@@ -42,6 +43,6 @@ router.post(
   validateRequest(claimRequestSchema),
   claimRequest,
 );
-router.post('/garage/claim/verify', protect, validateRequest(claimVerifySchema), claimVerify);
+router.post('/garage/claim/verify', protect, claimVerifyLimiter, otpVerifyLimiter, validateRequest(claimVerifySchema), claimVerify);
 
 export default router;

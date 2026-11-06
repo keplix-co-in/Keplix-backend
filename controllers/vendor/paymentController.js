@@ -4,10 +4,19 @@ import prisma from "../../util/prisma.js";
 
 
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "rzp_test_placeholder",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "secret_placeholder",
-});
+// Security A-019: no placeholder-key fallbacks. A missing key used to build a
+// client with a dummy secret, and verifyVendorPayment's HMAC would then be
+// keyed by whatever was in the env (possibly undefined). The client is built
+// on first use and a missing key is a clean 503 instead.
+let razorpayClient = null;
+export const getRazorpay = () => {
+  const key_id = process.env.RAZORPAY_KEY_ID;
+  const key_secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!key_id || !key_secret) return null;
+  if (!razorpayClient) razorpayClient = new Razorpay({ key_id, key_secret });
+  return razorpayClient;
+};
+const GATEWAY_NOT_CONFIGURED = { message: "Payment gateway is not configured" };
 
 
 /**
@@ -45,6 +54,8 @@ export const createVendorPaymentOrder = async (req, res) => {
     }
 
     // RAZORPAY (default)
+    const razorpay = getRazorpay();
+    if (!razorpay) return res.status(503).json(GATEWAY_NOT_CONFIGURED);
     const order = await razorpay.orders.create({
       amount: Math.round(numericAmount * 100),
       currency,
@@ -76,9 +87,9 @@ export const createVendorPaymentOrder = async (req, res) => {
         error: error.error?.description || error.message || 'Unknown gateway error',
       });
     }
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
     res.status(500).json({
       message: "Vendor payment order creation failed",
-      error: error.message,
     });
   }
 };
@@ -113,6 +124,9 @@ export const verifyVendorPayment = async (req, res) => {
       return res.status(400).json({ message: "orderId, paymentId and signature are required" });
     }
 
+    const razorpay = getRazorpay();
+    if (!razorpay) return res.status(503).json(GATEWAY_NOT_CONFIGURED);
+
     const body = orderId + "|" + paymentId;
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -134,6 +148,13 @@ export const verifyVendorPayment = async (req, res) => {
     const order = await razorpay.orders.fetch(orderId);
     const verifiedAmount = order.amount / 100; // paise -> rupees
 
+    // Security A-017: a valid signature only proves SOME vendor paid this
+    // order. The order must have been created for THIS vendor, or one vendor
+    // could replay another's payment as their own.
+    if (String(order?.notes?.vendorId) !== String(req.user.id) || order?.notes?.type !== "vendor_payment") {
+      return res.status(403).json({ message: "This payment does not belong to your account" });
+    }
+
     // ---------------- SAVE PAYMENT ----------------
 
     await prisma.payment.create({
@@ -146,6 +167,8 @@ export const verifyVendorPayment = async (req, res) => {
         vendorPayoutStatus: "not_applicable", // IMPORTANT
         platformFee: verifiedAmount, // full amount is Keplix earning
         vendorAmount: 0,
+        // Security A-018: lets getVendorPayments scope history to this vendor.
+        vendorId: req.user.id,
       },
     });
 
@@ -154,10 +177,15 @@ export const verifyVendorPayment = async (req, res) => {
       message: "Vendor payment verified successfully",
     });
   } catch (error) {
+    // Security A-017: transactionId is unique -- the same payment verified
+    // twice is a conflict, not a server error.
+    if (error?.code === "P2002") {
+      return res.status(409).json({ message: "This payment has already been recorded" });
+    }
     console.error("Vendor Payment Verify Error:", error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
     res.status(500).json({
       message: "Vendor payment verification failed",
-      error: error.message,
     });
   }
 };
@@ -185,6 +213,10 @@ export const getVendorPayments = async (req, res) => {
 
     const payments = await prisma.payment.findMany({
       where: {
+        // Security A-018: scoped to the caller. Rows from before Payment.vendorId
+        // existed have vendorId null and no longer appear (they can't be
+        // attributed to a vendor safely).
+        vendorId,
         method: { in: ["razorpay", "stripe"] },
         vendorPayoutStatus: "not_applicable",
       },

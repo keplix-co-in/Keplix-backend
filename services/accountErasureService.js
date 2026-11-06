@@ -1,6 +1,7 @@
 import prisma from "../util/prisma.js";
 import Logger from "../util/logger.js";
-import { destroyAsset, publicIdFromUrl } from "../util/cloudinary.js";
+import { destroyAsset } from "../util/cloudinary.js";
+import { disconnectUserSockets } from "../util/socketSessions.js";
 
 /**
  * eraseUserPii
@@ -30,6 +31,7 @@ import { destroyAsset, publicIdFromUrl } from "../util/cloudinary.js";
  *   - A general per-model retention cron (Message/Notification/Document).
  *
  * @param {number} userId
+ * @param {{ io?: import("socket.io").Server }} [options] - pass req.app.get("io") so live sockets are dropped (A-028).
  * @returns {Promise<{
  *   deactivated: boolean,
  *   profileRedacted: boolean,
@@ -39,7 +41,7 @@ import { destroyAsset, publicIdFromUrl } from "../util/cloudinary.js";
  *   assetsDeleted: number,
  * }>}
  */
-export const eraseUserPii = async (userId) => {
+export const eraseUserPii = async (userId, { io } = {}) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { userProfile: true },
@@ -64,7 +66,9 @@ export const eraseUserPii = async (userId) => {
 
   let assetsDeleted = 0;
   for (const url of assetUrls) {
-    const ok = await destroyAsset(publicIdFromUrl(url));
+    // Security A-015: pass the URL so destroyAsset picks the right delivery
+    // type (private ID proofs are 'authenticated', older ones 'upload').
+    const ok = await destroyAsset(url);
     if (ok) assetsDeleted += 1;
   }
 
@@ -94,8 +98,18 @@ export const eraseUserPii = async (userId) => {
       fcmToken: null,
       pushToken: null,
       is_active: false,
+      // Security A-028: erasure must also end every session. An empty
+      // password is the existing "no password login" marker (authUser and
+      // changePassword both refuse it), and passwordChangedAt = now makes
+      // `protect`, token refresh and socket auth reject every token issued
+      // before this moment -- is_active alone did not stop the refresh path.
+      password: "",
+      passwordChangedAt: new Date(),
     },
   });
+
+  // Security A-028 / SYS-002: and drop any socket already open.
+  disconnectUserSockets(io, userId);
 
   // PhoneIdentity.phone_e164 is NOT NULL + @unique, so it cannot be
   // redacted in place without freeing that number for a future signup to

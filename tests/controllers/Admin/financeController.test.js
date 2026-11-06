@@ -75,6 +75,8 @@ function wireTransaction(payment) {
     // the same row lock) to refuse a payout when money is already being
     // refunded. Defaults to "no refund reserved" so existing cases behave as
     // before; tests that want the guard to fire override this.
+    // Security A-023: payout claim checks the 24h payout-account-change hold.
+    vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     refund: {
       findFirst: jest.fn().mockResolvedValue(null),
     },
@@ -260,6 +262,7 @@ describe('settlePayout', () => {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         // Payout guards check for a reserved refund under the same row lock.
         refund: { findFirst: jest.fn().mockResolvedValue(null) },
+        vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockResolvedValue(basePayment()),
           update: jest.fn().mockImplementation(async ({ where, data }) => {
@@ -285,6 +288,7 @@ describe('settlePayout', () => {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         // Payout guards check for a reserved refund under the same row lock.
         refund: { findFirst: jest.fn().mockResolvedValue(null) },
+        vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockImplementation(async ({ where }) => {
             queriedId = where.id;
@@ -336,6 +340,7 @@ describe('settlePayout', () => {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
         // Payout guards check for a reserved refund under the same row lock.
         refund: { findFirst: jest.fn().mockResolvedValue(null) },
+        vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) },
         payment: {
           findUnique: jest.fn().mockResolvedValue(snapshot),
           update: jest.fn().mockImplementation(async ({ data }) => {

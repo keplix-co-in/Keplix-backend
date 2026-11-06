@@ -2,6 +2,40 @@
 import prisma from "../../util/prisma.js";
 import { setupVendorPayoutAccount, updateVendorPayoutAccount } from "../../util/payoutHelper.js";
 import Logger from "../../util/logger.js";
+import { SAFE_OWN_USER_SELECT } from "../../util/publicVendor.js";
+import { checkPayoutChange, notifyPayoutAccountChanged, PAYOUT_FIELDS } from "../../services/payoutChangeService.js";
+
+// Security A-020 / SYS-003: KYC documents that must exist before a vendor is
+// "onboarded". Matches the vendor app (OnboardingStart.jsx only requires the
+// PAN card). onboarding_completed is derived from this server-side; a client
+// value is ignored.
+export const REQUIRED_KYC_DOCUMENTS = ["pan_card"];
+
+// Review fix: the vendor web portal's Documents page (keplix-webpage-vendors
+// app/(portal)/documents/page.jsx) uploads the PAN as document_type "pan",
+// while both onboarding flows use "pan_card". Older rows may differ in case.
+// All spellings count, otherwise a vendor whose PAN is on file would be
+// treated as not onboarded.
+export const KYC_DOCUMENT_ALIASES = { pan_card: ["pan_card", "pan"] };
+
+export const isRequiredKycDocumentType = (type) => {
+    const t = String(type || "").trim().toLowerCase();
+    return REQUIRED_KYC_DOCUMENTS.some((req) => (KYC_DOCUMENT_ALIASES[req] || [req]).includes(t));
+};
+
+export const hasRequiredKycDocuments = async (userId) => {
+    const docs = await prisma.document.findMany({
+        where: { vendorId: userId },
+        select: { document_type: true },
+    });
+    const have = new Set((docs || []).map((d) => String(d.document_type || "").trim().toLowerCase()));
+    return REQUIRED_KYC_DOCUMENTS.every((req) =>
+        (KYC_DOCUMENT_ALIASES[req] || [req]).some((alias) => have.has(alias))
+    );
+};
+
+// Security A-008 / A-023: gateway error text is logged, never returned.
+const PAYOUT_SETUP_FAILED = 'Payout account setup failed. Please check your bank details or contact support.';
 
 /**
  * Reports whether a vendor can actually be paid out.
@@ -34,7 +68,8 @@ export const getVendorProfile = async (req, res) => {
     try {
         const vendorProfile = await prisma.vendorProfile.findUnique({
             where: { userId: req.user.id },
-            include: { user: true }
+            // Security A-022: the vendor's own User row minus password hash and push tokens.
+            include: { user: { select: SAFE_OWN_USER_SELECT } }
         });
 
         if (!vendorProfile) {
@@ -113,8 +148,10 @@ export const updateVendorProfile = async (req, res) => {
         gst_number, has_gst, tax_type,
         operating_hours, breaks, holidays,
         bank_account_number, ifsc_code, upi_id, bank_account_holder_name,
-        onboarding_completed // if sent by frontend
+        payout_otp
     } = req.body;
+    // Security A-020 / SYS-003: req.body.onboarding_completed is ignored on
+    // purpose; it is derived below from the uploaded KYC documents.
 
     // Validate JSON strings for breaks/holidays but keep them as strings for Prisma
     if (typeof breaks === 'string' && breaks) {
@@ -176,7 +213,22 @@ export const updateVendorProfile = async (req, res) => {
     // resolveVendorLanding sent every already-onboarded vendor back to onboarding
     // on their next login. This also makes the role-sync check further down, which
     // reads updates.onboarding_completed, reachable for the first time.
-    if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
+    // Security A-020 / SYS-003: derived server-side, never taken from the client.
+    // The vendor app still sends onboarding_completed:true after its uploads and
+    // reads the flag back from this response; it is true only once the
+    // required KYC documents exist.
+    if (req.body.onboarding_completed !== undefined) {
+        // Review fix: never downgrade. Vendors onboarded before this rule (whose
+        // flag was client-set, possibly without a PAN row) must not be sent back
+        // to onboarding just because a client re-sends the flag on a profile edit.
+        const existing = await prisma.vendorProfile.findUnique({
+            where: { userId: req.user.id },
+            select: { onboarding_completed: true },
+        });
+        updates.onboarding_completed = existing?.onboarding_completed === true
+            ? true
+            : await hasRequiredKycDocuments(req.user.id);
+    }
     // If any address components were updated, also update the combined address field
     const addressComponents = [street, area, city, state, pincode].filter(val => val !== undefined && val !== null && val !== '');
     if (addressComponents.length > 0) {
@@ -222,22 +274,27 @@ export const updateVendorProfile = async (req, res) => {
     }
 
     try {
-        const vendorProfile = await prisma.$transaction(async (tx) => {
-            const profile = await tx.vendorProfile.update({
+        // Security A-023: changing existing payout details needs the emailed
+        // payout_otp. Checked before anything is written.
+        let payoutChanged = false;
+        if (PAYOUT_FIELDS.some((f) => updates[f] !== undefined)) {
+            const current = await prisma.vendorProfile.findUnique({
                 where: { userId: req.user.id },
-                data: updates
+                select: { bank_account_number: true, ifsc_code: true, bank_account_holder_name: true, upi_id: true, onboarding_completed: true },
             });
+            const gate = await checkPayoutChange(req.user.id, current, updates, payout_otp);
+            if (!gate.ok) return res.status(gate.status).json(gate.body);
+            payoutChanged = gate.changed;
+            if (payoutChanged) updates.payoutAccountChangedAt = new Date();
+        }
 
-            // Also update User role effectively if onboarding is done
-            if (updates.onboarding_completed) {
-                await tx.user.update({
-                    where: { id: req.user.id },
-                    data: { role: 'vendor' }
-                });
-            }
-
-            return profile;
+        // Security A-020: no role change here any more. A client flag used to
+        // promote any account to 'vendor'; vendors get the role at signup.
+        const vendorProfile = await prisma.vendorProfile.update({
+            where: { userId: req.user.id },
+            data: updates
         });
+        if (payoutChanged) await notifyPayoutAccountChanged(req.user.id);
 
         // Setup or update payout account if bank/UPI details were provided.
         //
@@ -259,7 +316,7 @@ export const updateVendorProfile = async (req, res) => {
                     `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
                     `Profile was saved, but this vendor cannot be paid out until it is fixed.`
                 );
-                payoutSetup = { ok: false, configured: false, error: payoutError.message };
+                payoutSetup = { ok: false, configured: false, error: PAYOUT_SETUP_FAILED };
             }
         } else {
             payoutSetup = await describePayoutAccount(req.user.id);
@@ -334,7 +391,8 @@ export const createVendorProfile = async (req, res) => {
         ifsc_code,
         upi_id,
         bank_account_holder_name,
-        onboarding_completed: true 
+        // Security A-020 / SYS-003: derived from KYC documents below, not hardcoded true.
+        onboarding_completed: false
     };
 
     // Handle Image uploads (fields: image, cover_image)
@@ -361,14 +419,19 @@ export const createVendorProfile = async (req, res) => {
             return res.status(400).json({ message: 'Vendor profile already exists' });
         }
 
+        // Security A-023: a profile row can be missing while a fund account
+        // still exists (e.g. re-onboarding); then the bank details are a change.
+        // No profile row yet = onboarding, so the onboarding exception applies.
+        const gate = await checkPayoutChange(req.user.id, { onboarding_completed: false }, data, req.body.payout_otp);
+        if (!gate.ok) return res.status(gate.status).json(gate.body);
+        if (gate.changed) data.payoutAccountChangedAt = new Date();
+        data.onboarding_completed = await hasRequiredKycDocuments(req.user.id);
+
+        // Security A-020: no role promotion -- vendors get role 'vendor' at signup.
         const vendorProfile = await prisma.vendorProfile.create({
             data: data
         });
-        
-        await prisma.user.update({
-            where: { id: req.user.id },
-            data: { role: 'vendor' }
-        });
+        if (gate.changed) await notifyPayoutAccountChanged(req.user.id);
 
         // Setup payout account if bank/UPI details were provided. Same
         // reasoning as the update path above: non-fatal, but never silent.
@@ -382,14 +445,15 @@ export const createVendorProfile = async (req, res) => {
                     `[VendorProfile] Payout account setup FAILED for vendor ${req.user.id}: ${payoutError.message}. ` +
                     `Profile was created, but this vendor cannot be paid out until it is fixed.`
                 );
-                payoutSetup = { ok: false, configured: false, error: payoutError.message };
+                payoutSetup = { ok: false, configured: false, error: PAYOUT_SETUP_FAILED };
             }
         }
 
         res.status(201).json({ ...vendorProfile, user: vendorProfile.userId, payoutSetup });
     } catch (error) {
         console.error("Create Vendor Profile Error:", error); // Added detailed logging
-        res.status(500).json({ message: 'Server Error', error: error.message }); // Return error details for debugging
+        // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+        res.status(500).json({ message: 'Server Error' });
     }
 };
 

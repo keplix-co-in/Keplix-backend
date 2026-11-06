@@ -2,6 +2,7 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolvePlatformFeeRate } from "../util/platformSettings.js";
+import { refundableBase, FEE_MODEL_ON_TOP } from "../util/feeModel.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -87,6 +88,24 @@ export const recomputeSplitAfterRefunds = async (paymentId, client = prisma) => 
 
   const amount = parseFloat(payment.amount?.toString() || '0');
   if (!(amount > 0)) return null;
+
+  const refundsForPayment = () => client.refund.findMany({
+    where: { paymentId: payment.id, status: { in: GATEWAY_REACHED_STATUSES } },
+    select: { amount: true },
+  });
+
+  // Fee on top (2026-11-06): Keplix keeps its fee, so a refund only ever
+  // comes out of the vendor's price. platformFee is left untouched (that also
+  // keeps refundableBase stable); vendor gets price − refunded.
+  if (payment.feeModel === FEE_MODEL_ON_TOP) {
+    const refunded = (await refundsForPayment())
+      .reduce((sum, r) => sum + Math.round(parseFloat(r.amount.toString()) * 100), 0);
+    const platformFee = parseFloat(payment.platformFee?.toString() || '0');
+    const vendorAmount = Math.max(0, Math.round(refundableBase(payment) * 100) - refunded) / 100;
+    await client.payment.update({ where: { id: payment.id }, data: { vendorAmount } });
+    return { platformFee, vendorAmount };
+  }
+
   const fee = parseFloat(payment.platformFee?.toString() || '0');
   const vendor = parseFloat(payment.vendorAmount?.toString() || '0');
   const keptBefore = fee + vendor;
@@ -142,7 +161,9 @@ export const issueRefund = async ({ paymentId, amount, reason, idempotencyKey, i
     throw new RefundError("Payment has no gateway transaction to refund", 400);
   }
 
-  const totalAmount = parseFloat(payment.amount.toString());
+  // On-top payments: the fee is never refundable (owner decision 2026-11-06),
+  // so the cap is amount − platformFee. Legacy payments: the full amount.
+  const totalAmount = refundableBase(payment);
 
   // Reserve the amount atomically.
   //
@@ -304,6 +325,9 @@ export const issueRefund = async ({ paymentId, amount, reason, idempotencyKey, i
   try {
     if (isFullRefund) {
       await prisma.payment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
+      // On-top: the vendor's price went back in full, so nothing is owed to
+      // them; platformFee stays (Keplix keeps it — counted in commission KPIs).
+      if (payment.feeModel === FEE_MODEL_ON_TOP) await recomputeSplitAfterRefunds(payment.id);
     } else {
       await recomputeSplitAfterRefunds(payment.id);
     }
@@ -426,7 +450,9 @@ export const recordDashboardRefund = async (entity) => {
     },
   });
 
-  const total = parseFloat(payment.amount?.toString() || '0');
+  // refundableBase: on-top payments are fully refunded once the vendor's
+  // price is back (Keplix keeps its fee); legacy = the whole amount.
+  const total = refundableBase(payment);
   const reached = await prisma.refund.findMany({
     where: { paymentId: payment.id, status: { in: GATEWAY_REACHED_STATUSES } },
     select: { amount: true },
@@ -434,6 +460,7 @@ export const recordDashboardRefund = async (entity) => {
   const refunded = reached.reduce((sum, r) => sum + parseFloat(r.amount.toString()), 0);
   if (total > 0 && refunded >= total - 0.01) {
     await prisma.payment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
+    if (payment.feeModel === FEE_MODEL_ON_TOP) await recomputeSplitAfterRefunds(payment.id);
   } else {
     await recomputeSplitAfterRefunds(payment.id);
   }
