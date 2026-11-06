@@ -113,3 +113,29 @@ export const stripVendorSecrets = (obj) => {
   }
   return clean;
 };
+
+// Security A-022: the customer as seen by a vendor (bookings, interactions).
+// `include: { user: true }` used to ship the customer's password hash and push
+// tokens to the vendor. Only identity/contact fields a vendor needs to do the
+// job are selected; the phone lives on userProfile.
+export const SAFE_CUSTOMER_SELECT = {
+  id: true,
+  email: true,
+  role: true,
+  userProfile: {
+    select: { name: true, phone: true, address: true, profile_picture: true },
+  },
+};
+
+// Security A-022: a user's OWN account row (e.g. the vendor's own profile
+// screen). Everything except the password hash and device push tokens.
+export const SAFE_OWN_USER_SELECT = {
+  id: true,
+  email: true,
+  role: true,
+  is_active: true,
+  is_verified: true,
+  createdAt: true,
+  updatedAt: true,
+  device_type: true,
+};

@@ -39,6 +39,8 @@ jest.unstable_mockModule('../../util/logger.js', () => ({
 }));
 jest.unstable_mockModule('../../util/cloudinary.js', () => ({
   destroyAsset: mockDestroyAsset,
+  signPrivateUrl: (url) => url,
+  acceptOwnCloudinaryUrl: (url) => url,
   publicIdFromUrl: (url) => (url ? `media_uploads/${url.split('/').pop().split('.')[0]}` : null),
 }));
 
@@ -103,7 +105,8 @@ describe('eraseUserPii — FIXED, regression guard', () => {
 
     const result = await eraseUserPii(USER_ID);
 
-    expect(mockDestroyAsset).toHaveBeenCalledWith('media_uploads/profile_picture-abc');
+    // A-015: destroyAsset receives the stored URL (it parses the delivery type itself).
+    expect(mockDestroyAsset).toHaveBeenCalledWith('https://res.cloudinary.com/x/upload/v1/media_uploads/profile_picture-abc.jpg');
     expect(result.assetsDeleted).toBe(1);
   });
 
@@ -119,8 +122,22 @@ describe('eraseUserPii — FIXED, regression guard', () => {
         fcmToken: null,
         pushToken: null,
         is_active: false,
+        // Security A-028: sessions die with the account.
+        password: '',
+        passwordChangedAt: expect.any(Date),
       },
     });
+  });
+
+  test('Security A-028: disconnects live sockets when io is supplied', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID, userProfile: null });
+    const disconnectSockets = jest.fn();
+    const io = { in: jest.fn(() => ({ disconnectSockets })) };
+
+    await eraseUserPii(USER_ID, { io });
+
+    expect(io.in).toHaveBeenCalledWith([`session_${USER_ID}`, `user_${USER_ID}`, `vendor_${USER_ID}`]);
+    expect(disconnectSockets).toHaveBeenCalledWith(true);
   });
 
   test('deletes the PhoneIdentity row (field is NOT NULL + unique, so it cannot be redacted in place)', async () => {

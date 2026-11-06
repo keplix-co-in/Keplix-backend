@@ -50,6 +50,9 @@ export const createVendorProfileSchema = z.object({
   // Name on the bank account; RazorpayX needs the account holder, not the
   // business name.
   bank_account_holder_name: z.string().optional(),
+  // Security A-023: emailed step-up code, required when changing existing
+  // payout details (services/payoutChangeService.js). Declared so zod keeps it.
+  payout_otp: z.coerce.string().max(10).optional(),
 
   // Image fields (Optional, but allow passing them through if Zod strips keys)
   // Since Zod parse replaces req.body, if we don't include them, they might be lost if they were in body?

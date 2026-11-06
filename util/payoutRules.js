@@ -21,3 +21,18 @@ export const PAYOUT_DEAD_BOOKING_STATUSES = ["cancelled", "canceled", "refunded"
 //   initiated / gateway_confirmed - the money may still move
 //   reconciliation_needed         - our books disagree, a human must look
 export const PAYOUT_BLOCKING_STATUSES = ["initiated", "gateway_confirmed", "reconciliation_needed"];
+
+// Security A-023: after a vendor changes their payout bank/UPI details, no
+// payout is sent for this long. A hijacked session that swaps the account
+// can't drain money before the vendor sees the "payout account changed"
+// email/notification. First-time setup does not set payoutAccountChangedAt,
+// so it is never held.
+export const PAYOUT_ACCOUNT_CHANGE_HOLD_MS = 24 * 60 * 60 * 1000;
+
+/** Human-readable reason to hold, or null when payouts may go out. */
+export const payoutAccountHoldReason = (payoutAccountChangedAt, now = new Date()) => {
+  if (!payoutAccountChangedAt) return null;
+  const releaseAt = new Date(new Date(payoutAccountChangedAt).getTime() + PAYOUT_ACCOUNT_CHANGE_HOLD_MS);
+  if (Number.isNaN(releaseAt.getTime()) || now >= releaseAt) return null;
+  return `Payout held: the vendor changed their payout account recently (releasable at ${releaseAt.toISOString()})`;
+};

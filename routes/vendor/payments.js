@@ -5,6 +5,10 @@ import {
     createVendorPaymentOrder, 
     verifyVendorPayment 
 } from '../../controllers/vendor/paymentController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly, requireApprovedVendor } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createVendorPaymentOrderSchema, verifyVendorPaymentSchema } from '../../validators/vendor/paymentValidators.js';
@@ -29,7 +33,7 @@ const router = express.Router();
  *       200:
  *         description: List of payments
  */
-router.get('/vendor/:vendor_id/payments', protect, getVendorPayments);
+router.get('/vendor/:vendor_id/payments', protect, vendorOnly, getVendorPayments);
 
 /**
  * @swagger
@@ -49,7 +53,7 @@ router.get('/vendor/:vendor_id/payments', protect, getVendorPayments);
  *       200:
  *         description: Earnings summary
  */
-router.get('/vendor/:vendor_id/earning', protect, getVendorEarnings);
+router.get('/vendor/:vendor_id/earning', protect, vendorOnly, getVendorEarnings);
 
 /**
  * @swagger
@@ -77,7 +81,7 @@ router.get('/vendor/:vendor_id/earning', protect, getVendorEarnings);
  *       201:
  *         description: Order created successfully
  */
-router.post('/vendor/payments/order/create', protect, validateRequest(createVendorPaymentOrderSchema), createVendorPaymentOrder);
+router.post('/vendor/payments/order/create', protect, vendorOnly, requireApprovedVendor, validateRequest(createVendorPaymentOrderSchema), createVendorPaymentOrder);
 
 /**
  * @swagger
@@ -108,6 +112,6 @@ router.post('/vendor/payments/order/create', protect, validateRequest(createVend
  *       200:
  *         description: Payment verified successfully
  */
-router.post('/vendor/payments/verify', protect, validateRequest(verifyVendorPaymentSchema), verifyVendorPayment);
+router.post('/vendor/payments/verify', protect, vendorOnly, requireApprovedVendor, validateRequest(verifyVendorPaymentSchema), verifyVendorPayment);
 
 export default router;

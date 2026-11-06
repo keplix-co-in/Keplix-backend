@@ -1,3 +1,4 @@
+import { HEALTH_SHEET_TOKEN_TTL_MS } from '../public/jobSheetController.js';
 import prisma from '../../util/prisma.js';
 import Logger from '../../util/logger.js';
 import { generatePublicToken } from '../../util/publicToken.js';
@@ -141,6 +142,8 @@ export const createHealthSheet = async (req, res) => {
           odometer_km,
           overall_notes,
           public_token: generatePublicToken(),
+          // Security A-025 / SYS-005: public health-sheet links expire.
+          token_expires_at: new Date(Date.now() + HEALTH_SHEET_TOKEN_TTL_MS),
         },
       });
 

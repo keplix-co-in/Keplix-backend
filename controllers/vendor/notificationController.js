@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js";
 import prisma from "../../util/prisma.js";
 
 
@@ -13,7 +14,7 @@ export const getVendorNotifications = async (req, res) => {
         // should see anyone's notifications but their own.
         const userId = req.user.id;
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
+        const limit = clampLimit(req.query.limit, 10); // Security A-026
         const isRead = req.query.isRead;
 
         const where = {

@@ -39,9 +39,9 @@ jobs:
       GOOGLE_ALLOWED_AUDIENCES: dummy-client-id.apps.googleusercontent.com
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (Security A-027: pinned to a commit SHA; tags are mutable)
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (Security A-027)
         with:
           node-version: '20'
           cache: 'npm'
@@ -58,15 +58,22 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (Security A-027: pinned to a commit SHA; tags are mutable)
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2 (Security A-027)
         with:
+          # Security A-027 (owner step): a long-lived SA JSON key in GitHub secrets is
+          # the weakest link here. To move to keyless Workload Identity Federation:
+          #   1. create a WIF pool+provider for this repo in GCP (free),
+          #   2. replace this line with workload_identity_provider + service_account,
+          #   3. add `permissions: { id-token: write, contents: read }` to the job,
+          #   4. delete the GCP_SA_KEY secret and the key in IAM.
+          # Left as-is so deploys keep working until that is set up.
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2 (Security A-027)
 
       - name: Configure Docker for GCR
         run: |

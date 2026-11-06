@@ -60,6 +60,8 @@ export const NOTIFICATION_TYPES = {
   // the vendor notification list can filter them out by name.
   PAYMENT_RECEIVED: 'PAYMENT_RECEIVED',
   PAYOUT_SETTLED: 'PAYOUT_SETTLED',
+  // Security A-023: sent when a vendor's payout bank/UPI details change.
+  PAYOUT_ACCOUNT_CHANGED: 'PAYOUT_ACCOUNT_CHANGED',
   REFUND_ISSUED: 'REFUND_ISSUED',
   REFUND_UNDER_REVIEW: 'REFUND_UNDER_REVIEW',
   REFUND_FAILED: 'REFUND_FAILED',
@@ -370,6 +372,15 @@ export const notificationTemplates = {
     title: 'Payment received',
     body: `A customer has paid for ${serviceName(v.serviceName)}. You can now start the service.`,
     data: bookingData(T.PAYMENT_RECEIVED, v),
+  }),
+
+  // Security A-023: the vendor must hear about every payout-account change,
+  // so a hijacked session can't quietly redirect money. No account digits.
+  [T.PAYOUT_ACCOUNT_CHANGED]: () => ({
+    type: T.PAYOUT_ACCOUNT_CHANGED,
+    title: 'Payout account changed',
+    body: 'Your payout bank or UPI details were changed. Payouts are paused for 24 hours. If this was not you, contact Keplix support now.',
+    data: { ...payload({ type: T.PAYOUT_ACCOUNT_CHANGED }), screen: 'Earnings' }, // vendor app push allowlist
   }),
 
   [T.PAYOUT_SETTLED]: (v = {}) => {

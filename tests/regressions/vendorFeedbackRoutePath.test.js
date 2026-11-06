@@ -41,7 +41,7 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
 // via a preceding app.use() is not enough, the real middleware would still
 // run and reject the unauthenticated request with 401.
 jest.unstable_mockModule('../../middleware/authMiddleware.js', () => ({
-  protect: (req, res, next) => { req.user = { id: 501 }; next(); },
+  protect: (req, res, next) => { req.user = { id: 501, role: 'vendor' }; next(); },
 }));
 
 const express = (await import('express')).default;

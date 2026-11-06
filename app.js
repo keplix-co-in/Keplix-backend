@@ -111,11 +111,28 @@ const __dirname = path.dirname(__filename);
 // --- BODY PARSER ---
 // verify callback stashes the raw bytes so webhook signature checks (e.g. Razorpay)
 // can HMAC the exact payload instead of a re-serialized JSON.stringify(req.body)
-app.use(express.json({
-  limit: '50mb',
+//
+// Security O-002: the limit was 50mb on every route, so any anonymous client
+// could make this single instance buffer and JSON.parse 50 MB per request.
+// No JSON endpoint needs more than a few KB -- images and documents arrive as
+// multipart through multer (middleware/uploadMiddleware.js), never as base64
+// JSON -- so 100kb is generous. The rawBody copy (another full buffer per
+// request) is only kept on the webhook routes that actually verify a
+// signature over it (util/webhookVerification.js).
+export const JSON_BODY_LIMIT = '100kb';
+export const RAW_BODY_PATHS = new Set([
+  '/service_api/payments/razorpay-webhook',
+  '/service_api/payments/razorpay-webhook/',
+]);
+const jsonWithRawBody = express.json({
+  limit: '1mb', // Razorpay webhook payloads are small; headroom for batched events.
   verify: (req, res, buf) => { req.rawBody = buf; }
-}));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+});
+const jsonDefault = express.json({ limit: JSON_BODY_LIMIT });
+app.use((req, res, next) =>
+  (RAW_BODY_PATHS.has(req.path) ? jsonWithRawBody : jsonDefault)(req, res, next)
+);
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 
 // --- MIDDLEWARE ---
 app.use(loggerMiddleware);
@@ -124,8 +141,23 @@ app.use(helmet.frameguard({ action: "deny" }));
 app.use(compression());
 
 // CSP
-app.use(
-  helmet.contentSecurityPolicy({
+//
+// Security O-003: this service only ever returns JSON (and /media files), so
+// nothing it serves should be able to load scripts, styles or frames, or be
+// framed itself. The old policy allowed 'unsafe-inline' script/style on every
+// response -- needed only by the Swagger UI page. Everything now gets
+// default-src 'none' + frame-ancestors 'none'; the looser policy is kept only
+// for /api-docs (itself not mounted in production unless EXPOSE_API_DOCS).
+const strictCsp = helmet.contentSecurityPolicy({
+  useDefaults: false,
+  directives: {
+    defaultSrc: ["'none'"],
+    frameAncestors: ["'none'"],
+    baseUri: ["'none'"],
+    formAction: ["'none'"],
+  },
+});
+const docsCsp = helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
@@ -151,7 +183,9 @@ app.use(
       formAction: ["'self'"],
       upgradeInsecureRequests: [],
     },
-  })
+});
+app.use((req, res, next) =>
+  (req.path === '/api-docs' || req.path.startsWith('/api-docs/') ? docsCsp : strictCsp)(req, res, next)
 );
 
 // CORS
@@ -183,12 +217,13 @@ app.get('/health', async (req, res) => {
     healthy = false;
   }
 
+  // Security A-013: unauthenticated, so it returns only the verdict. Uptime
+  // (reveals restarts/deploys), NODE_ENV and per-dependency status were free
+  // reconnaissance. Cloud Run only reads the status code. The per-check
+  // detail is still logged for operators.
+  if (!healthy) Logger.warn(`[Health] unhealthy: ${JSON.stringify(checks)}`);
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'healthy' : 'unhealthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: env.NODE_ENV,
-    checks
   });
 });
 

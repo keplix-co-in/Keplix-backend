@@ -1,4 +1,6 @@
-﻿import prisma from "../../util/prisma.js";
+﻿import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
+import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
+import prisma from "../../util/prisma.js";
 import { getIO } from '../../socket.js';
 import { createNotification } from "../../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
@@ -90,7 +92,8 @@ export const getVendorConversations = async (req, res) => {
                             // Prisma `include` returns the customer's full User row,
                             // password hash included -- that's a different account's
                             // credential exposed to whichever vendor they messaged.
-                            user: { include: { userProfile: true } }, // Customer details
+                            // Security A-022: customer fields only -- never the password hash, push tokens or ID-proof images.
+                            user: { select: SAFE_CUSTOMER_SELECT },
                             // Was `vendor: { include: { vendorProfile: true } } }`.
                             // Scoped to the caller's own services above, so this is
                             // a vendor viewing their own bank details -- lower risk
@@ -107,7 +110,7 @@ export const getVendorConversations = async (req, res) => {
                 },
                 orderBy: { updatedAt: 'desc' },
                 skip: Number(skip),
-                take: Number(limit)
+                take: clampLimit(limit)
             }),
             prisma.conversation.count({ where })
         ]);
@@ -117,7 +120,7 @@ export const getVendorConversations = async (req, res) => {
             pagination: {
                 total,
                 page: Number(page),
-                limit: Number(limit),
+                limit: clampLimit(limit),
                 totalPages: Math.ceil(total / limit)
             }
         });
@@ -164,7 +167,7 @@ export const getVendorMessages = async (req, res) => {
         const messages = await prisma.message.findMany({
             where,
             orderBy: { sent_at: 'desc' },
-            take: Number(limit),
+            take: clampLimit(limit),
             include: {
                 sender: {
                     select: {

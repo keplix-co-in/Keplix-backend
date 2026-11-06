@@ -42,6 +42,7 @@ const mockPrisma = {
     findUnique: async ({ where }) => (db.payment && db.payment.id === where.id ? paymentView(db.payment) : null),
     update: async ({ data }) => paymentView(applyData(db.payment, data)),
   },
+  vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) }, // A-023 hold check
   refund: {
     findFirst: async ({ where }) => db.refunds.find((r) => statusIn(where, r)) || null,
     findMany: async ({ where }) => db.refunds.filter((r) => statusIn(where, r)).map((r) => ({ ...r, amount: decimal(r.amount) })),

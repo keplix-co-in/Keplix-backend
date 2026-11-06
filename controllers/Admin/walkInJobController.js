@@ -1,10 +1,11 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from '../../util/prisma.js';
 
 // @desc    List walk-in jobs across all garages
 // @route   GET /admin/walk-in-jobs
 export const listWalkInJobsAdmin = async (req, res) => {
   const { status, vendorId, from, to, page = 1, limit = 20 } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  const skip = (Number(page) - 1) * clampLimit(limit);
 
   try {
     const where = {
@@ -30,12 +31,12 @@ export const listWalkInJobsAdmin = async (req, res) => {
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: Number(limit),
+        take: clampLimit(limit),
       }),
       prisma.walkInJob.count({ where }),
     ]);
 
-    return res.json({ data, page: Number(page), limit: Number(limit), total });
+    return res.json({ data, page: Number(page), limit: clampLimit(limit), total });
   } catch (error) {
     return res.status(500).json({ message: 'Server Error' });
   }

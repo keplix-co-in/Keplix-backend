@@ -4,6 +4,8 @@ import {
   authUser,
   getUserProfile,
   updateUserProfileAuth,
+  requestEmailChange,
+  verifyEmailChange,
   refreshToken,
   logoutUser,
   forgotPassword,
@@ -25,7 +27,8 @@ import {
 import { protect } from '../middleware/authMiddleware.js';
 // Mounted AFTER protect on the routes below, so the limiter keys on the user id
 // rather than the shared carrier NAT address. See app.js for the full reasoning.
-import { authedReadLimiter, authLimiter } from '../middleware/rateLimitMiddleware.js';
+// Security O-001: otpVerifyLimiter adds a per-email/phone budget on every OTP verify route.
+import { authedReadLimiter, authLimiter, otpVerifyLimiter, stepUpOtpLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema, updatePasswordSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
@@ -186,7 +189,7 @@ router.post('/send-password-reset-otp', authLimiter, validateRequest(forgotPassw
  *       200:
  *         description: Password reset successfully
  */
-router.post('/reset-password-otp', authLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
+router.post('/reset-password-otp', authLimiter, otpVerifyLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
 
 /**
  * @swagger
@@ -294,7 +297,7 @@ router.post('/send-phone-otp', authLimiter, validateRequest(requestOtpSchema), s
 // unset, so behind Cloud Run every request resolved to the same proxy address
 // and the three attempts were shared by EVERY user of both apps — locking the
 // whole platform out of login for two hours at a time.
-router.post('/verify-phone-otp', authLimiter, validateRequest(verifyOtpSchema), verifyPhoneOTP);
+router.post('/verify-phone-otp', authLimiter, otpVerifyLimiter, validateRequest(verifyOtpSchema), verifyPhoneOTP);
 
 /**
  * @swagger
@@ -339,7 +342,7 @@ router.post('/send-email-otp', authLimiter, validateRequest(requestOtpSchema), s
  *         description: OTP verified
  */
 // See verify-phone-otp for the limiter reasoning.
-router.post('/verify-email-otp', authLimiter, validateRequest(verifyOtpSchema), verifyEmailOTP);
+router.post('/verify-email-otp', authLimiter, otpVerifyLimiter, validateRequest(verifyOtpSchema), verifyEmailOTP);
 
 // Protected Routes
 /**
@@ -379,6 +382,10 @@ router.post('/verify-email-otp', authLimiter, validateRequest(verifyOtpSchema), 
 // that IP out of logging in.
 router.get('/profile', protect, authedReadLimiter, getUserProfile);
 router.put('/profile', protect, authedReadLimiter, uploadProfileFields, updateUserProfileAuth);
+// Security A-005: two-step email change (OTP to the new address). PUT /profile
+// no longer writes the email.
+router.post('/email-change/request', protect, stepUpOtpLimiter, requestEmailChange);
+router.post('/email-change/verify', protect, otpVerifyLimiter, verifyEmailChange);
 
 /**
  * @swagger

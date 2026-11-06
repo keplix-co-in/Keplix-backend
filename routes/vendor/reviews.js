@@ -1,5 +1,9 @@
 import express from 'express';
 import { getVendorReviews, replyToReview } from '../../controllers/vendor/reviewController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -50,7 +54,7 @@ const router = express.Router();
  *       200:
  *         description: Paginated reviews. `filters` (dropdown options) is included on page 1 only.
  */
-router.get('/reviews', protect, getVendorReviews);
+router.get('/reviews', protect, vendorOnly, getVendorReviews);
 
 /**
  * @swagger
@@ -82,6 +86,6 @@ router.get('/reviews', protect, getVendorReviews);
  *       404:
  *         description: Review not found or not owned by this vendor
  */
-router.post('/reviews/:id/reply', protect, replyToReview);
+router.post('/reviews/:id/reply', protect, vendorOnly, replyToReview);
 
 export default router;

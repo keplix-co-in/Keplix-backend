@@ -1,3 +1,4 @@
+import { acceptOwnCloudinaryUrl } from '../../util/cloudinary.js';
 import prisma from '../../util/prisma.js';
 import { isOfferLive } from '../../util/offers.js';
 
@@ -54,7 +55,8 @@ export const createOfferSlot = async (req, res) => {
         headline,
         body,
         badge_text,
-        image_url,
+        // Security A-014: body image URLs must be our own Cloudinary assets.
+        image_url: acceptOwnCloudinaryUrl(image_url) ?? null,
         is_active: is_active ?? false,
         starts_at,
         ends_at,
@@ -118,7 +120,8 @@ export const upsertOfferSlotByKey = async (req, res) => {
       ...(headline !== undefined ? { headline } : {}),
       ...(body !== undefined ? { body } : {}),
       ...(badge_text !== undefined ? { badge_text } : {}),
-      ...(image_url !== undefined ? { image_url } : {}),
+      // Security A-014: body image URLs must be our own Cloudinary assets.
+      ...(acceptOwnCloudinaryUrl(image_url) !== undefined ? { image_url: acceptOwnCloudinaryUrl(image_url) } : {}),
       ...(is_active !== undefined ? { is_active } : {}),
       ...(starts_at !== undefined ? { starts_at } : {}),
       ...(ends_at !== undefined ? { ends_at } : {}),

@@ -1,3 +1,4 @@
+import { signPrivateUrl } from "../util/cloudinary.js";
 import prisma from "../util/prisma.js";
 
 /**
@@ -70,7 +71,10 @@ export const getUserDataExport = async (userId) => {
 
   return {
     exportedAt: new Date().toISOString(),
-    account: user,
+    // Security A-015: private ID proofs exported as short-lived signed URLs.
+    account: user.userProfile
+      ? { ...user, userProfile: { ...user.userProfile, id_proof_front: signPrivateUrl(user.userProfile.id_proof_front), id_proof_back: signPrivateUrl(user.userProfile.id_proof_back) } }
+      : user,
     phoneIdentity,
     bookings,
     payments,

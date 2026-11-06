@@ -1,5 +1,9 @@
 import express from 'express';
 import { getVendorFeedback, createVendorFeedback } from '../../controllers/vendor/feedbackController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createFeedbackSchema } from '../../validators/user/feedbackValidators.js';
@@ -32,7 +36,7 @@ const router = express.Router();
  *       200:
  *         description: List of feedback
  */
-router.get('/feedback', protect, getVendorFeedback);
+router.get('/feedback', protect, vendorOnly, getVendorFeedback);
 
 /**
  * @swagger
@@ -70,6 +74,6 @@ router.get('/feedback', protect, getVendorFeedback);
 // Prisma validation error (500 "Server Error") instead of a clean 400. The
 // validator here matches what the controller actually requires, same as the
 // customer-side /interactions/api/feedback/create.
-router.post('/feedback/create', protect, validateRequest(createFeedbackSchema), createVendorFeedback);
+router.post('/feedback/create', protect, vendorOnly, validateRequest(createFeedbackSchema), createVendorFeedback);
 
 export default router;

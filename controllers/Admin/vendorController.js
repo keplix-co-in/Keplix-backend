@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from '../../util/prisma.js';
 import Logger from "../../util/logger.js";
 
@@ -147,7 +148,7 @@ export const getVendors = async (req, res) => {
       },
 
       skip: Number(skip),
-      take: Number(limit)
+      take: clampLimit(limit)
     });
 
     // Earnings per vendor: sum of Payment.vendorAmount for payouts that have

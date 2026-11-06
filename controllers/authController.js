@@ -5,7 +5,13 @@ import { createRequire } from "module";
 import admin from "../util/firebase.js"; // Use shared instance
 import crypto from "crypto";
 import { resend } from "../util/resend.js";
-import { generateOTP } from "../util/otp.js";
+import {
+  generateOTP,
+  hashOTP,
+  consumeOtpAttempt,
+  claimOtp,
+  OTP_TOO_MANY_ATTEMPTS_MESSAGE,
+} from "../util/otp.js";
 import { otpEmailTemplate } from "../util/emailTemplate.js";
 import { getISTDate } from "../util/time.js";
 import { sendEmail, sendSMS } from "../util/communication.js";
@@ -15,6 +21,8 @@ import { OAuth2Client } from "google-auth-library";
 import { eraseUserPii } from "../services/accountErasureService.js";
 import { getUserDataExport } from "../services/accountExportService.js";
 import { isAllowedPushEndpoint } from "../util/webPush.js";
+import { disconnectUserSockets, disconnectTokenSockets } from "../util/socketSessions.js";
+import { acceptOwnCloudinaryUrl, signPrivateUrl } from "../util/cloudinary.js";
 
 const require = createRequire(import.meta.url);
 
@@ -59,6 +67,23 @@ const generateRefreshToken = (id) => {
 
 // Alias for backward-compat usage (e.g. token refresh endpoint)
 const generateToken = generateAccessToken;
+
+// Security A-007: logout used jwt.decode(), which accepts anything shaped like
+// a JWT. A forged token with exp years out became a blacklist row that never
+// expired (unbounded table growth), and a non-JWT bearer made decode() return
+// null so `decoded.exp` threw a 500. Verify the signature; ignoreExpiration
+// so an already-expired token can still be "logged out" cleanly.
+// Returns null instead of throwing.
+const verifyTokenForRevocation = (token, secret, expectedType) => {
+  if (typeof token !== "string" || !token) return null;
+  try {
+    const decoded = jwt.verify(token, secret, { ignoreExpiration: true });
+    if (!decoded || typeof decoded !== "object" || decoded.type !== expectedType) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+};
 
 // pbkdf2Sync blocked the event loop for the duration of the derivation on
 // every legacy-hash login (audit #124) -- on a single-instance deployment
@@ -294,8 +319,10 @@ export const getUserProfile = async (req, res) => {
         phone_number: user.userProfile.phone, // For frontend compatibility
         address: user.userProfile.address,
         profile_picture: user.userProfile.profile_picture,
-        id_proof_front: user.userProfile.id_proof_front,
-        id_proof_back: user.userProfile.id_proof_back,
+        // Security A-015: ID proofs are private assets; the owner gets a
+        // short-lived signed URL (legacy public URLs pass through unchanged).
+        id_proof_front: signPrivateUrl(user.userProfile.id_proof_front),
+        id_proof_back: signPrivateUrl(user.userProfile.id_proof_back),
       };
     }
 
@@ -367,7 +394,11 @@ export const logoutUser = async (req, res) => {
       return res.status(400).json({ message: "Token missing" });
     }
 
-    const decoded = jwt.decode(token);
+    // Security A-007: verified, not decoded (see verifyTokenForRevocation).
+    const decoded = verifyTokenForRevocation(token, JWT_SECRET, "access");
+    if (!decoded) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
 
     await blacklistToken(token, decoded.exp);
 
@@ -389,14 +420,22 @@ export const logoutUser = async (req, res) => {
     const { refresh } = req.body || {};
     if (refresh && typeof refresh === "string") {
       try {
-        const decodedRefresh = jwt.decode(refresh);
-        if (decodedRefresh?.exp) {
+        // Security A-007: only a genuine refresh token belonging to the same
+        // user is written to the blacklist.
+        const decodedRefresh = verifyTokenForRevocation(refresh, JWT_REFRESH_SECRET, "refresh");
+        if (decodedRefresh?.exp && decodedRefresh.id === decoded.id) {
           await blacklistToken(refresh, decodedRefresh.exp);
         }
       } catch (refreshError) {
         console.error("Logout refresh-token revocation skipped:", refreshError);
       }
     }
+
+    // Security SYS-002: an open socket survives token revocation (it only
+    // authenticates at handshake), so drop the sockets opened with this token.
+    // Review fix: only this token's sockets, not every device the user is
+    // signed in on (see util/socketSessions.js tokenRoom).
+    disconnectTokenSockets(req.app?.get?.("io"), token);
 
     res.json({ message: "Logged out successfully" });
   } catch (error) {
@@ -448,12 +487,15 @@ export const sendPasswordResetOTP = async (req, res) => {
     const expiresAt = new Date(istNow.getTime() + 10 * 60 * 1000); // 10 minutes
 
     // Delete any existing unverified reset OTPs for this email first.
+    // purpose:null scopes this to login/verify/reset codes, so it never wipes
+    // a pending email-change or payout-change code (A-005 / A-023).
     await prisma.emailOTP.deleteMany({
-      where: { email: normalizedEmail, verified: false },
+      where: { email: normalizedEmail, verified: false, purpose: null },
     });
 
+    // Security O-005: only the HMAC of the code is stored.
     const record = await prisma.emailOTP.create({
-      data: { email: normalizedEmail, otp, expiresAt, verified: false },
+      data: { email: normalizedEmail, otp: hashOTP(otp), expiresAt, verified: false },
     });
 
     try {
@@ -492,7 +534,7 @@ export const resetPasswordWithOTP = async (req, res) => {
     const normalizedOtp = String(otp).trim();
 
     const record = await prisma.emailOTP.findFirst({
-      where: { email: normalizedEmail },
+      where: { email: normalizedEmail, purpose: null },
       orderBy: { createdAt: "desc" },
     });
 
@@ -505,8 +547,14 @@ export const resetPasswordWithOTP = async (req, res) => {
     if (new Date() > record.expiresAt) {
       return res.status(400).json({ message: "Verification code has expired" });
     }
-    if (record.otp !== normalizedOtp) {
-      return res.status(400).json({ message: "Invalid verification code" });
+    // Security O-001 / O-005: hashed, constant-time, max 5 guesses per code.
+    const attempt = await consumeOtpAttempt(prisma.emailOTP, record, normalizedOtp);
+    if (!attempt.ok) {
+      return res.status(400).json(
+        attempt.locked
+          ? { message: OTP_TOO_MANY_ATTEMPTS_MESSAGE, code: "OTP_ATTEMPTS_EXCEEDED" }
+          : { message: "Invalid verification code", code: "OTP_INVALID" }
+      );
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -514,18 +562,18 @@ export const resetPasswordWithOTP = async (req, res) => {
       return res.status(400).json({ message: "Invalid request" });
     }
 
+    // Claim the code atomically before acting so two concurrent resets with
+    // the same code cannot both succeed (check-then-act race).
+    if (!(await claimOtp(prisma.emailOTP, record.id))) {
+      return res.status(400).json({ message: "This verification code has already been used" });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { password: hashedPassword, passwordChangedAt: new Date() },
-      }),
-      prisma.emailOTP.update({
-        where: { id: record.id },
-        data: { verified: true },
-      }),
-    ]);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, passwordChangedAt: new Date() },
+    });
 
     return res.json({ success: true, message: "Password reset successfully" });
   } catch (error) {
@@ -554,17 +602,20 @@ export const sendPhoneOTP = async (req, res) => {
   try {
     const otp = generateOTP();
 
-    // Save OTP in database
+    // Save OTP in database. Security O-005: only the HMAC is stored; a new
+    // code also resets the O-001 attempt counter.
+    const otpHash = hashOTP(otp);
     await prisma.phoneOTP.upsert({
       where: { phone_number },
       update: {
-        otp,
+        otp: otpHash,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         verified: false,
+        failedAttempts: 0,
       },
       create: {
         phone_number,
-        otp,
+        otp: otpHash,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         verified: false,
       },
@@ -625,15 +676,21 @@ export const verifyPhoneOTP = async (req, res) => {
       return res.status(400).json({ error: "OTP has expired" });
     }
 
-    if (otpRecord.otp !== otp) {
-      return res.status(400).json({ error: "Invalid OTP" });
+    // Security O-001 / O-005: hashed, constant-time, max 5 guesses per code.
+    const attempt = await consumeOtpAttempt(prisma.phoneOTP, otpRecord, String(otp).trim());
+    if (!attempt.ok) {
+      return res.status(400).json(
+        attempt.locked
+          ? { error: OTP_TOO_MANY_ATTEMPTS_MESSAGE, code: "OTP_ATTEMPTS_EXCEEDED" }
+          : { error: "Invalid OTP", code: "OTP_INVALID" }
+      );
     }
 
     // Mark as verified
-    await prisma.phoneOTP.update({
-      where: { phone_number },
-      data: { verified: true },
-    });
+    // Atomic single-use: only one concurrent request can flip verified.
+    if (!(await claimOtp(prisma.phoneOTP, otpRecord.id))) {
+      return res.status(400).json({ error: "OTP already verified" });
+    }
 
     // Also mark the user as verified.
     // NOTE: phone_number is now normalised (+91XXXXXXXXXX), but
@@ -686,10 +743,9 @@ export const verifyPhoneOTP = async (req, res) => {
 
     res.json({ status: true, message: "Phone OTP verified successfully" });
   } catch (error) {
+    // Security A-008: error.message is logged, never returned to the client.
     console.error("verifyPhoneOTP error:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to verify OTP", details: error.message });
+    res.status(500).json({ error: "Failed to verify OTP" });
   }
 };
 
@@ -707,19 +763,21 @@ export const sendEmailOTP = async (req, res) => {
     const istNow = getISTDate();
     const expiresAt = new Date(istNow.getTime() + 2 * 60 * 1000); // 2 minutes
 
-    // Delete any existing unverified OTPs for this email first
+    // Delete any existing unverified OTPs for this email first (login/verify
+    // codes only, purpose:null -- see sendPasswordResetOTP).
     await prisma.emailOTP.deleteMany({
       where: {
         email: normalizedEmail,
         verified: false,
+        purpose: null,
       },
     });
 
-    // Create NEW OTP record
+    // Create NEW OTP record. Security O-005: store the HMAC, not the code.
     const record = await prisma.emailOTP.create({
       data: {
         email: normalizedEmail,
-        otp,
+        otp: hashOTP(otp),
         expiresAt,
         verified: false,
       },
@@ -772,8 +830,11 @@ export const verifyEmailOTP = async (req, res) => {
 
     // Find the most recent OTP record for this email
     const record = await prisma.emailOTP.findFirst({
-      where: { 
-        email: normalizedEmail
+      where: {
+        email: normalizedEmail,
+        // Email-change / payout-change codes (A-005 / A-023) are never
+        // redeemable as a login code.
+        purpose: null,
       },
       orderBy: {
         createdAt: 'desc'
@@ -793,14 +854,21 @@ export const verifyEmailOTP = async (req, res) => {
       return res.status(400).json({ error: "OTP has expired" });
     }
 
-    if (record.otp !== normalizedOtp) {
-      return res.status(400).json({ error: "Invalid OTP" });
+    // Security O-001 / O-005: hashed, constant-time, max 5 guesses per code.
+    const attempt = await consumeOtpAttempt(prisma.emailOTP, record, normalizedOtp);
+    if (!attempt.ok) {
+      return res.status(400).json(
+        attempt.locked
+          ? { error: OTP_TOO_MANY_ATTEMPTS_MESSAGE, code: "OTP_ATTEMPTS_EXCEEDED" }
+          : { error: "Invalid OTP", code: "OTP_INVALID" }
+      );
     }
 
-    await prisma.emailOTP.update({
-      where: { id: record.id },
-      data: { verified: true },
-    });
+    // Atomic single-use: concurrent logins with the same code must not both
+    // get tokens. Only the request that flips verified=false->true continues.
+    if (!(await claimOtp(prisma.emailOTP, record.id))) {
+      return res.status(400).json({ error: "OTP already used" });
+    }
 
     // Mark user as verified, if one exists yet.
     //
@@ -1104,8 +1172,9 @@ export const googleLogin = async (req, res) => {
       userData.phone_number = user.userProfile.phone;
       userData.address = user.userProfile.address;
       userData.profile_picture = user.userProfile.profile_picture;
-      userData.id_proof_front = user.userProfile.id_proof_front;
-      userData.id_proof_back = user.userProfile.id_proof_back;
+      // Security A-015: signed, short-lived URLs for private ID proofs.
+      userData.id_proof_front = signPrivateUrl(user.userProfile.id_proof_front);
+      userData.id_proof_back = signPrivateUrl(user.userProfile.id_proof_back);
     }
 
     res.json({
@@ -1156,30 +1225,16 @@ export const updateUserProfileAuth = async (req, res) => {
     const uploadedIdFront = req.files?.id_proof_front?.[0]?.cloudinary?.secure_url;
     const uploadedIdBack = req.files?.id_proof_back?.[0]?.cloudinary?.secure_url;
 
-    // 1. Check if email is being changed and if it's already taken
-    if (email && email !== req.user.email) {
-      const existingUser = await prisma.user.findUnique({
-        where: { email },
-      });
-      if (existingUser) {
-        return res.status(400).json({
-          message: "Email already in use by another account",
-        });
-      }
-    }
-
-    // 2. Update User (email)
-    const userUpdateData = {};
-    if (email && email !== req.user.email) {
-      userUpdateData.email = email;
-    }
-
-    if (Object.keys(userUpdateData).length > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: userUpdateData,
-      });
-    }
+    // Security A-005: the email is the login AND the password-reset channel,
+    // so a hijacked session could swap it and take the account over for good.
+    // This endpoint no longer writes it. A changed email is ignored here and
+    // the response says `email_change_required: true`; the client must use
+    // POST /accounts/auth/email-change/request then /email-change/verify
+    // (OTP to the NEW address; the old address is told afterwards).
+    const emailChangeRequested =
+      typeof email === "string" &&
+      email.trim() !== "" &&
+      email.trim().toLowerCase() !== String(req.user.email || "").toLowerCase();
 
     // 3. Update UserProfile (name, phone, address, images)
     // Map phone_number from frontend to phone in backend if needed
@@ -1193,23 +1248,30 @@ export const updateUserProfileAuth = async (req, res) => {
     if (address !== undefined && address !== null)
       profileUpdateData.address = address;
 
-    // Use uploaded files if available, otherwise use the URLs from body
+    // Use uploaded files if available, otherwise use the URLs from body.
+    // Security A-014: a body URL is only accepted if it is one of OUR
+    // Cloudinary assets (or '' / null to clear); anything else is ignored, so
+    // a client can't point a profile at an arbitrary/tracking/malicious URL.
+    const bodyProfilePicture = acceptOwnCloudinaryUrl(profile_picture);
+    const bodyIdFront = acceptOwnCloudinaryUrl(id_proof_front);
+    const bodyIdBack = acceptOwnCloudinaryUrl(id_proof_back);
+
     if (uploadedProfilePicture) {
       profileUpdateData.profile_picture = uploadedProfilePicture;
-    } else if (profile_picture !== undefined && profile_picture !== null) {
-      profileUpdateData.profile_picture = profile_picture;
+    } else if (bodyProfilePicture !== undefined) {
+      profileUpdateData.profile_picture = bodyProfilePicture;
     }
 
     if (uploadedIdFront) {
       profileUpdateData.id_proof_front = uploadedIdFront;
-    } else if (id_proof_front !== undefined && id_proof_front !== null) {
-      profileUpdateData.id_proof_front = id_proof_front;
+    } else if (bodyIdFront !== undefined) {
+      profileUpdateData.id_proof_front = bodyIdFront;
     }
 
     if (uploadedIdBack) {
       profileUpdateData.id_proof_back = uploadedIdBack;
-    } else if (id_proof_back !== undefined && id_proof_back !== null) {
-      profileUpdateData.id_proof_back = id_proof_back;
+    } else if (bodyIdBack !== undefined) {
+      profileUpdateData.id_proof_back = bodyIdBack;
     }
 
     const profile = await prisma.userProfile.upsert({
@@ -1220,9 +1282,9 @@ export const updateUserProfileAuth = async (req, res) => {
         name: name || "User",
         phone: finalPhone || null,
         address: address || null,
-        profile_picture: uploadedProfilePicture || profile_picture || null,
-        id_proof_front: uploadedIdFront || id_proof_front || null,
-        id_proof_back: uploadedIdBack || id_proof_back || null,
+        profile_picture: uploadedProfilePicture || bodyProfilePicture || null,
+        id_proof_front: uploadedIdFront || bodyIdFront || null,
+        id_proof_back: uploadedIdBack || bodyIdBack || null,
       },
     });
 
@@ -1251,30 +1313,142 @@ export const updateUserProfileAuth = async (req, res) => {
         phone_number: updatedUser.userProfile.phone,
         address: updatedUser.userProfile.address,
         profile_picture: updatedUser.userProfile.profile_picture,
-        id_proof_front: updatedUser.userProfile.id_proof_front,
-        id_proof_back: updatedUser.userProfile.id_proof_back,
+        id_proof_front: signPrivateUrl(updatedUser.userProfile.id_proof_front),
+        id_proof_back: signPrivateUrl(updatedUser.userProfile.id_proof_back),
       };
     }
 
+    // debug_upload (request body keys, file names) was removed: it echoed
+    // request internals back to every client.
     res.json({
       id: updatedUser.id,
       email: updatedUser.email,
       roles: updatedUser.role,
       ...profileData,
-      debug_upload: {
-        files_received: req.files ? Object.keys(req.files) : "No req.files",
-        profile_picture_file: !!req.files?.profile_picture,
-        body_keys: Object.keys(req.body),
-      },
+      ...(emailChangeRequested ? { email_change_required: true } : {}),
     });
   } catch (error) {
     console.error("updateUserProfileAuth error:", error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
     res.status(500).json({
       message: "Failed to update profile",
-      error: error.message,
     });
   }
 };
+// ---------------------------------------------------------------------------
+// Security A-005: email change is a two-step, OTP-verified flow.
+//
+//   POST /accounts/auth/email-change/request  { new_email }
+//     -> 200 { success:true, message }  code emailed to new_email (10 min)
+//     -> 400 { message }                invalid / same as current / in use
+//   POST /accounts/auth/email-change/verify   { new_email, otp }
+//     -> 200 { success:true, email }    email swapped, old address notified
+//     -> 400 { code:'OTP_INVALID' | 'OTP_ATTEMPTS_EXCEEDED', message }
+//     -> 409 { message }                taken in the meantime
+// ---------------------------------------------------------------------------
+const EMAIL_CHANGE_PURPOSE = "email_change";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const requestEmailChange = async (req, res) => {
+  try {
+    const newEmail = String(req.body?.new_email || "").trim().toLowerCase();
+    if (!EMAIL_RE.test(newEmail) || newEmail.length > 254) {
+      return res.status(400).json({ success: false, message: "Enter a valid email address" });
+    }
+    if (newEmail === String(req.user.email || "").toLowerCase()) {
+      return res.status(400).json({ success: false, message: "That is already your email" });
+    }
+    const existing = await prisma.user.findUnique({ where: { email: newEmail } });
+    if (existing) {
+      // Same wording the profile endpoint has always used for this case.
+      return res.status(400).json({ success: false, message: "Email already in use by another account" });
+    }
+
+    const otp = generateOTP();
+    await prisma.emailOTP.deleteMany({ where: { userId: req.user.id, purpose: EMAIL_CHANGE_PURPOSE } });
+    await prisma.emailOTP.create({
+      data: {
+        email: newEmail,
+        otp: hashOTP(otp),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        verified: false,
+        purpose: EMAIL_CHANGE_PURPOSE,
+        userId: req.user.id,
+      },
+    });
+    await sendEmail(
+      newEmail,
+      "Confirm your new Keplix email",
+      `Your code to confirm this email for your Keplix account is ${otp}. It expires in 10 minutes.`,
+      otpEmailTemplate({ otp })
+    );
+    return res.json({ success: true, message: "A verification code has been sent to the new email." });
+  } catch (error) {
+    console.error("requestEmailChange error:", error);
+    return res.status(500).json({ success: false, message: "Failed to start email change" });
+  }
+};
+
+export const verifyEmailChange = async (req, res) => {
+  try {
+    const newEmail = String(req.body?.new_email || "").trim().toLowerCase();
+    const otp = String(req.body?.otp || "").trim();
+    const invalid = { success: false, code: "OTP_INVALID", message: "Invalid or expired code" };
+    if (!newEmail || !otp) return res.status(400).json(invalid);
+
+    const record = await prisma.emailOTP.findFirst({
+      where: {
+        userId: req.user.id,
+        purpose: EMAIL_CHANGE_PURPOSE,
+        email: newEmail,
+        verified: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!record) return res.status(400).json(invalid);
+
+    const result = await consumeOtpAttempt(prisma.emailOTP, record, otp);
+    if (!result.ok) {
+      return res.status(400).json(
+        result.locked
+          ? { success: false, code: "OTP_ATTEMPTS_EXCEEDED", message: OTP_TOO_MANY_ATTEMPTS_MESSAGE }
+          : invalid
+      );
+    }
+    // Atomic single-use so two concurrent requests can't both redeem the code.
+    if (!(await claimOtp(prisma.emailOTP, record.id))) return res.status(400).json(invalid);
+
+    const oldEmail = req.user.email;
+    try {
+      await prisma.user.update({ where: { id: req.user.id }, data: { email: newEmail } });
+    } catch (err) {
+      if (err?.code === "P2002") {
+        return res.status(409).json({ success: false, message: "Email already in use by another account" });
+      }
+      throw err;
+    }
+    await prisma.emailOTP.deleteMany({ where: { userId: req.user.id, purpose: EMAIL_CHANGE_PURPOSE } });
+
+    // Tell the OLD address, so a takeover attempt is visible to the owner.
+    if (oldEmail) {
+      try {
+        await sendEmail(
+          oldEmail,
+          "Your Keplix email was changed",
+          "The email on your Keplix account was just changed. If this was not you, contact Keplix support immediately."
+        );
+      } catch (e) {
+        console.error("verifyEmailChange: old-address notice failed:", e?.message);
+      }
+    }
+    return res.json({ success: true, email: newEmail });
+  } catch (error) {
+    console.error("verifyEmailChange error:", error);
+    return res.status(500).json({ success: false, message: "Failed to change email" });
+  }
+};
+
 // Update push token for logged in user
 // @desc    Change password for the currently authenticated user, verifying
 //          the current password server-side before allowing the change.
@@ -1313,11 +1487,17 @@ export const changePassword = async (req, res) => {
     // `protect` and the refresh-token flow via passwordChangedAt (audit #175).
     const token = req.headers.authorization?.split(" ")[1];
     if (token) {
-      const decoded = jwt.decode(token);
+      // Security A-007: `protect` already verified this token; re-verify
+      // rather than decode so this path cannot write an unverified row.
+      const decoded = verifyTokenForRevocation(token, JWT_SECRET, "access");
       if (decoded?.exp) {
         await blacklistToken(token, decoded.exp);
       }
     }
+
+    // Security SYS-002: every token for this user is now dead, so live
+    // sockets opened with them must go too.
+    disconnectUserSockets(req.app?.get?.("io"), user.id);
 
     return res.json({ message: "Password changed successfully" });
   } catch (error) {
@@ -1405,7 +1585,8 @@ export const updatePushToken = async (req, res) => {
     res.json({ success: true, message: 'Push token updated' });
   } catch (error) {
     console.error('âŒ Update push token error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, error: 'Failed to update push token' });
   }
 };
 // ======================
@@ -1426,7 +1607,7 @@ export const updatePushToken = async (req, res) => {
 // @route   DELETE /accounts/auth/account
 export const deleteAccount = async (req, res) => {
   try {
-    const result = await eraseUserPii(req.user.id);
+    const result = await eraseUserPii(req.user.id, { io: req.app?.get?.("io") });
     res.json({
       message: "Account deactivated and personal data erased.",
       erasure: result,

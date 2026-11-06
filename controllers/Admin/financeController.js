@@ -202,7 +202,8 @@ export const settlePayout = async (req, res) => {
     if (error instanceof PayoutError) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
-    res.status(500).json({ success: false, message: error.message || "Failed to settle payout entirely" });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: "Failed to settle payout entirely" });
   }
 };
 
@@ -253,7 +254,8 @@ export const refundPayment = async (req, res) => {
     if (error instanceof RefundError) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
-    res.status(500).json({ success: false, message: error.message || "Refund failed" });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: "Refund failed" });
   }
 };
 

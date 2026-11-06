@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from "../../util/prisma.js";
 import Logger from "../../util/logger.js";
 import { toCanonicalTime } from "../../util/slots.js";
@@ -199,7 +200,7 @@ export const getBookings = async (req, res) => {
       },
 
       skip: Number(skip),
-      take: Number(limit)
+      take: clampLimit(limit)
     });
 
     // 🎯 RESPONSE FORMAT

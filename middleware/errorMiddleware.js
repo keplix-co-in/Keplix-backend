@@ -20,6 +20,12 @@ export const errorHandler = (err, req, res, next) => {
         statusCode = err.statusCode;
     }
 
+    // Security A-016 / O-002: an upload over the multer limits (too many
+    // files/fields, too large) is the client's fault, not a 500.
+    if (err.name === 'MulterError') {
+        statusCode = err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT' ? 413 : 400;
+    }
+
     res.status(statusCode);
 
     // Map status codes to error string codes

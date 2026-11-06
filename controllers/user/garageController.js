@@ -1,6 +1,11 @@
 import prisma from '../../util/prisma.js';
 import Logger from '../../util/logger.js';
-import { generateOTP } from '../../util/otp.js';
+import {
+  generateOTP,
+  hashOTP,
+  consumeOtpAttempt,
+  OTP_TOO_MANY_ATTEMPTS_MESSAGE,
+} from '../../util/otp.js';
 import { sendSMS } from '../../util/communication.js';
 import { normalizeRegistration } from '../../util/vehicle.js';
 
@@ -426,10 +431,12 @@ export const claimRequest = async (req, res) => {
     }
 
     const otp = generateOTP();
+    // Security O-005: store only the HMAC; a new code resets the O-001 counter.
+    const otpHash = hashOTP(otp);
     await prisma.phoneOTP.upsert({
       where: { phone_number: phone },
-      update: { otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000), verified: false },
-      create: { phone_number: phone, otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000), verified: false },
+      update: { otp: otpHash, expiresAt: new Date(Date.now() + 10 * 60 * 1000), verified: false, failedAttempts: 0 },
+      create: { phone_number: phone, otp: otpHash, expiresAt: new Date(Date.now() + 10 * 60 * 1000), verified: false },
     });
 
     await sendSMS(phone, `Your Keplix My Garage verification code is: ${otp}. Valid for 10 minutes.`);
@@ -450,8 +457,19 @@ export const claimVerify = async (req, res) => {
   try {
     const record = await prisma.phoneOTP.findUnique({ where: { phone_number: phone } });
     if (!record) return res.status(400).json({ message: 'Request a code first.' });
+    // Security A-003: a code that was already redeemed (here or through
+    // /verify-phone-otp, which shares this row) cannot be replayed to claim.
+    if (record.verified) return res.status(400).json({ message: 'This code has already been used. Request a new code.' });
     if (new Date() > record.expiresAt) return res.status(400).json({ message: 'Code has expired.' });
-    if (record.otp !== otp) return res.status(400).json({ message: 'Incorrect code.' });
+    // Security A-003 / O-001 / O-005: hashed constant-time compare, max 5 guesses.
+    const attempt = await consumeOtpAttempt(prisma.phoneOTP, record, otp);
+    if (!attempt.ok) {
+      return res.status(400).json(
+        attempt.locked
+          ? { message: OTP_TOO_MANY_ATTEMPTS_MESSAGE, code: 'OTP_ATTEMPTS_EXCEEDED' }
+          : { message: 'Incorrect code.', code: 'OTP_INVALID' }
+      );
+    }
 
     const existingIdentity = await prisma.phoneIdentity.findUnique({ where: { phone_e164: phone } });
     if (existingIdentity && existingIdentity.userId && existingIdentity.userId !== userId) {

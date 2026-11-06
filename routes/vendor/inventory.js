@@ -1,5 +1,9 @@
 import express from 'express';
 import { getInventory, createInventory, updateInventory } from '../../controllers/vendor/inventoryController.js';
+// Security A-020 / SYS-003: every route here is vendor-only (per route, not
+// router.use, because several vendor routers share the /service_api prefix
+// with user routers). requireApprovedVendor gates money/job actions only.
+import { vendorOnly } from '../../middleware/roleMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { createInventorySchema, updateInventorySchema } from '../../validators/vendor/inventoryValidators.js';
@@ -24,7 +28,7 @@ const router = express.Router();
  *       200:
  *         description: Vendor inventory list
  */
-router.get('/vendor/:vendorId/inventory', protect, getInventory);
+router.get('/vendor/:vendorId/inventory', protect, vendorOnly, getInventory);
 
 /**
  * @swagger
@@ -58,7 +62,7 @@ router.get('/vendor/:vendorId/inventory', protect, getInventory);
  *       201:
  *         description: Inventory item created successfully
  */
-router.post('/vendor/:vendorId/inventory/create', protect, validateRequest(createInventorySchema), createInventory);
+router.post('/vendor/:vendorId/inventory/create', protect, vendorOnly, validateRequest(createInventorySchema), createInventory);
 
 /**
  * @swagger
@@ -93,9 +97,9 @@ router.post('/vendor/:vendorId/inventory/create', protect, validateRequest(creat
  *       200:
  *         description: Inventory item updated successfully
  */
-router.put('/vendor/:vendorId/inventory/update/:inventoryId', protect, validateRequest(updateInventorySchema), updateInventory);
+router.put('/vendor/:vendorId/inventory/update/:inventoryId', protect, vendorOnly, validateRequest(updateInventorySchema), updateInventory);
 
 // Aliases
-router.get('/vendor/:vendorId/inventory/', protect, getInventory);
+router.get('/vendor/:vendorId/inventory/', protect, vendorOnly, getInventory);
 
 export default router;

@@ -11,6 +11,7 @@ const mockPrisma = {
   payoutSettlement: { upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
   // The worker re-checks for an open refund just before sending money.
   refund: { findFirst: jest.fn() },
+  vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) }, // A-023 hold check
 };
 const mockInitiate = jest.fn();
 const mockFetchPayout = jest.fn();

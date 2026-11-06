@@ -1,15 +1,34 @@
 import multer from "multer";
 import crypto from "crypto";
 import { fileTypeFromBuffer } from "file-type";
-import cloudinary from "../util/cloudinary.js";
+import cloudinary, { PRIVATE_UPLOAD_FIELDS } from "../util/cloudinary.js";
 import streamifier from "streamifier";
 
 // memory storage
 const storage = multer.memoryStorage();
 
+// Security A-016: fileSize alone bounded each file but not how many arrived.
+// uploadAny (multer.any()) accepts any field name, so one request could carry
+// hundreds of 20 MB files -- all buffered in memory on a single instance, and
+// each one streamed to Cloudinary. Cap files and non-file fields too.
+// 20 files covers the largest real form (health sheets: one photo per
+// component, admin-configurable but single digits today; booking updates
+// allow 10 images).
+export const UPLOAD_LIMITS = {
+  fileSize: 20 * 1024 * 1024,
+  // Review fix: was 20. VehicleInspection.jsx (vendor app) allows 2 photos
+  // per checklist item and every active component (admin-configurable) plus
+  // each walk-in service is an item, so 10+ items already exceeded 20 and the
+  // whole health sheet -- which gates job completion -- failed with
+  // LIMIT_FILE_COUNT. 40 = 20 items x 2 photos; still bounded.
+  files: 40,
+  fields: 100,
+  fieldSize: 1024 * 1024,
+};
+
 const multerUpload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: UPLOAD_LIMITS,
 });
 
 const ALLOWED_TYPES = [
@@ -42,6 +61,12 @@ const processFile = async (file, fieldName) => {
         // at a predictable public delivery URL. crypto.randomUUID() is not
         // retroactive for anything already uploaded under the old scheme.
         public_id: `${fieldName}-${crypto.randomUUID()}`,
+        // Security A-015: identity/KYC documents are uploaded as
+        // 'authenticated' assets, which Cloudinary will not serve without a
+        // signature. Readers get a short-lived signed link built at response
+        // time (util/cloudinary.js signPrivateUrl). Files uploaded before this
+        // change stay public; only new uploads are private.
+        ...(PRIVATE_UPLOAD_FIELDS.has(fieldName) ? { type: "authenticated" } : {}),
       },
       (error, result) => {
         if (error) return reject(error);

@@ -1,6 +1,6 @@
 import prisma from "../util/prisma.js";
 import { addPayoutJob } from "../queues/payoutQueue.js";
-import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES } from "../util/payoutRules.js";
+import { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES, PAYOUT_BLOCKING_STATUSES, payoutAccountHoldReason } from "../util/payoutRules.js";
 
 export { PAYOUT_READY_BOOKING_STATUSES, PAYOUT_DEAD_BOOKING_STATUSES };
 
@@ -132,6 +132,16 @@ export const claimAndQueuePayout = async (paymentId) => {
 
       const vId = p.booking?.service?.vendorId;
       if (!vId) return { error: "Vendor not found for booking", status: 400 };
+
+      // Security A-023: refuse while the vendor's payout account changed in
+      // the last 24h. Nothing is claimed, so the payment stays "pending" and
+      // the admin can settle it once the hold ends.
+      const vp = await tx.vendorProfile.findUnique({
+        where: { userId: vId },
+        select: { payoutAccountChangedAt: true },
+      });
+      const hold = payoutAccountHoldReason(vp?.payoutAccountChangedAt);
+      if (hold) return { error: hold, status: 409 };
 
       // Lock the row by marking it "processing" so concurrent settle
       // requests for the same payment can't both pass the checks above.

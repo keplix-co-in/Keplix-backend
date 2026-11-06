@@ -248,8 +248,15 @@ export const logout = async (req, res) => {
       ? req.headers.authorization.split(' ')[1]
       : null;
     if (accessToken) {
-      const decodedAccess = jwt.decode(accessToken);
-      if (decodedAccess?.exp) {
+      // Security A-007: verify (ignoring expiry) rather than decode, so a
+      // forged token cannot plant a far-future blacklist row.
+      let decodedAccess = null;
+      try {
+        decodedAccess = jwt.verify(accessToken, JWT_SECRET, { ignoreExpiration: true });
+      } catch {
+        decodedAccess = null;
+      }
+      if (decodedAccess?.type === 'admin_access' && decodedAccess.id === payload.id && decodedAccess?.exp) {
         await blacklistToken(accessToken, decodedAccess.exp);
       }
     }

@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js";
 import prisma from "../../util/prisma.js";
 import { getIO } from "../../socket.js";
 import { createNotification } from "../../util/notificationHelper.js";
@@ -91,7 +92,7 @@ export const getConversations = async (req, res) => {
     const userId = req.user.id;
     const { cursor, limit = 20 } = req.query;
 
-    const safeLimit = Math.min(Number(limit), 50);
+    const safeLimit = Math.min(clampLimit(limit, 20), 50); // Security A-026
 
     const conversations = await prisma.conversation.findMany({
       where: {
@@ -166,7 +167,7 @@ export const getMessages = async (req, res) => {
     const userId = req.user.id;
     const { limit = 50, before } = req.query; // before = message id cursor, for scrolling back
 
-    const safeLimit = Math.min(Number(limit), 100);
+    const safeLimit = clampLimit(limit, 50); // Security A-026
 
     // Ownership check: the conversation's booking must belong to the caller.
     // conversationId comes straight from the URL, so without this any

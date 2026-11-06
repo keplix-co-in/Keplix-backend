@@ -1,3 +1,4 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from "../../util/prisma.js";
 import { updateVendorRatingStats } from "../../util/ratingHelper.js";
 
@@ -46,7 +47,7 @@ export const getReviews = async (req, res) => {
         const reviews = await prisma.review.findMany({
             where,
             skip: Number(skip),
-            take: Number(limit),
+            take: clampLimit(limit),
             include: {
                 user: {
                     select: {
@@ -141,7 +142,7 @@ export const getReviews = async (req, res) => {
             pagination: {
                 total,
                 page: Number(page),
-                limit: Number(limit),
+                limit: clampLimit(limit),
                 totalPages: Math.ceil(total / limit)
             }
         });
@@ -221,7 +222,9 @@ export const createReview = async (req, res) => {
     });
   } catch (error) {
     console.error('Create Review Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    console.error(error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
@@ -278,7 +281,9 @@ export const updateReview = async (req, res) => {
     res.json({ success: true, data: updated, message: 'Review updated.' });
   } catch (error) {
     console.error('Update Review Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    console.error(error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
@@ -314,7 +319,9 @@ export const deleteReview = async (req, res) => {
     res.json({ success: true, message: 'Review deleted.' });
   } catch (error) {
     console.error('Delete Review Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error', error: error.message });
+    console.error(error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
@@ -331,7 +338,7 @@ export const getVendorReviews = async (req, res) => {
       prisma.review.findMany({
         where,
         skip: Number(skip),
-        take: Number(limit),
+        take: clampLimit(limit),
         include: {
           user: {
             select: {
@@ -352,11 +359,13 @@ export const getVendorReviews = async (req, res) => {
       pagination: {
         total,
         page: Number(page),
-        limit: Number(limit),
+        limit: clampLimit(limit),
         totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error(error);
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

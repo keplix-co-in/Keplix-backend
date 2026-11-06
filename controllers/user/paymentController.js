@@ -156,7 +156,8 @@ export const createPaymentOrder = async (req, res) => {
       const { status, body } = describeGatewayError(error);
       return res.status(status).json(body);
     }
-    res.status(500).json({ message: "Payment order failed", error: error.message });
+    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
+    res.status(500).json({ message: "Payment order failed" });
   }
 };
 

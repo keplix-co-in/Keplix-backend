@@ -1,3 +1,5 @@
+import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
+import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
 import prisma from "../../util/prisma.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
@@ -225,7 +227,10 @@ export const getUserBookings = async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where,
       skip: Number(skip),
-      take: Number(limit),
+      // Review fix: `limit` is already capped at 200 above (deliberately, for
+      // user_keplix BookingList/Profile which ask for 200). Re-clamping to 100
+      // here silently truncated those screens.
+      take: limit,
       include: {
         service: {
           include: { vendor: PUBLIC_VENDOR_INCLUDE }, // audit #65: fetch only public columns at the query level (also stripVendorSecrets'd below as belt-and-braces)
@@ -553,11 +558,8 @@ export const createBooking = async (req, res) => {
                 },
                 include: {
                     service: true,
-                    user: {
-                        include: {
-                            userProfile: true
-                        }
-                    }
+                    // Security A-022: customer fields only -- never the password hash, push tokens or ID-proof images.
+                    user: { select: SAFE_CUSTOMER_SELECT },
                 }
             });
 

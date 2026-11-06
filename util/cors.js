@@ -6,7 +6,20 @@ dotenv.config();
 // merely "whenever NODE_ENV isn't 'production'" (e.g. if it's unset).
 const isDev = process.env.NODE_ENV === "development";
 
-// Read allowed origins from env (comma separated) or default for dev
+// Security A-010 / SYS-006: the list used to end with /\.vercel\.app$/, and
+// the callback also accepted any https://<x>.vercel.app. Anyone can deploy a
+// project to *.vercel.app in a minute, and with credentials: true that let an
+// attacker's page make authenticated, readable API calls from a victim's
+// browser. Production front ends all live on keplix.co.in (covered by the
+// anchored subdomain rule below). To allow one specific extra origin (a
+// preview build, say) set ALLOWED_ORIGINS to a comma-separated list of exact
+// origins -- no wildcards.
+export const parseAllowedOriginsEnv = (raw) =>
+  String(raw || '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter((o) => /^https?:\/\/[^\s/]+$/i.test(o));
+
 const allowedOrigins = [
   'https://admin.keplix.co.in',
   'https://keplix.co.in',
@@ -14,7 +27,7 @@ const allowedOrigins = [
   'http://localhost:5173', // <-- Add this line for the Admin local dev
   'http://localhost:5174', // <-- Optional: if you run the website locally too
   'http://localhost:3000', // vendor web portal (keplix-webpage-vendors) local dev
-  /\.vercel\.app$/ // allows vercel previews
+  ...parseAllowedOriginsEnv(process.env.ALLOWED_ORIGINS),
 ];
 
 /**
@@ -40,10 +53,10 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // Always allow keplix.co.in subdomains and vercel preview domains (anchored, not substring)
+    // Always allow keplix.co.in and its subdomains (anchored, not substring).
+    // Security A-010: the *.vercel.app rule that sat here is gone (see above).
     const keplixSubdomain = /^https:\/\/([a-z0-9-]+\.)*keplix\.co\.in$/i;
-    const vercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
-    if (keplixSubdomain.test(origin) || vercelPreview.test(origin)) {
+    if (keplixSubdomain.test(origin)) {
       return callback(null, true);
     }
 

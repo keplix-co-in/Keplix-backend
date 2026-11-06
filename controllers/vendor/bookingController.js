@@ -1,4 +1,7 @@
-﻿import prisma from "../../util/prisma.js";
+﻿import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
+export const VENDOR_OWN_BOOKINGS_MAX = 1000;
+import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
+import prisma from "../../util/prisma.js";
 import { initiateVendorPayout } from "../../util/payoutHelper.js";
 import { sendPushNotification } from "../../util/communication.js";
 import { createNotification } from "../../util/notificationHelper.js";
@@ -43,7 +46,14 @@ const LEGACY_VENDOR_STATUS_ALIASES = { completed: 'service_completed' };
 export const getVendorBookings = async (req, res) => {
   try {
     const { status, date, date_from, date_to, serviceName, token, page = 1, limit = 50 } = req.query;
-    const skip = (page - 1) * limit;
+    // Review fix: this list was uncapped before A-026 and is scoped to the
+    // vendor's own bookings. Live clients ask for more than 100 in one call:
+    // keplix-frontend Earnings.jsx (limit 1000, sums earnings client-side) and
+    // HomePage.jsx (limit 200, upcoming queue). A 100 cap silently dropped
+    // bookings from both. 1000 keeps the DoS bound while matching the clients.
+    // skip uses the same clamped value so page 2+ lines up with take.
+    const pageSize = clampLimit(limit, 50, VENDOR_OWN_BOOKINGS_MAX);
+    const skip = (Math.max(1, parseInt(page, 10) || 1) - 1) * pageSize;
 
     // Find all services by this vendor first
     const vendorServices = await prisma.service.findMany({
@@ -101,7 +111,8 @@ export const getVendorBookings = async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: query,
       include: {
-        user: { include: { userProfile: true } },
+        // Security A-022: customer fields only -- never the password hash, push tokens or ID-proof images.
+        user: { select: SAFE_CUSTOMER_SELECT },
         service: true,
         conversation: true, // Include conversation to get conversationId for chat
         payment: true, // Include payment status (id, status, amount ...)
@@ -115,7 +126,7 @@ export const getVendorBookings = async (req, res) => {
       },
       orderBy: { booking_date: "desc" },
       skip: Number(skip),
-      take: Number(limit),
+      take: pageSize,
     });
 
     res.json(bookings);
@@ -150,11 +161,8 @@ export const respondToServiceRequest = async (req, res) => {
       },
       include: {
         service: true,
-        user: {
-          include: {
-            userProfile: true
-          }
-        }
+        // Security A-022: customer fields only -- never the password hash, push tokens or ID-proof images.
+        user: { select: SAFE_CUSTOMER_SELECT },
       }
     });
 
@@ -208,11 +216,8 @@ export const respondToServiceRequest = async (req, res) => {
       where: { id: bookingId },
       include: {
         service: true,
-        user: {
-          include: {
-            userProfile: true
-          }
-        }
+        // Security A-022: customer fields only -- never the password hash, push tokens or ID-proof images.
+        user: { select: SAFE_CUSTOMER_SELECT },
       }
     });
 
