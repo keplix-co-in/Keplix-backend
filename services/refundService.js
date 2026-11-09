@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolvePlatformFeeRate } from "../util/platformSettings.js";
@@ -479,15 +478,3 @@ export const recordDashboardRefund = async (entity) => {
  * @param {string} gatewayRefundId Razorpay refund id (rfnd_...)
  */
 export const fetchGatewayRefund = (gatewayRefundId) => razorpay.refunds.fetch(gatewayRefundId);
-
-/**
- * A stable idempotency key derived from the caller's intent when the client
- * doesn't supply its own (e.g. a UI that hasn't been updated to generate
- * one). NOT safe to use for automatic retries of a genuinely new refund
- * request — it collapses same-second duplicate clicks, nothing more.
- */
-export const deriveIdempotencyKey = (paymentId, amount) =>
-  crypto
-    .createHash('sha256')
-    .update(`refund:${paymentId}:${amount ?? 'full'}:${Math.floor(Date.now() / 5000)}`)
-    .digest('hex');

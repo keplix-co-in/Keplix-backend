@@ -10,7 +10,6 @@ const mockPrisma = {
 };
 jest.unstable_mockModule('../../util/prisma.js', () => ({ default: mockPrisma }));
 jest.unstable_mockModule('../../util/firebase.js', () => ({ default: { auth: () => ({}) }, messaging: null }));
-jest.unstable_mockModule('google-auth-library', () => ({ OAuth2Client: jest.fn().mockImplementation(() => ({})) }));
 const mockSendEmail = jest.fn().mockResolvedValue(true);
 jest.unstable_mockModule('../../util/communication.js', () => ({
   sendEmail: mockSendEmail, sendSMS: jest.fn(), sendWhatsApp: jest.fn(), redactForLog: (x) => x,

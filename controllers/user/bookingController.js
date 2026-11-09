@@ -462,8 +462,15 @@ export const createBooking = async (req, res) => {
         {
             const profile = await prisma.vendorProfile.findUnique({
                 where: { userId: service.vendorId },
-                select: SLOT_PROFILE_SELECT,
+                select: { ...SLOT_PROFILE_SELECT, status: true },
             });
+            // Audit 2026-11-07: an unapproved (self-registered) vendor is
+            // hidden from listings, and could never accept the booking
+            // (requireApprovedVendor) -- refuse it here too rather than
+            // leaving the customer's request stuck in pending.
+            if (profile && profile.status !== 'approved') {
+                return res.status(400).json({ message: "This garage is not accepting bookings yet.", code: "VENDOR_NOT_APPROVED" });
+            }
             const slotCheck = checkSlotBookable(profile, bookingDateKey, canonicalTime);
             if (!slotCheck.ok) {
                 return res.status(400).json({ message: slotCheck.message, code: slotCheck.code });

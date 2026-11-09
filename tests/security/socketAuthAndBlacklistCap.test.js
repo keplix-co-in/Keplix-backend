@@ -6,14 +6,17 @@
  */
 import { jest } from '@jest/globals';
 
-process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-socket-auth';
-
 const prismaMock = {
-  user: { findUnique: jest.fn() },
+  user: { findFirst: jest.fn(), findUnique: jest.fn() },
   blacklistedToken: { findUnique: jest.fn(), upsert: jest.fn() },
   conversation: { findUnique: jest.fn() },
 };
 jest.unstable_mockModule('../../util/prisma.js', () => ({ default: prismaMock }));
+const verifySupabaseToken = jest.fn();
+jest.unstable_mockModule('../../util/supabaseAuth.js', () => ({
+  verifySupabaseToken,
+  fetchSupabaseUser: jest.fn(),
+}));
 
 let middleware;
 let connectionHandler;
@@ -24,7 +27,6 @@ jest.unstable_mockModule('socket.io', () => ({
   })),
 }));
 
-const jwt = (await import('jsonwebtoken')).default;
 const { initSocket } = await import('../../socket.js');
 const { blacklistToken, MAX_BLACKLIST_TTL_SECONDS } = await import('../../middleware/authMiddleware.js');
 initSocket({});
@@ -37,30 +39,28 @@ const run = (token) => new Promise((resolve) => {
 beforeEach(() => jest.clearAllMocks());
 
 describe('socket handshake (A-012)', () => {
-  const tok = () => jwt.sign({ id: 7, type: 'access' }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
   test('accepts a valid, non-revoked token', async () => {
-    prismaMock.blacklistedToken.findUnique.mockResolvedValue(null);
-    prismaMock.user.findUnique.mockResolvedValue({ id: 7, role: 'user', is_active: true, passwordChangedAt: null });
-    const { err, socket } = await run(tok());
+    verifySupabaseToken.mockResolvedValue({ sub: 'supa-7', iat: Math.floor(Date.now() / 1000) });
+    prismaMock.user.findFirst.mockResolvedValue({ id: 7, role: 'user', is_active: true, passwordChangedAt: null });
+    const { err, socket } = await run('token');
     expect(err).toBeUndefined();
     expect(socket.authUser.id).toBe(7);
   });
 
-  test('rejects a blacklisted (logged-out) token', async () => {
-    prismaMock.blacklistedToken.findUnique.mockResolvedValue({ id: 1 });
-    const { err } = await run(tok());
+  test('rejects an invalid token', async () => {
+    verifySupabaseToken.mockRejectedValue(new Error('bad token'));
+    const { err } = await run('token');
     expect(err).toBeInstanceOf(Error);
-    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.user.findFirst).not.toHaveBeenCalled();
   });
 
   test('rejects a token issued before the last password change', async () => {
-    prismaMock.blacklistedToken.findUnique.mockResolvedValue(null);
-    const t = tok();
-    prismaMock.user.findUnique.mockResolvedValue({
+    const iat = Math.floor(Date.now() / 1000);
+    verifySupabaseToken.mockResolvedValue({ sub: 'supa-7', iat });
+    prismaMock.user.findFirst.mockResolvedValue({
       id: 7, role: 'user', is_active: true, passwordChangedAt: new Date(Date.now() + 5000),
     });
-    const { err } = await run(t);
+    const { err } = await run('token');
     expect(err).toBeInstanceOf(Error);
   });
 

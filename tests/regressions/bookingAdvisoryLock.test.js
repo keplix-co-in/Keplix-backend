@@ -64,6 +64,7 @@ describe('booking-slot advisory lock — FIXED, regression guard', () => {
     });
     // Open every day 9-6, so 2:00 PM reaches the lock and the clash check.
     prisma.vendorProfile.findUnique.mockResolvedValue({
+      status: 'approved', // audit 2026-11-07: createBooking refuses unapproved vendors
       operating_hours: '9:00 AM - 6:00 PM',
       breaks: '[]',
       holidays: '[]',

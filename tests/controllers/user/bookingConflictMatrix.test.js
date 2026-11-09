@@ -109,6 +109,7 @@ describe('createBooking conflict matrix (fake booking table)', () => {
     // Open every day 9-6 with no breaks, so both 14:00 and 15:00 are offered
     // slots and the matrix keeps testing the clash check, not the hours check.
     prisma.vendorProfile.findUnique.mockResolvedValue({
+      status: 'approved', // audit 2026-11-07: createBooking refuses unapproved vendors
       operating_hours: '9:00 AM - 6:00 PM',
       breaks: '[]',
       holidays: '[]',

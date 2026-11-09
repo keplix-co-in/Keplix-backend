@@ -123,7 +123,7 @@ describe('eraseUserPii — FIXED, regression guard', () => {
         pushToken: null,
         is_active: false,
         // Security A-028: sessions die with the account.
-        password: '',
+        password: null,
         passwordChangedAt: expect.any(Date),
       },
     });

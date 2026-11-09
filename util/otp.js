@@ -29,8 +29,8 @@ const otpKey = () => {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('JWT_SECRET is required to hash OTPs');
     }
-    // Matches authController's behaviour of booting without JWT_SECRET
-    // outside production. Never reached in a real deploy.
+    // Lets dev/test boot without JWT_SECRET. Never reached in a real deploy
+    // (config/env.js requires it).
     return 'keplix-dev-otp-key';
   }
   return secret;

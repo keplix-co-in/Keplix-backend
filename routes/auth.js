@@ -1,36 +1,28 @@
 import express from 'express';
+// 2026-11 Supabase Auth migration: sign-in, sign-up, refresh, password reset
+// and Google login now happen in Supabase. The old routes below answer 426
+// APP_UPDATE_REQUIRED (see controllers/supabaseAuthController.js).
 import {
-  registerUser,
-  authUser,
   getUserProfile,
   updateUserProfileAuth,
   requestEmailChange,
   verifyEmailChange,
-  refreshToken,
-  logoutUser,
-  forgotPassword,
-  resetPassword,
-  sendPasswordResetOTP,
-  resetPasswordWithOTP,
   sendPhoneOTP,
   verifyPhoneOTP,
-  sendEmailOTP,
-  verifyEmailOTP,
-  googleLogin,
   updatePushToken,
   registerWebPush,
   unregisterWebPush,
-  changePassword,
   deleteAccount,
   exportAccountData
 } from '../controllers/authController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, requireSupabaseSession } from '../middleware/authMiddleware.js';
+import { syncSupabaseUser, legacyAuthRetired, legacyLogout } from '../controllers/supabaseAuthController.js';
 // Mounted AFTER protect on the routes below, so the limiter keys on the user id
 // rather than the shared carrier NAT address. See app.js for the full reasoning.
 // Security O-001: otpVerifyLimiter adds a per-email/phone budget on every OTP verify route.
 import { authedReadLimiter, authLimiter, otpVerifyLimiter, stepUpOtpLimiter } from '../middleware/rateLimitMiddleware.js';
 import { validateRequest } from '../middleware/validationMiddleware.js';
-import { registerSchema, loginSchema, refreshTokenSchema, resetPasswordSchema, forgotPasswordSchema, resetPasswordWithOtpSchema, googleLoginSchema, requestOtpSchema, verifyOtpSchema, updatePasswordSchema } from '../validators/authValidators.js';
+import { requestOtpSchema, verifyOtpSchema } from '../validators/authValidators.js';
 import {uploadFieldss} from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
@@ -73,8 +65,8 @@ const uploadProfileFields = uploadFieldss([
  *         description: Bad request
  */
 // Same strict limit as /signup — this alias was an unlimited signup route.
-router.post('/register', authLimiter, validateRequest(registerSchema), registerUser);
-router.post('/signup', authLimiter, validateRequest(registerSchema), registerUser); // Alias for compatibility
+router.post('/register', legacyAuthRetired);
+router.post('/signup', legacyAuthRetired);
 
 /**
  * @swagger
@@ -101,7 +93,7 @@ router.post('/signup', authLimiter, validateRequest(registerSchema), registerUse
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', authLimiter, validateRequest(loginSchema), authUser);
+router.post('/login', legacyAuthRetired);
 
 /**
  * @swagger
@@ -122,7 +114,7 @@ router.post('/login', authLimiter, validateRequest(loginSchema), authUser);
  *       200:
  *         description: Token refreshed
  */
-router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken);
+router.post('/token/refresh', legacyAuthRetired);
 
 /**
  * @swagger
@@ -143,7 +135,7 @@ router.post('/token/refresh', validateRequest(refreshTokenSchema), refreshToken)
  *       200:
  *         description: Reset email sent
  */
-router.post('/forgot-password', authLimiter, validateRequest(forgotPasswordSchema), forgotPassword);
+router.post('/forgot-password', legacyAuthRetired);
 
 /**
  * @swagger
@@ -164,7 +156,7 @@ router.post('/forgot-password', authLimiter, validateRequest(forgotPasswordSchem
  *       200:
  *         description: OTP sent (if the email exists)
  */
-router.post('/send-password-reset-otp', authLimiter, validateRequest(forgotPasswordSchema), sendPasswordResetOTP);
+router.post('/send-password-reset-otp', legacyAuthRetired);
 
 /**
  * @swagger
@@ -189,7 +181,7 @@ router.post('/send-password-reset-otp', authLimiter, validateRequest(forgotPassw
  *       200:
  *         description: Password reset successfully
  */
-router.post('/reset-password-otp', authLimiter, otpVerifyLimiter, validateRequest(resetPasswordWithOtpSchema), resetPasswordWithOTP);
+router.post('/reset-password-otp', legacyAuthRetired);
 
 /**
  * @swagger
@@ -221,7 +213,7 @@ router.post('/reset-password-otp', authLimiter, otpVerifyLimiter, validateReques
  *       200:
  *         description: Password reset successful
  */
-router.post('/reset-password/:uid/:token', authLimiter, validateRequest(resetPasswordSchema), resetPassword);
+router.post('/reset-password/:uid/:token', legacyAuthRetired);
 
 /**
  * @swagger
@@ -243,7 +235,11 @@ router.post('/reset-password/:uid/:token', authLimiter, validateRequest(resetPas
  *         description: Login successful
  */
 // Rate limited like every other credential-accepting route.
-router.post('/google', authLimiter, validateRequest(googleLoginSchema), googleLogin);
+router.post('/google', legacyAuthRetired);
+
+// First call after ANY Supabase sign-in (email or Google): links the Supabase
+// user to the existing Keplix account, or creates the account + profile.
+router.post('/supabase/sync', authLimiter, requireSupabaseSession, syncSupabaseUser);
 
 // OTP Routes
 /**
@@ -318,7 +314,7 @@ router.post('/verify-phone-otp', authLimiter, otpVerifyLimiter, validateRequest(
  *       200:
  *         description: OTP sent
  */
-router.post('/send-email-otp', authLimiter, validateRequest(requestOtpSchema), sendEmailOTP);
+router.post('/send-email-otp', legacyAuthRetired);
 
 /**
  * @swagger
@@ -342,7 +338,7 @@ router.post('/send-email-otp', authLimiter, validateRequest(requestOtpSchema), s
  *         description: OTP verified
  */
 // See verify-phone-otp for the limiter reasoning.
-router.post('/verify-email-otp', authLimiter, otpVerifyLimiter, validateRequest(verifyOtpSchema), verifyEmailOTP);
+router.post('/verify-email-otp', legacyAuthRetired);
 
 // Protected Routes
 /**
@@ -488,7 +484,8 @@ router.delete('/web-push', protect, authedReadLimiter, unregisterWebPush);
  *       401:
  *         description: Current password is incorrect
  */
-router.put('/password/change', protect, authedReadLimiter, validateRequest(updatePasswordSchema), changePassword);
+// Password changes happen in Supabase (supabase.auth.updateUser) now.
+router.put('/password/change', legacyAuthRetired);
 
 /**
  * @swagger
@@ -519,9 +516,9 @@ router.delete('/account', protect, authedReadLimiter, deleteAccount);
 router.get('/export', protect, authedReadLimiter, exportAccountData);
 
 // Compatibility aliases (for trailing slashes if needed by legacy frontend code)
-router.post('/signup/', authLimiter, validateRequest(registerSchema), registerUser);
-router.post('/login/', authLimiter, validateRequest(loginSchema), authUser);
-router.post('/token/refresh/', validateRequest(refreshTokenSchema), refreshToken);
+router.post('/signup/', legacyAuthRetired);
+router.post('/login/', legacyAuthRetired);
+router.post('/token/refresh/', legacyAuthRetired);
 
 export default router;
 
@@ -537,5 +534,5 @@ export const logoutRouter = express.Router();
  *       200:
  *         description: Logout successful
  */
-logoutRouter.post('/logout', logoutUser);
-logoutRouter.post('/logout/', logoutUser);
+logoutRouter.post('/logout', legacyLogout);
+logoutRouter.post('/logout/', legacyLogout);

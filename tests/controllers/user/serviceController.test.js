@@ -7,6 +7,7 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     service: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       count: jest.fn(),
       groupBy: jest.fn(),
     },
@@ -93,7 +94,8 @@ describe('getAllServices', () => {
       await getAllServices(req, res);
 
       const whereArg = prisma.service.findMany.mock.calls[0][0].where;
-      expect(whereArg.vendor).toEqual({ vendorProfile: { is_online: true } });
+      // audit 2026-11-07: approval filter always applies alongside is_online.
+      expect(whereArg.vendor).toEqual({ vendorProfile: { status: 'approved', is_online: true } });
     });
 
     it('ignores online_only when not "true"', async () => {
@@ -105,7 +107,7 @@ describe('getAllServices', () => {
       await getAllServices(req, res);
 
       const whereArg = prisma.service.findMany.mock.calls[0][0].where;
-      expect(whereArg.vendor).toBeUndefined();
+      expect(whereArg.vendor).toEqual({ vendorProfile: { status: 'approved' } });
     });
 
     it('respects page and limit', async () => {
@@ -279,7 +281,7 @@ describe('getAllServices', () => {
 
 describe('getServiceById', () => {
   it('returns enriched service when found', async () => {
-    prisma.service.findUnique.mockResolvedValue({
+    prisma.service.findFirst.mockResolvedValue({
       id: 1, name: 'S', image_url: '/img.png',
       vendor: { vendorProfile: { business_name: 'Biz', image: '/v.png', cover_image: '/c.png' } },
     });
@@ -294,7 +296,7 @@ describe('getServiceById', () => {
   });
 
   it('returns 404 when service not found', async () => {
-    prisma.service.findUnique.mockResolvedValue(null);
+    prisma.service.findFirst.mockResolvedValue(null);
 
     const req = mockReq({ params: { id: '999' } });
     const res = mockRes();
@@ -305,7 +307,7 @@ describe('getServiceById', () => {
   });
 
   it('handles missing vendorProfile gracefully', async () => {
-    prisma.service.findUnique.mockResolvedValue({
+    prisma.service.findFirst.mockResolvedValue({
       id: 1, name: 'S', image_url: null,
       vendor: { vendorProfile: null },
     });
@@ -319,7 +321,7 @@ describe('getServiceById', () => {
   });
 
   it('returns 500 on error', async () => {
-    prisma.service.findUnique.mockRejectedValue(new Error('fail'));
+    prisma.service.findFirst.mockRejectedValue(new Error('fail'));
 
     const req = mockReq({ params: { id: '1' } });
     const res = mockRes();
@@ -512,5 +514,60 @@ describe('getServicesByVendor', () => {
     await getServicesByVendor(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
+// Audit 2026-11-07: self-registered vendors stay 'pending' until an admin
+// approves them; customers must never see their listings.
+describe('customer listings exclude unapproved vendors', () => {
+  beforeEach(() => jest.clearAllMocks());
+  const approved = { vendorProfile: { status: 'approved' } };
+
+  it('getAllServices (Prisma path) filters on approved vendors', async () => {
+    prisma.service.findMany.mockResolvedValue([]);
+    prisma.service.count.mockResolvedValue(0);
+    await getAllServices(mockReq({ query: {} }), mockRes());
+    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toEqual(approved);
+    expect(prisma.service.count.mock.calls[0][0].where.vendor).toEqual(approved);
+  });
+
+  it('getAllServices (location SQL path) filters on vp.status = approved', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0 }]);
+    await getAllServices(mockReq({ query: { latitude: '12.9', longitude: '77.6' } }), mockRes());
+    // Prisma.sql fragments expose their text as .sql and bound params as .values.
+    const frag = prisma.$queryRaw.mock.calls[0].slice(1).find((v) => v && typeof v.sql === 'string' && v.sql.includes('vp.status'));
+    expect(frag).toBeDefined();
+    const parts = frag.sql + ' ' + JSON.stringify(frag.values);
+    expect(parts).toMatch(/vp\.status = \$\d+|vp\.status = \?/);
+    expect(parts).toContain('approved');
+  });
+
+  it('getServiceById filters on approved vendor (unapproved -> 404)', async () => {
+    prisma.service.findFirst.mockResolvedValue(null);
+    const res = mockRes();
+    await getServiceById(mockReq({ params: { id: '5' } }), res);
+    expect(prisma.service.findFirst.mock.calls[0][0].where).toEqual({ id: 5, vendor: approved });
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('getFeaturedServices filters on approved vendors', async () => {
+    prisma.service.findMany.mockResolvedValue([]);
+    prisma.service.count.mockResolvedValue(0);
+    await getFeaturedServices(mockReq({ query: {} }), mockRes());
+    expect(prisma.service.findMany.mock.calls[0][0].where.vendor.vendorProfile.status).toBe('approved');
+  });
+
+  it('getServicesByVendor filters on approved vendor', async () => {
+    prisma.service.findMany.mockResolvedValue([]);
+    prisma.service.count.mockResolvedValue(0);
+    await getServicesByVendor(mockReq({ params: { vendorId: '9' }, query: {} }), mockRes());
+    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toEqual(approved);
+  });
+
+  it('searchVendorsByLocation SQL keeps its approved filter', async () => {
+    prisma.$queryRaw.mockResolvedValue([]);
+    await searchVendorsByLocation(mockReq({ query: { latitude: '12.9', longitude: '77.6' } }), mockRes());
+    const strings = prisma.$queryRaw.mock.calls[0][0].join(' ');
+    expect(strings).toMatch(/status = 'approved'/);
   });
 });

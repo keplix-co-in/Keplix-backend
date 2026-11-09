@@ -19,6 +19,14 @@ import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVend
  * @param {string} [req.query.online_only] - Filter by online vendors only ('true'/'false')
  * @param {Object} res - Express response object
  */
+// Audit 2026-11-07: vendors self-register through Supabase sign-up and stay
+// VendorProfile.status 'pending' until an admin approves them. They may edit
+// their profile and listings meanwhile (onboarding), but customers must not
+// see or book them -- requireApprovedVendor would refuse every booking they
+// tried to accept anyway. Only search filtered on this before; every
+// customer-facing listing below now does.
+export const APPROVED_VENDOR_STATUS = 'approved';
+
 export const getAllServices = async (req, res) => {
   try {
     const { search, latitude, longitude, radius = 50, online_only } = req.query;
@@ -55,6 +63,7 @@ export const getAllServices = async (req, res) => {
 
       const whereConditions = [
         Prisma.sql`s.is_active = true`,
+        Prisma.sql`vp.status = ${APPROVED_VENDOR_STATUS}`,
         Prisma.sql`vp.latitude IS NOT NULL`,
         Prisma.sql`vp.longitude IS NOT NULL`,
         Prisma.sql`${distanceSql} <= ${searchRadius}`
@@ -98,7 +107,7 @@ export const getAllServices = async (req, res) => {
       total = countResult[0]?.total || 0;
     } else {
       // Standard Prisma query when location is not provided
-      let where = { is_active: true };
+      let where = { is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } };
 
       if (search) {
         where.OR = [
@@ -109,7 +118,7 @@ export const getAllServices = async (req, res) => {
       }
 
       if (online_only === 'true') {
-        where.vendor = { vendorProfile: { is_online: true } };
+        where.vendor = { vendorProfile: { status: APPROVED_VENDOR_STATUS, is_online: true } };
       }
 
       services = await prisma.service.findMany({
@@ -210,8 +219,10 @@ export const getAllServices = async (req, res) => {
  */
 export const getServiceById = async (req, res) => {
   try {
-    const service = await prisma.service.findUnique({
-      where: { id: parseInt(req.params.id) },
+    // findFirst (not findUnique) so the vendor-approval filter can apply; an
+    // unapproved vendor's service is a 404 to customers.
+    const service = await prisma.service.findFirst({
+      where: { id: parseInt(req.params.id), vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
       include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
     });
 
@@ -289,7 +300,7 @@ export const getFeaturedServices = async (req, res) => {
     const where = {
       is_active: true,
       is_featured: true,
-      vendor: { vendorProfile: { is_online: true } }
+      vendor: { vendorProfile: { is_online: true, status: APPROVED_VENDOR_STATUS } }
     };
 
     // Filter by online vendors if requested
@@ -474,7 +485,7 @@ export const getServicesByVendor = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const services = await prisma.service.findMany({
-      where: { vendorId: parseInt(vendorId), is_active: true },
+      where: { vendorId: parseInt(vendorId), is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
       include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
       orderBy: { id: "desc" },
       skip: Number(skip),

@@ -64,6 +64,7 @@ const futureKey = future.toISOString().slice(0, 10);
 const futureWeekday = WEEKDAYS[new Date(`${futureKey}T00:00:00.000Z`).getUTCDay()];
 
 const OPEN_PROFILE = {
+  status: 'approved', // audit 2026-11-07: createBooking refuses unapproved vendors
   operating_hours: '9:00 AM - 6:00 PM',
   breaks: JSON.stringify(['1:00 PM - 2:00 PM']),
   holidays: '[]',
@@ -213,6 +214,23 @@ describe('createBooking slot validation', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code }));
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // Audit 2026-11-07: pending (self-registered) vendors cannot be booked.
+  test('a pending vendor -> 400 VENDOR_NOT_APPROVED, nothing written', async () => {
+    prisma.vendorProfile.findUnique.mockResolvedValue({ ...OPEN_PROFILE, status: 'pending' });
+    const res = mockRes();
+    await createBooking(
+      {
+        params: { userId: String(CUSTOMER_ID) },
+        body: { serviceId: 1, booking_date: future.toISOString(), booking_time: '10:00' },
+        user: { id: CUSTOMER_ID },
+      },
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'VENDOR_NOT_APPROVED' }));
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 

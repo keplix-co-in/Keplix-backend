@@ -1,8 +1,5 @@
-import jwt from "jsonwebtoken";
 import prisma from "../util/prisma.js";
-
-
-const JWT_SECRET = process.env.JWT_SECRET;
+import { verifySupabaseToken, fetchSupabaseUser } from "../util/supabaseAuth.js";
 
 /**
  * Marks a JWT as logged out, until it would naturally expire.
@@ -46,197 +43,159 @@ export const blacklistToken = async (token, expUnixSeconds) => {
 };
 
 /**
- * Prisma error codes that mean "this query could not run", as opposed to
- * "this query ran and told us something".
+ * Finds the Prisma row (User or Admin) a Supabase session belongs to.
  *
- * P2021 table does not exist   P1001 cannot reach the database
- * P1002 connection timed out   P1017 server closed the connection
+ * 1. By supabaseId -- the normal path once an account has signed in once (or
+ *    was linked by scripts/importUsersToSupabase.js).
+ * 2. Otherwise by email, but only after the Supabase Admin API confirms that
+ *    email is verified. The token's email claim alone is not proof: linking
+ *    on an unverified address would hand an existing account to whoever
+ *    signed up with it. The link is then saved, so this runs once per row.
  *
- * @see https://www.prisma.io/docs/reference/api-reference/error-reference
+ * A row already linked to a DIFFERENT Supabase user is never re-linked.
+ *
+ * @param {object} delegate - prisma.user or prisma.admin
+ * @param {{sub: string, email: string|null}} claims
+ * @param {object} [query] - extra findFirst args (include/select)
+ * @returns {Promise<object|null>}
  */
-const INFRA_ERROR_CODES = new Set(["P2021", "P1001", "P1002", "P1017"]);
+// Audit 2026-11-07 (HIGH, account takeover): email-linking is opt-out via
+// `allowEmailLink: false`. authAdmin passes false -- an Admin row must already
+// carry supabaseId (set by scripts/importUsersToSupabase.js, or by hand for a
+// new admin), so no Supabase sign-up, however verified, can ever claim an
+// admin by email.
+//
+// For User rows email-linking stays (it is how the 50 pre-migration accounts
+// sign in the first time), but ONLY after the Supabase Admin API (server-side,
+// secret key) re-reads the user and confirms email_confirmed_at -- the token's
+// own email/email_verified claims are never trusted. That rule already covers
+// role 'vendor' rows (payout bank details live behind them). Any other,
+// unexpected role in the User table (anything but user/vendor) is treated as
+// privileged and is never email-linked at all.
+const EMAIL_LINKABLE_USER_ROLES = new Set(["user", "vendor"]);
 
-/**
- * Checks whether a JWT has been blacklisted (e.g. via logout).
- *
- * Failure handling distinguishes two very different things, because conflating
- * them caused a full production outage:
- *
- *   - The query RAN and the answer is unclear, or failed for any reason we do
- *     not recognise -> fail CLOSED (reject). A revoked token must not slip
- *     through on an ambiguous error.
- *   - The query COULD NOT RUN -- missing table, unreachable database -> fail
- *     OPEN (allow), loudly. We have no evidence this token was revoked, and
- *     rejecting means rejecting EVERY user.
- *
- * The distinction is not hypothetical. When the blacklist moved from Redis into
- * this table, the table did not exist in the deployed databases -- deploys run
- * no Prisma step (see .github/workflows/deploy.yml), so schema changes only ever
- * reached production by hand. Every lookup threw P2021, the old blanket
- * `return true` treated that as "blacklisted", and `protect` 401'd every
- * authenticated request in both apps with "Token has been logged out". Login
- * itself succeeded, so it presented as a total, inexplicable product outage.
- *
- * The cost of failing open here is bounded and narrow: during an infrastructure
- * fault, a token that was explicitly logged out is accepted until its own `exp`.
- * The cost of failing closed is unbounded: the entire product stops. Refresh
- * tokens do NOT get this treatment -- see isRefreshTokenBlacklisted.
- *
- * @param {string} token - Raw JWT string to check.
- * @param {object} [options]
- * @param {boolean} [options.failOpenOnInfraError=true] - Whether an unrunnable
- *   query should allow the request through.
- * @returns {Promise<boolean>} True if blacklisted.
- */
-export const isTokenBlacklisted = async (token, { failOpenOnInfraError = true } = {}) => {
-  try {
-    const row = await prisma.blacklistedToken.findUnique({
-      where: { token },
-      select: { id: true },
-    });
-    return row !== null;
-  } catch (error) {
-    console.error("Auth blacklist read error:", error);
+export const findAccountForSupabaseClaims = async (delegate, claims, query = {}, { allowEmailLink = true } = {}) => {
+  const linked = await delegate.findFirst({ where: { supabaseId: claims.sub }, ...query });
+  if (linked) return linked;
+  if (!allowEmailLink || !claims.email) return null;
 
-    if (failOpenOnInfraError && INFRA_ERROR_CODES.has(error?.code)) {
-      console.error(
-        `Auth blacklist UNAVAILABLE (${error.code}) — allowing the request rather than ` +
-          `rejecting every user. Logout revocation is NOT being enforced until this is fixed. ` +
-          `If this is P2021, the BlacklistedToken table is missing: apply ` +
-          `prisma/migrations_applied/2026-08-19_redis_removal/001_redis_removal.sql`
-      );
-      return false;
-    }
+  const byEmail = await delegate.findFirst({
+    where: { email: { equals: claims.email, mode: "insensitive" } },
+    ...query,
+  });
+  if (!byEmail) return null;
 
-    return true;
+  const current = await delegate.findUnique({
+    where: { id: byEmail.id },
+    select: { supabaseId: true, role: true },
+  });
+  if (current?.supabaseId && current.supabaseId !== claims.sub) return null;
+  // See EMAIL_LINKABLE_USER_ROLES above. `current.role` is read fresh rather
+  // than from byEmail, whose shape depends on the caller's select.
+  if (current?.role !== undefined && !EMAIL_LINKABLE_USER_ROLES.has(current.role)) return null;
+
+  const supaUser = await fetchSupabaseUser(claims.sub);
+  if (!supaUser?.email_confirmed_at || String(supaUser.email || "").toLowerCase() !== claims.email) {
+    return null;
   }
+
+  await delegate.update({ where: { id: byEmail.id }, data: { supabaseId: claims.sub } });
+  return byEmail;
+};
+
+/** True when a token's `iat` (seconds) predates passwordChangedAt. */
+export const isIssuedBeforePasswordChange = (iat, passwordChangedAt) => {
+  if (!passwordChangedAt || !Number.isFinite(iat)) return false;
+  const changed = new Date(passwordChangedAt).getTime();
+  if (!Number.isFinite(changed)) return false;
+  return iat < Math.floor(changed / 1000);
+};
+
+/** Reads the Bearer token from a request, or null. */
+const bearerToken = (req) => {
+  const header = req.headers?.authorization;
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
+  return header.slice(7).trim() || null;
 };
 
 /**
- * Checks whether a refresh token has been blacklisted (e.g. by a prior
- * rotation or logout).
+ * Checks a Supabase access token and loads the matching Prisma User (with
+ * profiles). Shared by `protect` and the Socket.IO handshake.
  *
- * Fails CLOSED even when the database is unreachable, unlike the access-token
- * path. Refresh tokens live for weeks and rotation is a real security
- * guarantee: accepting one we cannot verify would mint a fresh access token on
- * every refresh for the whole duration of the fault. Access tokens expire on
- * their own; this is the one that must not.
- *
- * @param {string} token - Raw refresh JWT string to check.
- * @returns {Promise<boolean>} True if blacklisted or if the lookup errored.
+ * @returns {Promise<{user?: object, status?: number, message?: string}>}
  */
-export const isRefreshTokenBlacklisted = (token) =>
-  isTokenBlacklisted(token, { failOpenOnInfraError: false });
+export const authenticateSupabaseUser = async (token, query = { include: { userProfile: true, vendorProfile: true } }) => {
+  let claims;
+  try {
+    claims = await verifySupabaseToken(token);
+  } catch {
+    return { status: 401, message: "Not authorized, token failed" };
+  }
 
-/**
- * No-op retained for API compatibility.
- *
- * The 60-second Redis user cache this used to invalidate is gone along with
- * Redis. `protect` now reads the user straight from Postgres on every request,
- * which is a query it already made on every cache miss. Callers are left in
- * place so that reintroducing a cache later has an obvious seam, and so this
- * change does not ripple into unrelated call sites.
- *
- * @param {string|number} _id - Ignored.
- * @returns {Promise<void>}
- */
-export const invalidateUserCache = async (_id) => {
-  // Intentionally empty: there is no cache to invalidate.
+  const user = await findAccountForSupabaseClaims(prisma.user, claims, query);
+  if (!user) return { status: 401, message: "Not authorized, user not found", claims };
+  if (user.is_active === false) return { status: 403, message: "Account is inactive" };
+  // Audit 2026-11-07 (revocation gap): restored for Supabase tokens. A
+  // password change stamps passwordChangedAt; any access token minted before
+  // it is refused even though Supabase would still honour it until `exp`.
+  // Compared in whole seconds (iat is floored) so a token issued in the same
+  // second as the change is not wrongly refused.
+  if (isIssuedBeforePasswordChange(claims.iat, user.passwordChangedAt)) {
+    return { status: 401, message: "Not authorized, password changed" };
+  }
+  return { user, claims };
 };
 
 /**
- * Express middleware that authenticates a request via Bearer JWT, checking a
- * Redis-backed token blacklist and a Redis-backed user cache before falling
- * back to the database, then attaches the resolved user to req.user.
- * @param {import('express').Request} req - Incoming request; reads req.headers.authorization.
- * @param {import('express').Response} res - Used to short-circuit with 401/403 on auth failure.
- * @param {import('express').NextFunction} next - Called on successful authentication.
- * @returns {Promise<void>}
+ * Express middleware: authenticates a request by its Supabase access token
+ * and attaches the Prisma user (with userProfile/vendorProfile) to req.user.
+ *
+ * Supabase-only since the 2026-11 migration. Tokens signed with the old
+ * JWT_SECRET are no longer accepted anywhere; revocation (logout, password
+ * change) is handled by Supabase ending the session; the passwordChangedAt
+ * check is kept (see authenticateSupabaseUser) to close the window until a
+ * stolen access token's `exp`.
  */
 export const protect = async (req, res, next) => {
-  let token;
-
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    try {
-      token = req.headers.authorization.split(" ")[1];
-
-      //check if token is blacklisted (added during logout)
-
-      const blacklisted = await isTokenBlacklisted(token);
-
-      if (blacklisted) {
-        return res.status(401).json({ message: "Token has been logged out" });
-      }
-
-      const decoded = jwt.verify(token, JWT_SECRET);
-
-      // Mirror of the admin_access check in authAdminMiddleware.js: an admin
-      // access token, or a 30-day refresh token (JWT_REFRESH_SECRET falls
-      // back to JWT_SECRET when unset), is otherwise accepted here as a
-      // 1-day user access token — silent impersonation of the user whose id
-      // happens to collide with the token's `id` claim.
-      if (decoded.type !== "access") {
-        return res.status(401).json({ message: "Not authorized, token failed" });
-      }
-
-      // Straight to Postgres. The 60s Redis cache that used to sit in front of
-      // this is gone; this is the same query that ran on every cache miss.
-      req.user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        include: { userProfile: true, vendorProfile: true },
-      });
-
-            if (!req.user) {
-                return res.status(401).json({ message: 'Not authorized, user not found' });
-            }
-
-            // A password change invalidates every token issued before it
-            // (audit #175) -- decoded.iat is seconds, passwordChangedAt is a
-            // Date, so compare in the same unit.
-            if (
-                req.user.passwordChangedAt &&
-                decoded.iat * 1000 < req.user.passwordChangedAt.getTime()
-            ) {
-                return res.status(401).json({ message: 'Not authorized, password changed' });
-            }
-
-            // Check for activity if needed (can be separate middleware but good safety net)
-            if (req.user.is_active === false) {
-                 return res.status(403).json({ message: 'Account is inactive' });
-            }
-
-            if (req.user.is_verified === false) {
-                 const hasProfile = req.user.userProfile || req.user.vendorProfile;
-                 if (hasProfile) {
-                     // Auto-verify legacy accounts that already have a profile
-                     await prisma.user.update({
-                         where: { id: req.user.id },
-                         data: { is_verified: true }
-                     });
-                     req.user.is_verified = true;
-                     await invalidateUserCache(req.user.id);
-                 } else {
-                     return res.status(403).json({ message: 'Account not verified' });
-                 }
-            }
-
-      next();
-    } catch (error) {
-      console.error('Auth Middleware Error:', error);
-      const message =
-        error.message === "Not authorized, user not found" ||
-        error.message === "Account is inactive"
-          ? error.message
-          : "Not authorized, token failed";
-      return res.status(401).json({ message });
-    }
-  }
-
+  const token = bearerToken(req);
   if (!token) {
     return res.status(401).json({ message: "Not authorized, no token" });
   }
+
+  try {
+    const result = await authenticateSupabaseUser(token);
+    if (!result.user) {
+      return res.status(result.status).json({ message: result.message });
+    }
+    req.user = result.user;
+    req.supabaseClaims = result.claims;
+
+    if (req.user.is_verified === false) {
+      // Supabase only issues a session after the email is confirmed (or for a
+      // Google account), so a signed-in user is verified by definition.
+      await prisma.user.update({ where: { id: req.user.id }, data: { is_verified: true } });
+      req.user.is_verified = true;
+    }
+
+    return next();
+  } catch (error) {
+    console.error("Auth Middleware Error:", error);
+    return res.status(401).json({ message: "Not authorized, token failed" });
+  }
 };
 
+/**
+ * Express middleware for routes that run BEFORE a Prisma user exists (only
+ * POST /accounts/auth/supabase/sync): verifies the Supabase token and sets
+ * req.supabaseClaims, without requiring a matching row.
+ */
+export const requireSupabaseSession = async (req, res, next) => {
+  const token = bearerToken(req);
+  if (!token) return res.status(401).json({ message: "Not authorized, no token" });
+  try {
+    req.supabaseClaims = await verifySupabaseToken(token);
+    return next();
+  } catch {
+    return res.status(401).json({ message: "Not authorized, token failed" });
+  }
+};
