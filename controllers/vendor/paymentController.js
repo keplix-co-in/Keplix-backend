@@ -256,6 +256,14 @@ export const getVendorEarnings = async (req, res) => {
     startOfWeek.setHours(0, 0, 0, 0);
 
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    // DEV-23: growth compares month-to-date with the SAME stretch of last month
+    // (1st .. same day/time), so early in the month it isn't "2 days vs 30".
+    // Day clamped so e.g. 31 Mar compares with 28/29 Feb, not 2-3 Mar.
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const daysInLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const sameTimeLastMonth = new Date(startOfLastMonth);
+    sameTimeLastMonth.setDate(Math.min(now.getDate(), daysInLastMonth));
+    sameTimeLastMonth.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
 
       const baseWhere = {
         booking: {
@@ -273,7 +281,14 @@ export const getVendorEarnings = async (req, res) => {
             vendorId,
           },
         },
-      };      const [total, todayData, weekData, monthData, pendingData] = await Promise.all([
+      };      // DEV-23 review: growth counts EARNED money on both sides (not only
+      // paid/settled), or recent unpaid-out payments make growth read low.
+      const earnedWhere = {
+        ...baseWhere,
+        status: 'success',
+        vendorPayoutStatus: { in: ['pending', 'processing', 'paid', 'settled'] },
+      };
+      const [total, todayData, weekData, monthData, pendingData, lastMonthData, monthEarnedData] = await Promise.all([
         prisma.payment.aggregate({
           _sum: { vendorAmount: true },
           where: {
@@ -316,13 +331,32 @@ export const getVendorEarnings = async (req, res) => {
             vendorPayoutStatus: "pending",
           },
         }),
-      ]);    res.json({
+
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: { ...earnedWhere, createdAt: { gte: startOfLastMonth, lt: sameTimeLastMonth } },
+        }),
+
+        prisma.payment.aggregate({
+          _sum: { vendorAmount: true },
+          where: { ...earnedWhere, createdAt: { gte: startOfMonth } },
+        }),
+      ]);
+
+    const monthEarnings = monthData._sum?.vendorAmount ? Number(monthData._sum.vendorAmount) : 0;
+    const monthEarned = monthEarnedData?._sum?.vendorAmount ? Number(monthEarnedData._sum.vendorAmount) : 0;
+    const lastMonthEarnings = lastMonthData?._sum?.vendorAmount ? Number(lastMonthData._sum.vendorAmount) : 0;
+    // No baseline last month: report 0, not a fake +100% / Infinity.
+    const growthPercentage = lastMonthEarnings > 0
+      ? Math.round(((monthEarned - lastMonthEarnings) / lastMonthEarnings) * 1000) / 10
+      : 0;
+    res.json({
       today_earnings: todayData._sum?.vendorAmount ? Number(todayData._sum.vendorAmount) : 0,
       week_earnings: weekData._sum?.vendorAmount ? Number(weekData._sum.vendorAmount) : 0,
-      month_earnings: monthData._sum?.vendorAmount ? Number(monthData._sum.vendorAmount) : 0,
+      month_earnings: monthEarnings,
       total_earnings: total._sum?.vendorAmount ? Number(total._sum.vendorAmount) : 0,
       pending_earnings: pendingData._sum?.vendorAmount ? Number(pendingData._sum.vendorAmount) : 0,
-      growth_percentage: 0,
+      growth_percentage: growthPercentage,
     });
   } catch (error) {
     console.error("Vendor earnings error:", error);

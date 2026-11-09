@@ -17,6 +17,8 @@ const razorpay = new Razorpay({
 // reached this server. Without this job, that money is captured at Razorpay
 // with no record here and no automatic way to find it again.
 const STALE_THRESHOLD_MINUTES = 15;
+// DEV-25: how far back confirmed+accepted (pay-after-accept) bookings are checked.
+const CONFIRMED_LOOKBACK_HOURS = 48;
 
 /**
  * Finds bookings that have been sitting unpaid for longer than makes sense
@@ -32,9 +34,19 @@ const STALE_THRESHOLD_MINUTES = 15;
 export const reconcileStalePayments = async () => {
   const cutoff = new Date(Date.now() - STALE_THRESHOLD_MINUTES * 60 * 1000);
 
+  const recentFloor = new Date(Date.now() - CONFIRMED_LOOKBACK_HOURS * 60 * 60 * 1000);
+
   const staleBookings = await prisma.booking.findMany({
     where: {
-      status: 'pending',
+      // DEV-25: vendor accept sets status 'confirmed' BEFORE the customer pays,
+      // so a 'pending'-only filter never saw accepted-but-unrecorded payments.
+      // Include confirmed+accepted; the write below is still guarded.
+      OR: [
+        { status: 'pending' },
+        // Bounded to 48h (review): unpaid confirmed rows (cash, abandoned)
+        // can sit forever and would eat the 200-row budget every run.
+        { status: 'confirmed', vendor_status: 'accepted', createdAt: { gte: recentFloor } },
+      ],
       createdAt: { lte: cutoff },
       payment: null,
     },
@@ -43,6 +55,8 @@ export const reconcileStalePayments = async () => {
     // and price_snapshot -- the same duplicated-pricing-logic bug
     // resolveBookingAmount's own docstring says this file was guilty of).
     include: { service: true, bookingVehicle: true },
+    // Newest first so a backlog can never starve fresh orphaned payments.
+    orderBy: { createdAt: 'desc' },
     take: 200, // bounded per run — this is a periodic sweep, not a batch backfill
   });
 

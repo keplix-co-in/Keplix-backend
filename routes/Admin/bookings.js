@@ -1,5 +1,5 @@
 import express from 'express';
-import { getBookingMetrics, getBookings, forceCompleteBooking, resolveDisputeForCustomer } from '../../controllers/Admin/bookingController.js';
+import { getBookingMetrics, getBookings, forceCompleteBooking, resolveDisputeForCustomer, cancelNoShowBooking } from '../../controllers/Admin/bookingController.js';
 import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
 const router = express.Router();
 
@@ -56,5 +56,18 @@ router.post("/bookings/:id/force-complete", authAdmin, authorizeAdmin, authorize
 // The other half of dispute resolution force-complete didn't cover (audit
 // #76) -- super_admin only, same reasoning as force-complete above.
 router.post("/bookings/:id/dispute/resolve", authAdmin, authorizeAdmin, authorizeSuperAdmin, resolveDisputeForCustomer);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/cancel-no-show:
+ *   post:
+ *     summary: Cancel an in_progress booking as a vendor no-show (full refund, pending payout voided)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+// Moves money (refund) and voids a payout -- super_admin only, same guard as
+// force-complete (DEV-26).
+router.post("/bookings/:id/cancel-no-show", authAdmin, authorizeAdmin, authorizeSuperAdmin, cancelNoShowBooking);
 
 export default router;

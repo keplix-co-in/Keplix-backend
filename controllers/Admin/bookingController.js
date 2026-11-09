@@ -6,6 +6,7 @@ import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { SETTLED_STATUSES } from "../../util/refundView.js";
 import { parseIdParam } from "../../util/parseIdParam.js";
+import { executeCancellationRefund } from "../../services/refundPolicy.js";
 
 export const getBookingMetrics = async (req, res) => {
   try {
@@ -427,6 +428,125 @@ export const resolveDisputeForCustomer = async (req, res) => {
     return res.json({ booking: updated });
   } catch (error) {
     Logger.error(`[Admin] resolveDisputeForCustomer failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// @desc    Cancel a booking stuck in 'in_progress' as a NO-SHOW (Notion DEV-26).
+//
+//          Why this exists: once a booking reaches in_progress, neither the
+//          customer cancel path nor the expiry cron will touch it, so a vendor
+//          who starts a job and then never shows up / never finishes leaves the
+//          booking (and the customer's money) stuck with no way out except a
+//          manual DB edit. This gives admins a safe, audited exit.
+//
+//          What it does:
+//            1. Guarded updateMany (status must still be in_progress) -> 'cancelled',
+//               so a racing vendor completion or another admin can't be overwritten.
+//            2. If the payout is still 'pending', marks it 'not_applicable' so the
+//               payout cron never pays the vendor for work that didn't happen.
+//               If it is already paid/settled it is NOT touched (money already
+//               left) -- an [ADMIN NOTICE] is logged for manual recovery.
+//            3. Issues a FULL refund through the existing forced-full-refund path
+//               (services/refundPolicy.executeCancellationRefund ->
+//               services/refundService.issueRefund). No Razorpay calls here.
+//
+//          TODO(owner decision pending): vendor no-show penalty and whether the
+//          platform fee is retained are NOT decided. Until the owner decides,
+//          this endpoint applies no vendor penalty and keeps no fee -- the
+//          customer gets everything back.
+//
+//          Audit trail: there is no admin audit-log table in the schema, so this
+//          follows the existing admin actions -- an "[Admin ...]" line appended
+//          to Booking.notes (the schema has no cancellation reason/actor column)
+//          plus a Logger.warn.
+// @route   POST /admin/bookings/:id/cancel-no-show
+export const cancelNoShowBooking = async (req, res) => {
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  const bookingId = parseIdParam(req.params.id);
+  if (bookingId === null) {
+    return res.status(400).json({ message: "Invalid booking id" });
+  }
+
+  try {
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (booking.status !== "in_progress") {
+      return res.status(409).json({
+        message: `Only in_progress bookings can be cancelled as a no-show (current status: ${booking.status}).`,
+      });
+    }
+
+    // Review fix: a payout already 'processing' is money leaving right now.
+    // Refunding the customer on top would pay twice, so refuse until it settles
+    // (then the paid branch below applies) or fails.
+    const prePayment = await prisma.payment.findUnique({ where: { bookingId } });
+    if (prePayment?.vendorPayoutStatus === "processing") {
+      return res.status(409).json({
+        message: "The vendor payout for this booking is being processed right now. Try again once it has settled or failed.",
+      });
+    }
+
+    const { count } = await prisma.booking.updateMany({
+      where: { id: bookingId, status: "in_progress" },
+      data: {
+        status: "cancelled",
+        notes: `${booking.notes ? booking.notes + " | " : ""}[Admin no-show cancel by ${req.user.id}]: ${reason || "(no reason given)"}`,
+      },
+    });
+    if (count === 0) {
+      return res.status(409).json({
+        message: "This booking changed status before it could be cancelled. Reload and try again.",
+      });
+    }
+
+    const payment = await prisma.payment.findUnique({ where: { bookingId } });
+
+    let payoutAction = "none";
+    if (payment) {
+      // Guarded on 'pending' too: a payout that flips to paid between the read
+      // and this write must not be relabelled not_applicable.
+      const { count: payoutCount } = await prisma.payment.updateMany({
+        where: { id: payment.id, vendorPayoutStatus: "pending" },
+        data: { vendorPayoutStatus: "not_applicable" },
+      });
+      if (payoutCount > 0) {
+        payoutAction = "not_applicable";
+      } else if (payment.vendorPayoutStatus === "paid" || payment.vendorPayoutStatus === "settled") {
+        payoutAction = "untouched_already_paid";
+        Logger.warn(
+          `[ADMIN NOTICE] Booking ${bookingId} cancelled as no-show but vendor payout on payment ${payment.id} is already ${payment.vendorPayoutStatus}. Payout left untouched -- recover from the vendor manually if needed.`,
+        );
+      } else {
+        payoutAction = "untouched";
+      }
+    }
+
+    // Never throws (see refundPolicy). Returns NO_PAYMENT / PAYMENT_NOT_SUCCESSFUL
+    // when there is nothing to refund.
+    const refundOutcome = await executeCancellationRefund({
+      booking,
+      payment,
+      forceFullRefund: true,
+      reason: `Booking #${bookingId} cancelled by admin as vendor no-show -- full refund`,
+    });
+    if (refundOutcome.code === "REFUND_FAILED") {
+      Logger.error(`[ADMIN NOTICE] No-show refund FAILED for booking ${bookingId}: ${refundOutcome.reason}. Retry via /admin/finance/payments/:id/refund.`);
+    }
+
+    Logger.warn(
+      `[Admin] Booking ${bookingId} cancelled as no-show by admin ${req.user.id}. Payout: ${payoutAction}. Refund: ${refundOutcome.code}. Reason: ${reason || "(none given)"}`,
+    );
+
+    const updated = await prisma.booking.findUnique({ where: { id: bookingId } });
+    return res.json({
+      booking: updated,
+      payout: payoutAction,
+      refund: { code: refundOutcome.code, refunded: refundOutcome.refunded, amount: refundOutcome.amount ?? null },
+    });
+  } catch (error) {
+    Logger.error(`[Admin] cancelNoShowBooking failed: ${error.message}`);
     return res.status(500).json({ message: "Server Error" });
   }
 };

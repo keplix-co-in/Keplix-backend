@@ -276,6 +276,45 @@ describe('getVendorEarnings (IDOR)', () => {
     expect(res.status).not.toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ total_earnings: 0 }));
   });
+
+  // DEV-23: growth_percentage was hard-coded 0. Call order: total, today,
+  // week, month, pending, last-month-same-period.
+  const earningsWith = (month, lastMonth) => {
+    prisma.payment.aggregate.mockReset();
+    // 7th aggregate = this month's earned total (growth numerator)
+    [0, 0, 0, month, 0, lastMonth, month].forEach((v) =>
+      prisma.payment.aggregate.mockResolvedValueOnce({ _sum: { vendorAmount: v } }));
+  };
+  const run = async () => {
+    const res = mockRes();
+    await getVendorEarnings({ params: { vendor_id: '7' }, user: { id: 7 } }, res);
+    return res.json.mock.calls[0][0];
+  };
+
+  test('growth_percentage compares month-to-date with the same period last month', async () => {
+    earningsWith(1500, 1000);
+    expect((await run()).growth_percentage).toBe(50);
+    earningsWith(750, 1000);
+    expect((await run()).growth_percentage).toBe(-25);
+  });
+
+  test('growth_percentage is 0 when last month had no earnings (no Infinity)', async () => {
+    earningsWith(1200, 0);
+    expect((await run()).growth_percentage).toBe(0);
+  });
+
+  test('last-month query is bounded to the same stretch of last month', async () => {
+    earningsWith(0, 0);
+    await run();
+    const where = prisma.payment.aggregate.mock.calls[5][0].where;
+    expect(where.createdAt.gte.getDate()).toBe(1);
+    expect(where.createdAt.lt > where.createdAt.gte).toBe(true);
+    expect(where.booking.service.vendorId).toBe(7);
+    // Earned on both sides, not only paid-out (review fix).
+    expect(where.vendorPayoutStatus.in).toEqual(expect.arrayContaining(['pending', 'paid']));
+    expect(prisma.payment.aggregate.mock.calls[6][0].where.vendorPayoutStatus)
+      .toEqual(where.vendorPayoutStatus);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -161,3 +161,51 @@ describe('reconcileStalePayments booking write is guarded', () => {
     expect(Logger.warn).toHaveBeenCalledWith(expect.stringContaining(String(BOOKING_ID)));
   });
 });
+
+/**
+ * DEV-25: vendor accept sets status 'confirmed' before the customer pays, so
+ * the old `status: 'pending'` filter never picked up an accepted booking whose
+ * capture was missed. The sweep must now include confirmed+accepted bookings.
+ */
+describe('reconcileStalePayments finds accepted (confirmed) bookings', () => {
+  test('the query includes confirmed + vendor-accepted bookings with no payment', async () => {
+    prisma.booking.findMany.mockResolvedValue([]);
+
+    await reconcileStalePayments();
+
+    const { where, orderBy } = prisma.booking.findMany.mock.calls[0][0];
+    expect(where.payment).toBeNull();
+    expect(where.OR).toContainEqual({ status: 'pending' });
+    const confirmed = where.OR.find((c) => c.status === 'confirmed');
+    expect(confirmed.vendor_status).toBe('accepted');
+    // Bounded lookback (~48h) so old unpaid rows can't fill the 200-row budget.
+    const ageH = (Date.now() - confirmed.createdAt.gte.getTime()) / 3.6e6;
+    expect(ageH).toBeGreaterThan(47);
+    expect(ageH).toBeLessThan(49);
+    expect(orderBy).toEqual({ createdAt: 'desc' });
+    expect(where.status).toBeUndefined();
+  });
+
+  test('an accepted booking with a captured payment gets its payment recorded', async () => {
+    prisma.booking.findMany.mockResolvedValue([
+      { id: BOOKING_ID, status: 'confirmed', vendor_status: 'accepted', service: { price: '2000.00', segmentPrices: [] }, bookingVehicle: null },
+    ]);
+    mockFetchPayments.mockResolvedValue({ items: [capturedPayment(200000)] });
+
+    const result = await reconcileStalePayments();
+
+    expect(result.recovered).toBe(1);
+  });
+
+  test('an accepted booking with no captured payment is left alone', async () => {
+    prisma.booking.findMany.mockResolvedValue([
+      { id: BOOKING_ID, status: 'confirmed', vendor_status: 'accepted', service: { price: '2000.00', segmentPrices: [] }, bookingVehicle: null },
+    ]);
+    mockFetchPayments.mockResolvedValue({ items: [] });
+
+    const result = await reconcileStalePayments();
+
+    expect(result.recovered).toBe(0);
+    expect(mockTxBookingUpdateMany).not.toHaveBeenCalled();
+  });
+});
