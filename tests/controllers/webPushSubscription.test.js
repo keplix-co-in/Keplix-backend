@@ -22,9 +22,6 @@ jest.unstable_mockModule('../../util/firebase.js', () => ({
   default: { auth: () => ({ verifyIdToken: jest.fn() }) },
   messaging: null,
 }));
-jest.unstable_mockModule('google-auth-library', () => ({
-  OAuth2Client: jest.fn().mockImplementation(() => ({ verifyIdToken: jest.fn() })),
-}));
 
 const { registerWebPush, unregisterWebPush } = await import('../../controllers/authController.js');
 

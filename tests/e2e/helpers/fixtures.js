@@ -16,7 +16,7 @@ import prisma from '../../../util/prisma.js';
  *
  * Tokens are minted with the same payload shape the real code issues:
  *   - user/vendor: { id, type: 'access' }  (controllers/authController.js:44)
- *   - admin:       { id, role }            (controllers/Admin/authController.js:16)
+ *   - admin:       { id, role }            (set by middleware/authAdminMiddleware.js)
  * so `protect` and `authAdmin` treat them exactly like production tokens.
  *
  * ## Live-database safety

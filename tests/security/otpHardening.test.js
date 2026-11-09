@@ -111,7 +111,13 @@ describe('verify routes mount the per-identifier limiter', () => {
   test('auth OTP verify routes and garage claim verify', async () => {
     const fs = await import('fs');
     const auth = fs.readFileSync(new URL('../../routes/auth.js', import.meta.url), 'utf8');
-    for (const route of ['/reset-password-otp', '/verify-phone-otp', '/verify-email-otp']) {
+    // '/reset-password-otp' and '/verify-email-otp' were retired by the 2026-11
+    // Supabase migration (they answer 426; Supabase verifies those codes).
+    for (const route of ['/reset-password-otp', '/verify-email-otp']) {
+      const line = auth.split(/\r?\n/).find((l) => l.includes(`'${route}'`) && l.includes('router.post'));
+      expect(line).toContain('legacyAuthRetired');
+    }
+    for (const route of ['/verify-phone-otp']) {
       const line = auth.split(/\r?\n/).find((l) => l.includes(`'${route}'`) && l.includes('router.post'));
       expect(line).toContain('otpVerifyLimiter');
     }
@@ -135,26 +141,6 @@ const garage = await import('../../controllers/user/garageController.js');
 describe('controllers enforce hashing and the attempt cap', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test('sendEmailOTP stores an HMAC, not the code', async () => {
-    prismaMock.emailOTP.deleteMany.mockResolvedValue({ count: 0 });
-    prismaMock.emailOTP.create.mockResolvedValue({ id: 9 });
-    await auth.sendEmailOTP({ body: { email: 'x@y.com' } }, makeRes());
-    const stored = prismaMock.emailOTP.create.mock.calls[0][0].data.otp;
-    expect(stored).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  test('verifyEmailOTP returns OTP_INVALID on a wrong guess', async () => {
-    prismaMock.emailOTP.findFirst.mockResolvedValue({
-      id: 1, email: 'x@y.com', otp: hashOTP('222222'), failedAttempts: 0, verified: false,
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-    prismaMock.emailOTP.updateMany.mockResolvedValue({ count: 1 });
-    const res = makeRes();
-    await auth.verifyEmailOTP({ body: { email: 'x@y.com', otp: '111111' } }, res);
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'OTP_INVALID' }));
-    expect(prismaMock.emailOTP.update).not.toHaveBeenCalled();
-  });
 
   test('verifyPhoneOTP locks after the last attempt and deletes the row', async () => {
     prismaMock.phoneOTP.findUnique.mockResolvedValue({

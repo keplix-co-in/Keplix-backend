@@ -83,18 +83,6 @@ describe('payout-change OTP is atomically single-use', () => {
 describe('auth OTP verify paths stop when the claim is lost', () => {
   const future = () => new Date(Date.now() + 60_000);
 
-  test('verifyEmailOTP (login) -> 400 OTP already used, user untouched', async () => {
-    const row = { id: 2, email: 'x@y.com', otp: hashOTP('222222'), expiresAt: future() };
-    mockPrisma.emailOTP.findFirst.mockResolvedValue(row);
-    const state = installRow(mockPrisma.emailOTP, row);
-    state.verified = true; // a concurrent request already claimed it
-    const res = makeRes();
-    await auth.verifyEmailOTP({ body: { email: 'x@y.com', otp: '222222' } }, res);
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'OTP already used' });
-    expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
-  });
-
   test('verifyPhoneOTP -> 400, row not re-marked', async () => {
     const row = { id: 3, phone_number: '+919876543210', otp: hashOTP('333333'), expiresAt: future() };
     mockPrisma.phoneOTP.findUnique.mockResolvedValue(row);
@@ -105,18 +93,6 @@ describe('auth OTP verify paths stop when the claim is lost', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'OTP already verified' });
     expect(mockPrisma.phoneOTP.update).not.toHaveBeenCalled();
-  });
-
-  test('resetPasswordWithOTP -> 400, password not changed', async () => {
-    const row = { id: 4, email: 'x@y.com', otp: hashOTP('444444'), expiresAt: future() };
-    mockPrisma.emailOTP.findFirst.mockResolvedValue(row);
-    mockPrisma.user.findUnique.mockResolvedValue({ id: 9, email: 'x@y.com' });
-    const state = installRow(mockPrisma.emailOTP, row);
-    state.verified = true;
-    const res = makeRes();
-    await auth.resetPasswordWithOTP({ body: { email: 'x@y.com', otp: '444444', password: 'NewPassw0rd!' } }, res);
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
   test('verifyEmailChange: concurrent requests -> exactly one email update', async () => {

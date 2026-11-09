@@ -42,15 +42,24 @@ process.env.RATE_LIMIT_WINDOW_MS = String(15 * 60 * 1000);
 
 jest.unstable_mockModule('../../middleware/authMiddleware.js', () => ({
   blacklistToken: jest.fn().mockResolvedValue(undefined),
-  isRefreshTokenBlacklisted: jest.fn().mockResolvedValue(false),
-  isTokenBlacklisted: jest.fn().mockResolvedValue(false),
-  invalidateUserCache: jest.fn(),
   // Stand in for the real middleware: always authenticates as user 1, so this
   // test exercises only the rate-limiter wiring, not DB-backed auth.
   protect: (req, res, next) => {
     req.user = { id: 1, email: 'user@test.local', role: 'user' };
     next();
   },
+  requireSupabaseSession: (req, res, next) => {
+    req.supabaseClaims = { sub: 'sb-1', email: 'user@test.local' };
+    next();
+  },
+}));
+
+// 2026-11 Supabase migration: /supabase/sync is the credential-adjacent route
+// now (old /login just answers 426), so it is the one carrying authLimiter.
+jest.unstable_mockModule('../../controllers/supabaseAuthController.js', () => ({
+  syncSupabaseUser: (req, res) => res.json({ user: { id: 1 }, isNewUser: false }),
+  legacyAuthRetired: (req, res) => res.status(426).json({ code: 'APP_UPDATE_REQUIRED' }),
+  legacyLogout: (req, res) => res.json({ message: 'Logged out' }),
 }));
 
 jest.unstable_mockModule('../../controllers/authController.js', () => ({
@@ -127,18 +136,19 @@ describe('authLimiter does not leak onto authedReadLimiter routes', () => {
     expect(results).toEqual([200, 200, 200, 200, 200]);
   });
 
-  it('the credential budget still applies to login itself', async () => {
+  it('the credential budget still applies to the sign-in sync route', async () => {
     const app = buildApp();
     const results = [];
-    // RATE_LIMIT_AUTH_MAX is 2 -- the 3rd login attempt must 429.
+    // RATE_LIMIT_AUTH_MAX is 2 -- the 3rd sync call must 429.
     for (let i = 0; i < 3; i++) {
       const res = await request(app)
-        .post('/accounts/auth/login')
-        .send({ email: 'a@b.com', password: 'x' });
+        .post('/accounts/auth/supabase/sync')
+        .set('Authorization', 'Bearer x')
+        .send({});
       results.push(res.status);
     }
-    expect(results[0]).toBe(401);
-    expect(results[1]).toBe(401);
+    expect(results[0]).toBe(200);
+    expect(results[1]).toBe(200);
     expect(results[2]).toBe(429);
     expect(results[2]).toBeDefined();
   });

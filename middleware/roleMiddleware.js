@@ -22,16 +22,6 @@ export const adminOnly = (req, res, next) => {
     }
 };
 
-// Check if user is active
-export const activeOnly = (req, res, next) => {
-    if (req.user && req.user.is_active) {
-        next();
-    } else {
-        res.status(403);
-        throw new Error('User account is inactive. Please contact support.');
-    }
-};
-
 // Security A-020 / SYS-003: money and job actions (accepting/updating
 // bookings, walk-in jobs, health sheets, vendor payments) need an
 // admin-APPROVED vendor. Onboarding, profile, documents, services and all

@@ -93,6 +93,7 @@ describe('D-past-date — createBooking accepted a booking_date already in the p
     const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     // Open every day so 10:00 is an offered slot.
     prisma.vendorProfile.findUnique.mockResolvedValue({
+      status: 'approved', // audit 2026-11-07: createBooking refuses unapproved vendors
       operating_hours: '9:00 AM - 6:00 PM',
       breaks: '[]',
       holidays: '[]',

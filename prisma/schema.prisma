@@ -9,7 +9,7 @@ datasource db {
 model User {
   id                  Int                  @id @default(autoincrement())
   email               String               @unique
-  password            String
+  password            String? // legacy only: Supabase Auth holds passwords now; nulled by scripts/importUsersToSupabase.js
   role                String               @default("user")
   is_active           Boolean              @default(true)
   createdAt           DateTime             @default(now())
@@ -25,6 +25,10 @@ model User {
   // in for changePassword (audit #175). Null means "never changed"; no token
   // predates account creation, so nothing is rejected for a new account.
   passwordChangedAt   DateTime?
+  // Supabase Auth user id (auth.users.id). Supabase owns sign-in since the
+  // 2026-11 migration; protect() finds the row by this, or links it on first
+  // sign-in by verified email. Null = never signed in through Supabase yet.
+  supabaseId          String?              @unique @db.Uuid
   Availability        Availability[]
   bookings            Booking[]            @relation("UserBookings")
   documents           Document[]
@@ -607,7 +611,7 @@ model Admin {
   id           Int         @id @default(autoincrement())
   name         String
   email        String      @unique
-  password     String
+  password     String? // legacy only: see User.password
   phone        String?
   status       AdminStatus @default(ACTIVE)
   lastLoginAt  DateTime?
@@ -621,6 +625,8 @@ model Admin {
   // "Unknown argument `refreshToken`". Storing the hash (never the token) is
   // what makes a stolen refresh token revocable.
   refreshToken String?
+  // Supabase Auth user id; see User.supabaseId. authAdmin() links by it.
+  supabaseId   String?     @unique @db.Uuid
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   role         String      @default("admin")

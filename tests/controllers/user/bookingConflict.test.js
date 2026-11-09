@@ -61,6 +61,7 @@ describe('createBooking slot conflict', () => {
     // Open every day 9-6 with no breaks, so 2:00 PM is an offered slot and
     // these tests keep exercising the clash check, not the hours check.
     prisma.vendorProfile.findUnique.mockResolvedValue({
+      status: 'approved', // audit 2026-11-07: createBooking refuses unapproved vendors
       operating_hours: '9:00 AM - 6:00 PM',
       breaks: '[]',
       holidays: '[]',

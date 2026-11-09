@@ -98,13 +98,17 @@ const envSchema = z
     RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(40),
     RATE_LIMIT_AUTHED_MAX: z.coerce.number().int().positive().default(600),
 
+    // Still required after the 2026-11 Supabase Auth migration: util/otp.js
+    // uses it as the HMAC key for stored OTP hashes. No longer used to sign
+    // or verify login tokens.
     JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
 
-    // authController.js already falls back to JWT_SECRET when this is unset
-    // (with a console.warn) outside of throwing itself when it's missing, so
-    // it stays optional here to avoid duplicating/contradicting that
-    // existing runtime check.
-    JWT_REFRESH_SECRET: z.string().optional(),
+    // Supabase Auth (2026-11 migration). util/supabaseAuth.js reads these
+    // from process.env directly. The URL is public and has a built-in
+    // default; the secret key is only needed for linking accounts by email,
+    // email changes, erasure and scripts/importUsersToSupabase.js.
+    SUPABASE_URL: z.string().url().optional(),
+    SUPABASE_SECRET_KEY: z.string().optional(),
     DATABASE_URL: z.string().url("DATABASE_URL must be a valid URL"),
 
     CLOUDINARY_URL: z.string().min(1, "CLOUDINARY_URL is required"),
@@ -133,12 +137,10 @@ const envSchema = z
     // graceful degradation, kept optional here to match.
     FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
 
-    // Used directly in controllers/authController.js to build the
-    // password-reset link with no fallback -- an unset value silently ships
-    // "undefined/reset-password/..." to a user's inbox. Required in
-    // production via REQUIRED_IN_PRODUCTION above; stays optional at the
-    // schema level (not required in dev/test) since local .env commonly
-    // omits it and that's a fine default outside production.
+    // Was used by the old password-reset link in controllers/authController.js;
+    // that flow moved to Supabase in the 2026-11 auth migration and no code
+    // reads this any more. Still listed in REQUIRED_IN_PRODUCTION above --
+    // dropping that boot requirement is left for a deliberate follow-up.
     FRONTEND_URL: z.string().optional(),
 
     // Security A-010 / SYS-006: comma-separated EXACT extra CORS origins
@@ -146,11 +148,10 @@ const envSchema = z
     // wildcards; *.keplix.co.in is always allowed without listing it.
     ALLOWED_ORIGINS: z.string().optional(),
 
-    // Read directly via process.env in controllers/authController.js's
-    // Google-login handler (not through this `env` object), but declared
-    // here too so REQUIRED_IN_PRODUCTION's production check can see it and
-    // fail boot loudly instead of every Google login 500ing at request time
-    // -- the exact incident TODO.md records this var having caused already.
+    // Was read by the old Google-login handler, removed in the 2026-11
+    // Supabase Auth migration (Google sign-in is verified by Supabase now);
+    // no code reads this any more. Still listed in REQUIRED_IN_PRODUCTION
+    // above -- dropping that boot requirement is left for a follow-up.
     GOOGLE_ALLOWED_AUDIENCES: z.string().optional(),
     // services/walkInNotificationService.js already falls back to
     // 'https://keplix.co.in' when this is unset -- kept optional to match
@@ -165,7 +166,7 @@ const envSchema = z
     VAPID_PRIVATE_KEY: z.string().optional(),
     VAPID_SUBJECT: z.string().optional(),
 
-    // Every call site (controllers/authController.js, util/communication.js)
+    // The call site (util/communication.js)
     // already falls back to 'Keplix <noreply@keplix.co.in>' when this is
     // unset -- kept optional to preserve that existing default.
     EMAIL_FROM: z.string().optional(),

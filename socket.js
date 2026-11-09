@@ -1,13 +1,11 @@
 // socket.js
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
 import corsOptions from "./util/cors.js";
 import Logger from "./util/logger.js";
 import prisma from "./util/prisma.js";
-import { isTokenBlacklisted } from "./middleware/authMiddleware.js";
+import { authenticateSupabaseUser } from "./middleware/authMiddleware.js";
 import { sessionRoom, tokenRoom } from "./util/socketSessions.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
 
 let io;
 
@@ -77,32 +75,14 @@ export const initSocket = (httpServer) => {
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error("Authentication required"));
 
-      // Security A-012: a logged-out token must not open a socket. Same
-      // blacklist `protect` consults on every HTTP request.
-      if (await isTokenBlacklisted(token)) {
-        return next(new Error("Authentication required"));
-      }
-
-      const decoded = jwt.verify(token, JWT_SECRET);
-      // Same cross-table token-confusion guard as authMiddleware.js `protect`
-      // — without it, an admin access token or a 30-day refresh token
-      // (signed with the same JWT_SECRET) authenticates a socket connection
-      // as whichever User row happens to share the token's `id` claim.
-      if (decoded.type !== "access") {
-        return next(new Error("Authentication required"));
-      }
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
+      // Supabase access token since the 2026-11 auth migration -- same check
+      // `protect` runs on every HTTP request (middleware/authMiddleware.js).
+      const { user } = await authenticateSupabaseUser(token, {
+        // passwordChangedAt: needed for the token-revocation check in
+        // authenticateSupabaseUser (audit 2026-11-07).
         select: { id: true, role: true, is_active: true, passwordChangedAt: true },
       });
-      if (!user || user.is_active === false) {
-        return next(new Error("Authentication required"));
-      }
-      // Security A-012: like `protect`, a token issued before the last
-      // password change (or account erasure) is dead.
-      if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime()) {
-        return next(new Error("Authentication required"));
-      }
+      if (!user) return next(new Error("Authentication required"));
 
       socket.authUser = user;
       socket.authTokenRoom = tokenRoom(token);

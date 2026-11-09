@@ -103,7 +103,7 @@ export const eraseUserPii = async (userId, { io } = {}) => {
       // changePassword both refuse it), and passwordChangedAt = now makes
       // `protect`, token refresh and socket auth reject every token issued
       // before this moment -- is_active alone did not stop the refresh path.
-      password: "",
+      password: null, // Supabase Auth holds credentials; nothing to keep here
       passwordChangedAt: new Date(),
     },
   });

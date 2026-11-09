@@ -1,8 +1,8 @@
 import express from 'express';
-import { login, refresh, logout } from '../../controllers/Admin/authController.js';
-import { validateRequest } from '../../middleware/validationMiddleware.js';
-import { loginSchema, refreshTokenSchema } from '../../validators/Admin/authAdminValidator.js';
-import { authLimiter } from '../../middleware/rateLimitMiddleware.js';
+// 2026-11 Supabase Auth migration: admins sign in through Supabase; authAdmin
+// maps the session to the Admin row. These old routes are retired.
+import { legacyAuthRetired, legacyLogout, getAdminMe } from '../../controllers/supabaseAuthController.js';
+import { authAdmin } from '../../middleware/authAdminMiddleware.js';
 
 const router = express.Router();
 
@@ -34,7 +34,7 @@ const router = express.Router();
 // applied to /refresh or /logout below, since /refresh is called routinely
 // by the SPA on every 15-minute access-token expiry and must not share a
 // login rate limit.
-router.post('/login', authLimiter, validateRequest(loginSchema), login);
+router.post('/login', legacyAuthRetired);
 
 /**
  * @swagger
@@ -58,7 +58,7 @@ router.post('/login', authLimiter, validateRequest(loginSchema), login);
  *       401:
  *         description: Invalid or expired refresh token
  */
-router.post('/refresh', validateRequest(refreshTokenSchema), refresh);
+router.post('/refresh', legacyAuthRetired);
 
 /**
  * @swagger
@@ -82,6 +82,10 @@ router.post('/refresh', validateRequest(refreshTokenSchema), refresh);
  *       401:
  *         description: Invalid refresh token
  */
-router.post('/logout', validateRequest(refreshTokenSchema), logout);
+router.post('/logout', legacyLogout);
+
+// Signed-in admin's profile (Supabase token). Used by the admin panel after
+// supabase.auth.signInWithPassword to show name/email/role.
+router.get('/me', authAdmin, getAdminMe);
 
 export default router;
