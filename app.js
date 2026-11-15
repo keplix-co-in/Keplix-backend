@@ -54,6 +54,7 @@ import adminBookingRoutes from "./routes/Admin/bookings.js";
 import adminUserRoutes from "./routes/Admin/user.js";
 import adminVendorRoutes from "./routes/Admin/vendor.js";
 import adminFinanceRoutes from "./routes/Admin/finance.js";
+import adminFounderRoutes from "./routes/Admin/founder.js";
 import adminBlogRoutes from "./routes/Admin/blog.js";
 import adminWalkInJobRoutes from "./routes/Admin/walkInJobs.js";
 import adminHealthComponentRoutes from "./routes/Admin/healthComponents.js";
@@ -333,6 +334,7 @@ app.use("/admin", adminBookingRoutes);
 app.use("/admin", adminUserRoutes);
 app.use("/admin", adminVendorRoutes);
 app.use("/admin", adminFinanceRoutes);
+app.use("/admin", adminFounderRoutes); // founder dashboard, read-only, super_admin (2026-11-14)
 app.use("/admin", adminBlogRoutes);
 app.use("/admin", adminWalkInJobRoutes);
 app.use("/admin", adminHealthComponentRoutes);
