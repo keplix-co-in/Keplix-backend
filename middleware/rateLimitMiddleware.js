@@ -175,3 +175,14 @@ export const stepUpOtpLimiter = rateLimit({
   keyGenerator: keyByUserOrIp,
   message: { success: false, code: 'OTP_RATE_LIMITED', message: 'Too many codes requested. Please try again later.' },
 });
+
+// Job-photo uploads hit Cloudinary; cap one vendor's upload requests. In-process
+// store is fine: the backend runs as a single instance (see CLAUDE.md).
+export const vendorPhotoUploadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUserOrIp,
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many photo uploads. Please try again in a few minutes.' },
+});

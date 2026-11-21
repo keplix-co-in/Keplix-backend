@@ -123,7 +123,12 @@ export const getVendorBookings = async (req, res) => {
         // customer's vehicle segment priced differently, or the vendor has
         // edited the price since. Scalar row only (no vehicle relation), so no
         // customer vehicle details are added to this response.
-        bookingVehicle: true,
+        // The linked Vehicle (make/model/reg/fuel) is joined in the same query
+        // and surfaced as top-level `vehicle`; it is stripped from
+        // bookingVehicle below so that object keeps its scalar shape.
+        bookingVehicle: {
+          include: { vehicle: { select: { registration: true, make: true, model: true, fuel_type: true, segment: true } } },
+        },
         // Pricing v2: pricing_flow on every row (see withPricingFlow).
         ...PRICING_FLOW_INCLUDE,
       },
@@ -132,7 +137,26 @@ export const getVendorBookings = async (req, res) => {
       take: pageSize,
     });
 
-    res.json(bookings.map(withPricingFlow));
+    res.json(bookings.map((b) => {
+      const { vehicle: v, ...bv } = b.bookingVehicle || {};
+      const row = withPricingFlow({ ...b, bookingVehicle: b.bookingVehicle ? bv : b.bookingVehicle });
+      return {
+        ...row,
+        // Booked car. Registration/segment come from the linked Vehicle, or
+        // BookingVehicle.segment (snapshot at booking time) if it was deleted.
+        vehicle: b.bookingVehicle
+          ? {
+              make: v?.make ?? null,
+              model: v?.model ?? null,
+              registration: v?.registration ?? null,
+              segment: bv.segment ?? v?.segment ?? null,
+              fuel_type: v?.fuel_type ?? null,
+            }
+          : null,
+        // Customer's booking note (Booking.notes); null when empty.
+        notes: b.notes && String(b.notes).trim() ? b.notes : null,
+      };
+    }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });

@@ -4,6 +4,8 @@ import { getVendorBookings, updateBookingStatus, respondToServiceRequest, reques
 // router.use, because several vendor routers share the /service_api prefix
 // with user routers). requireApprovedVendor gates money/job actions only.
 import { vendorOnly, requireApprovedVendor } from '../../middleware/roleMiddleware.js';
+import { photoUploadPrecheck } from '../../middleware/photoUploadPrecheck.js';
+import { vendorPhotoUploadLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { updateBookingStatusSchema, respondToServiceRequestSchema, requestEarlyStartSchema } from '../../validators/vendor/bookingValidators.js';
@@ -549,7 +551,7 @@ router.post('/bookings/:id/final-bill/void', protect, vendorOnly, requireApprove
  *     security:
  *       - bearerAuth: []
  */
-router.post('/bookings/:id/photos', protect, vendorOnly, requireApprovedVendor, uploadFieldss([{ name: 'photos', maxCount: 10 }]), vendorAddPhotos);
+router.post('/bookings/:id/photos', protect, vendorOnly, requireApprovedVendor, vendorPhotoUploadLimiter, photoUploadPrecheck, uploadFieldss([{ name: 'photos', maxCount: 10 }]), vendorAddPhotos);
 
 /**
  * @swagger

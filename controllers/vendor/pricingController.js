@@ -3,6 +3,7 @@
  * Thin: parse the id, call services/pricingV2Service.js, map errors.
  * Ownership, state rules, audit, sockets and notifications live in the service.
  */
+import { publicBaseUrl } from '../../util/publicBaseUrl.js';
 import { parseIdParam } from '../../util/parseIdParam.js';
 import {
   checkIn,
@@ -64,6 +65,17 @@ export const vendorIssueFinalBill = action('final-bill', (ctx) => issueFinalBill
  * holds the stored asset. multipart text fields: kind ('check_in' | 'extra_work'),
  * request_id (extra_work only).
  */
+const IMAGE_FORMATS = ['jpg', 'jpeg', 'png', 'webp'];
+const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+export const isImageUpload = (f) => {
+  const c = f?.cloudinary;
+  if (!c?.secure_url || c.resource_type !== 'image') return false;
+  const format = typeof c.format === 'string' ? c.format.toLowerCase() : null;
+  const mime = typeof f.mimetype === 'string' ? f.mimetype.toLowerCase() : null;
+  if (format && !IMAGE_FORMATS.includes(format)) return false;
+  if (mime && !IMAGE_MIMES.includes(mime)) return false;
+  return Boolean(format || mime);
+};
 export const vendorAddPhotos = action('photos', (ctx, req) => {
   const kind = req.body?.kind;
   if (!['check_in', 'extra_work'].includes(kind)) {
@@ -73,8 +85,9 @@ export const vendorAddPhotos = action('photos', (ctx, req) => {
   if (kind === 'extra_work' && !requestId) throw new PricingError(400, 'VALIDATION_ERROR', 'request_id is required for extra_work photos');
   const files = req.files?.photos ?? [];
   if (files.length === 0) throw new PricingError(400, 'VALIDATION_ERROR', 'Attach at least one photo in the "photos" field');
-  // The shared uploader also accepts PDFs; job photos must be images.
-  if (files.some((f) => f.cloudinary?.resource_type !== 'image' || !f.cloudinary?.secure_url)) {
+  // The shared uploader also accepts PDFs, and Cloudinary reports a PDF as
+  // resource_type 'image' too, so also require an image format/mimetype.
+  if (files.some((f) => !isImageUpload(f))) {
     throw new PricingError(400, 'VALIDATION_ERROR', 'Only image files can be attached');
   }
   return addPhotos(ctx, { kind, requestId, urls: files.map((f) => f.cloudinary.secure_url) });
@@ -98,7 +111,7 @@ export const vendorBillLink = async (req, res) => {
   try {
     const link = await createBillLink({ ...ctx, role: 'vendor' });
     // trust proxy is set in app.js, so protocol/host are the public ones.
-    const url = `${req.protocol}://${req.get('host')}/bills/${link.bill_id}/view?t=${link.token}`;
+    const url = `${publicBaseUrl(req)}/bills/${link.bill_id}/view?t=${link.token}`;
     return res.status(200).json({ url, expires_at: link.expires_at });
   } catch (err) {
     return sendPricingError(res, err, 'bill link');

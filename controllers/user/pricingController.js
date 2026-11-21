@@ -2,6 +2,7 @@
  * Customer side of pricing v2 (docs/PRICING_V2_API.md sections 3 and 5).
  * Thin: parse ids, call services/pricingV2Service.js, map errors.
  */
+import { publicBaseUrl } from '../../util/publicBaseUrl.js';
 import { parseIdParam } from '../../util/parseIdParam.js';
 import {
   createBillLink,
@@ -48,7 +49,7 @@ export const userBillLink = async (req, res) => {
   if (!bookingId) return badId(res, 'booking');
   try {
     const link = await createBillLink({ bookingId, role: 'user', actorId: req.user.id });
-    const url = `${req.protocol}://${req.get('host')}/bills/${link.bill_id}/view?t=${link.token}`;
+    const url = `${publicBaseUrl(req)}/bills/${link.bill_id}/view?t=${link.token}`;
     return res.status(200).json({ url, expires_at: link.expires_at });
   } catch (err) {
     return sendPricingError(res, err, 'user bill link');

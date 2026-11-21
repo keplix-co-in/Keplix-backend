@@ -132,7 +132,7 @@ describe('vendorAddPhotos controller validation', () => {
     await vendorCtl.vendorAddPhotos({ params: { id: String(BOOKING) }, user: { id: VENDOR }, ...req }, res);
     return res;
   };
-  const img = (url) => ({ cloudinary: { resource_type: 'image', secure_url: url } });
+  const img = (url) => ({ cloudinary: { resource_type: 'image', format: 'jpg', secure_url: url } });
 
   test('bad kind, missing request_id, no files, non-image -> 400 VALIDATION_ERROR', async () => {
     for (const req of [

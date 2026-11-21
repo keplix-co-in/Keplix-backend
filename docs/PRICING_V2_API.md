@@ -304,7 +304,7 @@ exposure: the vendor booking list already returns the customer's `userProfile.ph
 
 ### Final bill download (U07)
 1. `POST /service_api/user/bookings/:id/bill-link` (customer) or `POST /service_api/vendor/bookings/:id/bill-link` (vendor), bearer auth, no body.
-   200 `{ "url": "https://<api>/bills/7/view?t=<token>", "expires_at": "ISO" }`. 409 `BILL_NOT_ISSUED` before a bill exists (void bills never qualify), 409 `NOT_V2`.
+   200 `{ "url": "https://<api>/bills/7/view?t=<token>", "expires_at": "ISO" }`.  (`<api>` is the optional `PUBLIC_BASE_URL` env var when set, else the request protocol/host.) 409 `BILL_NOT_ISSUED` before a bill exists (void bills never qualify), 409 `NOT_V2`.
 2. Open `url` in the phone browser (`Linking.openURL`). `GET /bills/:id/view?t=...` is public (no bearer header), rate limited, returns a printable
    HTML page titled "Final bill" (Keplix branding, bill number, lines, labour/parts/total, tax-inclusive note, "not a tax invoice"). Customer copy also
    shows the platform fee and total paid when the on-top fee was paid. Token: HMAC-SHA256 with the dedicated `BILL_LINK_SECRET` env var (min 32 chars, GitHub secret passed in deploy.yml; no fallback: if missing/short the bill-link endpoints return 503 `BILL_LINK_UNAVAILABLE` and the view page 403), 15-minute expiry, bound to the bill, role and
@@ -329,3 +329,7 @@ Payment.amount / platformFee / vendorAmount (fallback amount minus fee); nothing
 ### Booking list rows
 The customer booking list/detail and the vendor booking list rows now also carry `bill_status` (`'issued'` | `'paid'` | `null`) and `bill_total` (rupees | `null`),
 read from the open FinalBill (not a Booking column). `null` for legacy rows and v2 rows with no open bill.
+
+Vendor booking list rows additionally carry (no new Booking columns; joined in the same query):
+- `vehicle`: `{ make, model, registration, segment, fuel_type }` (each string or `null`) from the BookingVehicle snapshot + linked Vehicle, or `null` when the booking has no BookingVehicle row.
+- `notes`: the customer's booking note (`Booking.notes`) as a string, or `null` when empty.
