@@ -229,6 +229,24 @@ model Service {
   walkInJobServices    WalkInJobService[]
   vendor               User                  @relation("VendorServices", fields: [vendorId], references: [id], onDelete: Cascade)
   segmentPrices        ServiceSegmentPrice[]
+
+  // Pricing v2 (owner-approved 2026-11-20, docs/PRICING_V2_API.md). Every
+  // column is defaulted or nullable so `prisma db push` adds them to existing
+  // rows with no backfill. Existing services keep working on `price` alone;
+  // the API synthesises legacy lines for them on read (util/pricingV2.js).
+  // pricing_type: 'fixed' | 'starting' | 'inspection' (free text, like the
+  // other status columns here; validated in validators/vendor/serviceValidators.js).
+  pricing_type         String                @default("fixed")
+  inclusions           String[]              @default([])
+  exclusions           String[]              @default([])
+  price_change_note    String?
+  // Only meaningful for pricing_type 'inspection' (it is its base price).
+  inspection_fee       Decimal?              @db.Decimal(10, 2)
+  tax_inclusive        Boolean               @default(true)
+  // true once the vendor has saved real price lines; false for legacy
+  // services whose lines are synthesised from `price`.
+  breakdown_confirmed  Boolean               @default(false)
+  priceLines           ServicePriceLine[]
 }
 
 model Booking {
@@ -267,6 +285,14 @@ model Booking {
   healthSheet       HealthSheet?
   bookingVehicle    BookingVehicle?
   earlyStart        BookingEarlyStart?
+  // Pricing v2 side tables (virtual back-relations, no SQL on Booking).
+  // A booking is "v2" if and only if it has a bookingQuote.
+  bookingQuote      BookingQuote?
+  bookingJob        BookingJob?
+  extraWorkRequests ExtraWorkRequest[]
+  finalBills        FinalBill[]
+  bookingEvents     BookingEvent[]
+  bookingPhotos     BookingPhoto[]
 
   @@index([userId])
   @@index([serviceId])
@@ -683,6 +709,10 @@ model PlatformSettings {
   // 'customer' | 'platform' — who absorbs Razorpay's non-returnable fee on a
   // refund. 'customer' means the refund is amount minus that fee.
   refundGatewayFeeBorneBy  String  @default("customer")
+  // Pricing v2 switch. NULL = off (the default, so deploying changes nothing).
+  // Bookings created at or after this instant get a BookingQuote and follow
+  // the v2 flow; older bookings are never converted.
+  pricingV2From            DateTime?
 }
 
 enum AdminStatus {
@@ -1077,4 +1107,236 @@ model BookingEarlyStart {
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Pricing v2 (owner-approved 2026-11-20). Contract: docs/PRICING_V2_API.md.
+//
+// Booking is the payment/escrow-critical model and is not modified: every
+// table below holds its own FK to Booking (same rule as BookingVehicle).
+// Money columns are Decimal(10,2) rupees; all arithmetic happens in integer
+// paise in util/billMath.js. Kind/status columns are free text validated in
+// code, matching the rest of this schema.
+// ---------------------------------------------------------------------------
+
+// One priced line of a service. segment NULL = the base price list; a segment
+// value = that car type's own list (falls back to base when it has none).
+model ServicePriceLine {
+  id         Int             @id @default(autoincrement())
+  serviceId  Int
+  segment    VehicleSegment?
+  // 'labour' | 'part' (consumables count as 'part')
+  kind       String
+  name       String          @db.VarChar(80)
+  qty        Decimal         @db.Decimal(10, 2)
+  unit_price Decimal         @db.Decimal(10, 2)
+  sort_order Int             @default(0)
+  createdAt  DateTime        @default(now())
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId])
+}
+
+// Snapshot of the service's pricing at booking time. Its existence is what
+// makes a booking "v2"; a vendor editing the service later never changes it.
+model BookingQuote {
+  id                Int             @id @default(autoincrement())
+  bookingId         Int             @unique
+  pricing_type      String
+  segment           VehicleSegment?
+  inclusions        String[]        @default([])
+  exclusions        String[]        @default([])
+  price_change_note String?
+  inspection_fee    Decimal?        @db.Decimal(10, 2)
+  tax_inclusive     Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+
+  booking Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  lines   BookingQuoteLine[]
+}
+
+model BookingQuoteLine {
+  id         Int      @id @default(autoincrement())
+  quoteId    Int
+  // 'labour' | 'part'
+  kind       String
+  name       String   @db.VarChar(80)
+  qty        Decimal  @db.Decimal(10, 2)
+  unit_price Decimal  @db.Decimal(10, 2)
+  sort_order Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  quote BookingQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+// Workshop progress for a v2 booking. Created by check-in (one per booking).
+model BookingJob {
+  id                    Int       @id @default(autoincrement())
+  bookingId             Int       @unique
+  checked_in_at         DateTime  @default(now())
+  checked_in_by         Int?
+  odometer_km           Int?
+  // 'empty' | 'quarter' | 'half' | 'three_quarter' | 'full'
+  fuel_level            String?
+  condition_note        String?   @db.VarChar(500)
+  inspection_started_at DateTime?
+  work_started_at       DateTime?
+  work_completed_at     DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+// Extra work the garage asks the customer to approve. Immutable once sent:
+// a correction is a NEW request that supersedes this one (owner rule: an
+// approved line is never edited).
+model ExtraWorkRequest {
+  id                Int       @id @default(autoincrement())
+  bookingId         Int
+  // 1, 2, 3 ... per booking, for display ("Request #2").
+  number            Int
+  reason            String    @db.VarChar(300)
+  // 'pending' | 'partially_approved' | 'approved' | 'rejected' | 'superseded'
+  status            String    @default("pending")
+  supersedes_id     Int?
+  call_requested_at DateTime?
+  created_by        Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  booking Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  items   ExtraWorkItem[]
+  photos  BookingPhoto[]
+
+  @@unique([bookingId, number])
+  @@index([bookingId])
+}
+
+model ExtraWorkItem {
+  id            Int       @id @default(autoincrement())
+  requestId     Int
+  // 'labour' | 'part' | 'removal'
+  kind          String
+  name          String    @db.VarChar(80)
+  qty           Decimal   @db.Decimal(10, 2)
+  unit_price    Decimal   @db.Decimal(10, 2)
+  // Stored (not derived on read) because a removal's total comes from the
+  // quote line it removes, and is negative.
+  line_total    Decimal   @db.Decimal(10, 2)
+  // For 'removal': the BookingQuoteLine being taken off the bill.
+  quote_line_id Int?
+  // 'pending' | 'approved' | 'rejected' | 'superseded' | 'lapsed'
+  decision      String    @default("pending")
+  decided_at    DateTime?
+  decided_by    Int?
+  app_version   String?   @db.VarChar(40)
+  sort_order    Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  request ExtraWorkRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+// The bill the customer pays. Its total is the service amount the existing
+// on-top fee is added to. Void + reissue keeps history, so several rows per
+// booking can exist, but at most ONE non-void: open_booking_id holds the
+// bookingId while the bill is issued/paid and is cleared on void, and its
+// UNIQUE index enforces that in the database (Postgres allows many NULLs).
+model FinalBill {
+  id                   Int       @id @default(autoincrement())
+  bookingId            Int
+  open_booking_id      Int?      @unique
+  // "KPX-2026-000123", from BillNumberCounter (per IST year).
+  number               String    @unique
+  // 'issued' | 'paid' | 'void'
+  status               String    @default("issued")
+  labour_total         Decimal   @db.Decimal(10, 2)
+  parts_total          Decimal   @db.Decimal(10, 2)
+  total                Decimal   @db.Decimal(10, 2)
+  issued_at            DateTime  @default(now())
+  issued_by            Int?
+  paid_at              DateTime?
+  voided_at            DateTime?
+  voided_by            Int?
+  void_reason          String?   @db.VarChar(300)
+  // Unpaid-bill reminder markers (util/bookingStatusManager.js): set once
+  // sent, so a cron re-run never sends the same reminder twice.
+  reminder_24h_sent_at DateTime?
+  reminder_72h_sent_at DateTime?
+
+  booking Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  lines   FinalBillLine[]
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model FinalBillLine {
+  id         Int      @id @default(autoincrement())
+  billId     Int
+  kind       String
+  name       String   @db.VarChar(80)
+  qty        Decimal  @db.Decimal(10, 2)
+  unit_price Decimal  @db.Decimal(10, 2)
+  line_total Decimal  @db.Decimal(10, 2)
+  // 'quote' | 'extra' | 'waiver'
+  source     String
+  // BookingQuoteLine.id / ExtraWorkItem.id this line came from (null for waiver).
+  source_id  Int?
+  sort_order Int      @default(0)
+
+  bill FinalBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+}
+
+// Bill number counter. A Postgres SEQUENCE would need hand-written SQL, which
+// `prisma db push` (the only schema path, see CLAUDE.md) cannot create. One
+// row per year, incremented with INSERT ... ON CONFLICT DO UPDATE ... RETURNING
+// inside the bill transaction, which is atomic under concurrency.
+model BillNumberCounter {
+  year Int @id
+  last Int @default(0)
+}
+
+// Audit trail for every v2 pricing action.
+model BookingEvent {
+  id         Int      @id @default(autoincrement())
+  bookingId  Int
+  // 'user' | 'vendor' | 'system'
+  actor_role String
+  actor_id   Int?
+  type       String
+  payload    Json?
+  created_at DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+// Job photos the garage attaches at check-in or to an extra-work request
+// (owner mockup G03/G04). Side table, like every other v2 model: Booking gets
+// no column. extraWorkRequestId is NULL for check-in photos. url is the same
+// Cloudinary secure_url the existing upload middleware produces.
+model BookingPhoto {
+  id                 Int      @id @default(autoincrement())
+  bookingId          Int
+  extraWorkRequestId Int?
+  // 'check_in' | 'extra_work'
+  kind               String
+  url                String
+  created_by         Int?
+  createdAt          DateTime @default(now())
+
+  booking          Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  extraWorkRequest ExtraWorkRequest? @relation(fields: [extraWorkRequestId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([extraWorkRequestId])
 }

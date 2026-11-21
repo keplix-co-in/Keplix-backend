@@ -1,4 +1,4 @@
-import { resolveBookingAmount } from './servicePricing.js';
+import { resolveChargeableAmount } from './servicePricing.js';
 import { computeSplit, resolvePlatformFeeRate } from './platformSettings.js';
 
 import { FEE_MODEL_ON_TOP, refundableBase } from './feeModel.js';
@@ -27,7 +27,11 @@ export { FEE_MODEL_ON_TOP, refundableBase };
  * @returns {Promise<{amount:number, platformFee:number, vendorAmount:number, feeModel:string|null}|null>}
  */
 export async function resolveExpectedCharge(booking, notes) {
-  const price = resolveBookingAmount(booking);
+  // Pricing v2: a v2 booking's price is its open final bill's total; with no
+  // bill there is nothing a capture can legitimately match (null = reject).
+  // finalBillId is passed through so the payment can mark that bill paid.
+  const { amount: price, finalBillId } = resolveChargeableAmount(booking);
+  if (price === null) return null;
 
   if (notes?.feeModel === FEE_MODEL_ON_TOP) {
     const pricePaise = Math.round(Number(notes.servicePrice) * 100);
@@ -39,10 +43,14 @@ export async function resolveExpectedCharge(booking, notes) {
       platformFee: feePaise / 100,
       vendorAmount: pricePaise / 100,
       feeModel: FEE_MODEL_ON_TOP,
+      // Review fix 2026-11-21: also pass the bill the ORDER was made for, so
+      // the payment path can flag a capture whose bill was voided and
+      // re-issued with the same total (see util/pricingV2Payment.js).
+      ...(finalBillId ? { finalBillId, orderFinalBillId: notes.finalBillId ?? null } : {}),
     };
   }
 
   const { platformFee, vendorAmount } = computeSplit(price, await resolvePlatformFeeRate());
-  return { amount: price, platformFee, vendorAmount, feeModel: null };
+  return { amount: price, platformFee, vendorAmount, feeModel: null, ...(finalBillId ? { finalBillId } : {}) };
 }
 

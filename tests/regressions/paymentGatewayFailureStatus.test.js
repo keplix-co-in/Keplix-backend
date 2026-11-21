@@ -68,6 +68,9 @@ describe('payment order creation — gateway failures surface as 502, not 500 (r
     }));
     jest.unstable_mockModule('../../util/servicePricing.js', () => ({
       resolveBookingAmount: jest.fn().mockReturnValue(799),
+      // Pricing v2 helper: these bookings are legacy, so it is the same 799.
+      resolveChargeableAmount: jest.fn().mockReturnValue({ flow: 'legacy', amount: 799, finalBillId: null, billStatus: null }),
+      V2_AMOUNT_INCLUDE: {},
     }));
 
     const { createPaymentOrder } = await import('../../controllers/user/paymentController.js');

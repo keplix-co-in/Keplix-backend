@@ -26,6 +26,24 @@ const CLIENT_ERROR_MESSAGES = [
 ];
 
 /**
+ * Optional review on confirmation (shared by the paid and the ₹0-bill paths).
+ * Skipped when no rating is given or a review already exists.
+ */
+const recordReview = async (tx, { bookingId, userId, vendorId, rating, comment }) => {
+  if (rating === undefined || rating === null) return;
+  const ratingValue = Math.round(parseFloat(rating));
+  if (isNaN(ratingValue)) return;
+  const existingReview = await tx.review.findUnique({ where: { bookingId } });
+  if (existingReview) return;
+  await tx.review.create({
+    data: { bookingId, userId, vendorId, rating: ratingValue, comment: comment || null }
+  });
+  if (vendorId) {
+    await updateVendorRatingStats(tx, vendorId);
+  }
+};
+
+/**
  * Confirms a user's booking as satisfactorily completed: updates the
  * booking status, optionally records a review (and updates the vendor's
  * incremental rating), then claims the payment for payout by marking it
@@ -88,8 +106,29 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
       }
 
       const payment = currentBooking.payment;
-      if (!payment) {
+
+      // Owner decision 2026-11-21: a v2 booking whose final bill was ₹0 is
+      // auto-closed as paid with NO Payment row (Razorpay cannot charge ₹0).
+      // Confirming it just closes the booking: no payout, no refund check.
+      // Without this it was stuck in service_completed forever.
+      const noChargeBill = !payment
+        ? await tx.finalBill.findFirst({ where: { bookingId, status: "paid", total: 0 }, select: { id: true } })
+        : null;
+
+      if (!payment && !noChargeBill) {
         throw new Error("No payment found for this booking");
+      }
+
+      if (noChargeBill) {
+        const { count } = await tx.booking.updateMany({
+          where: { id: bookingId, status: "service_completed" },
+          data: { status: "user_confirmed" }
+        });
+        if (count === 0) {
+          throw new Error("Booking status has changed before it could be confirmed");
+        }
+        await recordReview(tx, { bookingId, userId, vendorId: currentBooking.service?.vendorId, rating, comment });
+        return { paymentId: null, vendorId: currentBooking.service?.vendorId, bookingId };
       }
 
       if (payment.status !== "success") {
@@ -147,32 +186,7 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
         throw new Error("Booking status has changed before it could be confirmed");
       }
 
-      if (rating !== undefined && rating !== null) {
-        const ratingValue = Math.round(parseFloat(rating));
-        if (!isNaN(ratingValue)) {
-          const vendorId = currentBooking.service?.vendorId;
-
-          const existingReview = await tx.review.findUnique({
-            where: { bookingId: bookingId }
-          });
-
-          if (!existingReview) {
-            await tx.review.create({
-              data: {
-                bookingId: bookingId,
-                userId: userId,
-                vendorId: vendorId,
-                rating: ratingValue,
-                comment: comment || null
-              }
-            });
-
-            if (vendorId) {
-              await updateVendorRatingStats(tx, vendorId);
-            }
-          }
-        }
-      }
+      await recordReview(tx, { bookingId, userId, vendorId: currentBooking.service?.vendorId, rating, comment });
 
       await tx.payment.update({
         where: { id: payment.id },
@@ -209,4 +223,6 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
     }
     throw error;
   }
+  // Callers need paymentId === null to tell a ₹0 close (no payout) from a paid one.
+  return result;
 };

@@ -146,7 +146,9 @@ describe('confirmServiceCompletion', () => {
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking) }
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking) },
+        // No ₹0 paid bill either (2026-11-21), so it is still "no payment".
+        finalBill: { findFirst: jest.fn().mockResolvedValue(null) }
       };
       await callback(tx);
     });
@@ -155,5 +157,34 @@ describe('confirmServiceCompletion', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ message: 'No payment found for this booking' });
+  });
+
+  // Owner decision 2026-11-21: a v2 booking closed by a paid ₹0 bill has no
+  // Payment row; confirming must close it without any payout.
+  test('₹0 paid bill, no Payment row: confirms, records review, no payout queued', async () => {
+    const mockBooking = { id: 100, userId: 1, status: 'service_completed', service: { vendorId: 10, name: 'Inspection' }, payment: null };
+    prisma.booking.findUnique.mockResolvedValue(mockBooking);
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      finalBill: { findFirst: jest.fn().mockResolvedValue({ id: 7 }) },
+      review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      payment: { update: jest.fn() },
+      refund: { findFirst: jest.fn() },
+    };
+    prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+
+    await confirmServiceCompletion(req, res);
+
+    expect(tx.finalBill.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { bookingId: 100, status: 'paid', total: 0 } }));
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 100, status: 'service_completed' }, data: { status: 'user_confirmed' } });
+    expect(tx.review.create).toHaveBeenCalled();
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(tx.refund.findFirst).not.toHaveBeenCalled();
+    expect(addPayoutJob).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalledWith(400);
+    // Why: no Payment row means no payout, so the reply must not claim one is processing.
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Service confirmed.', booking: expect.objectContaining({ payoutStatus: 'none' }) }));
+    expect(res.status).not.toHaveBeenCalledWith(500);
   });
 });

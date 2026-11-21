@@ -22,6 +22,8 @@ jest.unstable_mockModule('../../services/healthSheetService.js', () => ({
 }));
 jest.unstable_mockModule('../../util/platformSettings.js', () => ({
   resolvePayoutHoldUntil: jest.fn().mockResolvedValue(null),
+  // Pricing v2 off: these tests cover legacy bookings.
+  isPricingV2ActiveFor: jest.fn().mockResolvedValue(false),
 }));
 jest.unstable_mockModule('../../queues/notificationQueue.js', () => ({
   addNotificationJob: jest.fn(),

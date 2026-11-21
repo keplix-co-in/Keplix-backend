@@ -36,15 +36,17 @@ export const confirmServiceCompletion = async (req, res) => {
       });
     }
 
-    await confirmBookingAndQueuePayout({ userId, bookingId, rating, comment });
+    const result = await confirmBookingAndQueuePayout({ userId, bookingId, rating, comment });
+    // A ₹0-bill booking has no Payment row and no payout; "payout is being processed" would be false.
+    const noPayout = !result || result.paymentId === null;
 
     return res.json({
       success: true,
-      message: "Service confirmed. Vendor payout is being processed.",
+      message: noPayout ? "Service confirmed." : "Service confirmed. Vendor payout is being processed.",
       booking: {
         id: bookingId,
         status: "user_confirmed",
-        payoutStatus: "processing"
+        payoutStatus: noPayout ? "none" : "processing"
       }
     });
 

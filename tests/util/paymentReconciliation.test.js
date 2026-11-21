@@ -40,6 +40,9 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
 // The configured fee rate (10%), read from settings since 2026-11-03.
 jest.unstable_mockModule('../../util/platformSettings.js', () => ({
   resolvePlatformFeeRate: jest.fn().mockResolvedValue(0.1),
+  // Imported by the payment paths since the v2 escrow fix (2026-11-21);
+  // only read for pricing v2 charges, which this legacy suite never makes.
+  resolvePayoutHoldUntil: jest.fn().mockResolvedValue(null),
   computeSplit: (amount, rate) => {
     const paise = Math.round(Number(amount) * 100);
     const fee = Math.round(paise * rate);

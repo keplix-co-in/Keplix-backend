@@ -55,6 +55,9 @@ jest.unstable_mockModule('../../util/notificationHelper.js', () => ({
 }));
 jest.unstable_mockModule('../../util/platformSettings.js', () => ({
   resolvePlatformFeeRate: jest.fn().mockResolvedValue(0.1),
+  // Imported by the payment paths since the v2 escrow fix (2026-11-21);
+  // only read for pricing v2 charges, which this legacy suite never makes.
+  resolvePayoutHoldUntil: jest.fn().mockResolvedValue(null),
   // Same paisa-rounded split as util/platformSettings.js.
   computeSplit: (amount, rate) => { const p = Math.round(amount * 100); const f = Math.round(p * rate); return { platformFee: f / 100, vendorAmount: (p - f) / 100 }; },
   computeCharge: (price, rate) => { const p = Math.round(price * 100); const f = Math.round(p * rate); return { servicePrice: p / 100, platformFee: f / 100, feeRate: rate, total: (p + f) / 100 }; },

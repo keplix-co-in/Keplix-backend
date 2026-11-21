@@ -13,6 +13,7 @@ import { toCanonicalTime, minutesToLabel, SLOT_MINUTES, bookingDayKey, bookingDa
 import { getISTDate } from "../../util/time.js";
 import { isValidBookingStatus, isValidVendorStatus } from "../../util/bookingStatus.js";
 import { parseIdParam } from "../../util/parseIdParam.js";
+import { PRICING_FLOW_INCLUDE, withPricingFlow } from "../../util/pricingV2.js";
 
 // The ONLY status changes a vendor makes through updateBookingStatus, and the
 // states each may start from. Owner-approved booking-flow plan (2026-10-20).
@@ -123,13 +124,15 @@ export const getVendorBookings = async (req, res) => {
         // edited the price since. Scalar row only (no vehicle relation), so no
         // customer vehicle details are added to this response.
         bookingVehicle: true,
+        // Pricing v2: pricing_flow on every row (see withPricingFlow).
+        ...PRICING_FLOW_INCLUDE,
       },
       orderBy: { booking_date: "desc" },
       skip: Number(skip),
       take: pageSize,
     });
 
-    res.json(bookings);
+    res.json(bookings.map(withPricingFlow));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -327,7 +330,14 @@ export const updateBookingStatus = async (req, res) => {
           vendorId: req.user.id
         }
       },
-      select: { id: true, status: true, createdAt: true }
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        // Pricing v2 completion gate (below).
+        bookingQuote: { select: { id: true } },
+        finalBills: { where: { status: { in: ['issued', 'paid'] } }, select: { id: true }, take: 1 },
+      }
     });
 
     // Deliberately 404, not 403: a vendor should not be able to probe which
@@ -363,6 +373,18 @@ export const updateBookingStatus = async (req, res) => {
       });
       if (!gate.ok) {
         return res.status(409).json({ code: gate.code, message: gate.message });
+      }
+
+      // Pricing v2 (docs/PRICING_V2_API.md section 4): a v2 booking is paid
+      // against its final bill, so it cannot be completed before one exists.
+      // Completion starts the confirm window and the payout path; without a
+      // bill the customer would have nothing to pay.
+      if (currentBooking.bookingQuote && (currentBooking.finalBills ?? []).length === 0) {
+        return res.status(409).json({
+          success: false,
+          code: 'BILL_NOT_ISSUED',
+          message: 'Issue the final bill before marking this booking completed.',
+        });
       }
     }
 
@@ -412,6 +434,11 @@ export const updateBookingStatus = async (req, res) => {
         id: bookingId,
         service: { vendorId: req.user.id },
         status: { in: allowedFrom },
+        // Same check-then-act reasoning for the v2 bill gate: a bill voided
+        // between the read above and this write must still block completion.
+        ...(status === 'service_completed' && currentBooking.bookingQuote
+          ? { finalBills: { some: { status: { in: ['issued', 'paid'] } } } }
+          : {}),
       },
       data: updateData,
     });

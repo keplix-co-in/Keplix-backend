@@ -5,7 +5,7 @@ import { createNotification } from "../../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import Logger from "../../util/logger.js";
 import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
-import { resolveBookingAmount } from "../../util/servicePricing.js";
+import { resolveChargeableAmount, V2_AMOUNT_INCLUDE } from "../../util/servicePricing.js";
 import { computeCharge, resolvePlatformFeeRate } from "../../util/platformSettings.js";
 import { FEE_MODEL_ON_TOP } from "../../util/feeModel.js";
 import { isBookingPayable } from "../../util/bookingStatus.js";
@@ -44,7 +44,7 @@ export const createPaymentOrder = async (req, res) => {
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingIdNum },
-      include: { service: true, bookingVehicle: true },
+      include: { service: true, bookingVehicle: true, ...V2_AMOUNT_INCLUDE },
     });
 
     if (!booking || !booking.service) {
@@ -75,7 +75,24 @@ export const createPaymentOrder = async (req, res) => {
     // booking was created) over a fresh lookup of the service's current
     // price. See util/servicePricing.js — this is one of three sites that
     // must agree, or the webhook's cross-check below fails every payment.
-    const servicePriceRupees = resolveBookingAmount(booking);
+    // Pricing v2: for a v2 booking (has a BookingQuote) the amount is the
+    // issued final bill's total, and there is nothing to pay before it.
+    const chargeable = resolveChargeableAmount(booking);
+    if (chargeable.flow === 'v2' && chargeable.amount === null) {
+      return res.status(409).json({
+        success: false,
+        message: "The garage has not issued the final bill yet.",
+        code: "BILL_NOT_READY",
+      });
+    }
+    if (chargeable.flow === 'v2' && chargeable.billStatus === 'paid') {
+      return res.status(409).json({
+        success: false,
+        message: "This bill has already been paid.",
+        code: "ALREADY_PAID",
+      });
+    }
+    const servicePriceRupees = chargeable.amount;
 
     // Razorpay's minimum order is ₹1 (100 paise). A booking priced at 0 (a
     // missing price_snapshot or a ₹0 service) used to reach the gateway and
@@ -117,7 +134,10 @@ export const createPaymentOrder = async (req, res) => {
         // (pre-switch) order has no frozen fee in its notes.
         (o) => o.status === 'created' && Number(o.amount) === amountPaise &&
           o.notes?.feeModel === FEE_MODEL_ON_TOP &&
-          Math.round(Number(o.notes?.platformFee) * 100) === Math.round(charge.platformFee * 100)
+          Math.round(Number(o.notes?.platformFee) * 100) === Math.round(charge.platformFee * 100) &&
+          // v2: an order made for a since-voided bill must not be reused for
+          // the re-issued one, even when the totals happen to match.
+          (chargeable.finalBillId ? o.notes?.finalBillId === String(chargeable.finalBillId) : true)
       ) ?? null;
     } catch (lookupError) {
       // A failed lookup must not block payment — worst case we create a new
@@ -142,6 +162,8 @@ export const createPaymentOrder = async (req, res) => {
           platformFee: charge.platformFee.toFixed(2),
           feeRate: String(charge.feeRate),
           feeModel: FEE_MODEL_ON_TOP,
+          // v2 only (legacy notes stay byte-identical): which bill this pays.
+          ...(chargeable.finalBillId ? { finalBillId: String(chargeable.finalBillId) } : {}),
         },
       });
     }
@@ -199,7 +221,7 @@ export const getPaymentQuote = async (req, res) => {
     }
     const booking = await prisma.booking.findUnique({
       where: { id: bookingIdNum },
-      include: { service: true, bookingVehicle: true },
+      include: { service: true, bookingVehicle: true, ...V2_AMOUNT_INCLUDE },
     });
     if (!booking || !booking.service) {
       return res.status(404).json({ success: false, message: "Booking not found" });
@@ -208,8 +230,17 @@ export const getPaymentQuote = async (req, res) => {
     if (booking.userId !== req.user.id) {
       return res.status(403).json({ success: false, message: "Not authorized for this booking" });
     }
+    // Same amount helper as createPaymentOrder, so quote and order agree.
+    const chargeable = resolveChargeableAmount(booking);
+    if (chargeable.amount === null) {
+      return res.status(409).json({
+        success: false,
+        message: "The garage has not issued the final bill yet.",
+        code: "BILL_NOT_READY",
+      });
+    }
     const { servicePrice, platformFee, feeRate, total } = computeCharge(
-      resolveBookingAmount(booking),
+      chargeable.amount,
       await resolvePlatformFeeRate(),
     );
     return res.json({ success: true, data: { servicePrice, platformFee, feeRate, total } });

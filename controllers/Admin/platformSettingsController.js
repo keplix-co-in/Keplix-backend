@@ -25,7 +25,7 @@ export const getPlatformSettingsAdmin = async (req, res) => {
 //          path.
 // @route   PATCH /admin/platform-settings
 export const updatePlatformSettingsAdmin = async (req, res) => {
-  const { isPlatformFeeEnabled, platformFeePercentage, isHealthSheetRequired, healthSheetRequiredFrom } = req.body;
+  const { isPlatformFeeEnabled, platformFeePercentage, isHealthSheetRequired, healthSheetRequiredFrom, pricingV2From } = req.body;
 
   try {
     const existing = await prisma.platformSettings.findFirst();
@@ -35,6 +35,9 @@ export const updatePlatformSettingsAdmin = async (req, res) => {
       ...(isHealthSheetRequired !== undefined ? { isHealthSheetRequired } : {}),
       ...(healthSheetRequiredFrom !== undefined
         ? { healthSheetRequiredFrom: healthSheetRequiredFrom ? new Date(healthSheetRequiredFrom) : null }
+        : {}),
+      ...(pricingV2From !== undefined
+        ? { pricingV2From: pricingV2From ? new Date(pricingV2From) : null }
         : {}),
       updatedAt: new Date(),
     };

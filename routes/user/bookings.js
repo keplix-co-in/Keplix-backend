@@ -14,6 +14,8 @@ import {
 const router = express.Router();
 
 import { getPaymentByBooking } from '../../controllers/user/bookingController.js';
+import { getUserBookingPricing, userDecideExtraWork, userRequestCall, userBillLink } from '../../controllers/user/pricingController.js';
+import { decisionSchema } from '../../validators/pricingV2Validators.js';
 
 /**
  * @swagger
@@ -447,5 +449,136 @@ router.post('/:userId/bookings/:id/dispute', protect, validateRequest(disputeSer
 // Alias: Allow standard REST path if needed by other components
 router.get('/bookings', protect, getUserBookings);
 router.post('/bookings', protect, validateRequest(createBookingSchema), createBooking);
+
+// ---- Pricing v2 (docs/PRICING_V2_API.md sections 3 and 5). The customer is the
+// only party that can approve or reject extra work: these routes check the
+// booking's userId, and the vendor router has no decision route at all. ----
+
+/**
+ * @swagger
+ * /service_api/user/bookings/{id}/pricing:
+ *   get:
+ *     summary: Pricing v2 state of a booking
+ *     description: Quote, job progress, extra-work requests, final bill, running total and the can flags for the customer. A legacy booking returns {flow: legacy}.
+ *     tags: [Bookings, Pricing v2]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Booking ID
+ *     responses:
+ *       200:
+ *         description: Pricing object
+ *       400:
+ *         description: Invalid id or body (VALIDATION_ERROR)
+ *       403:
+ *         description: Not this customer's booking (FORBIDDEN)
+ *       404:
+ *         description: Booking or request not found
+ */
+router.get('/bookings/:id/pricing', protect, getUserBookingPricing);
+
+/**
+ * @swagger
+ * /service_api/user/bookings/{id}/extra-work/{requestId}/decision:
+ *   post:
+ *     summary: Approve or reject extra-work items
+ *     description: Each id must be a pending item of the request; otherwise 409 ITEM_NOT_PENDING and nothing is applied. Optional header x-app-version is recorded with the decision.
+ *     tags: [Bookings, Pricing v2]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Booking ID
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Extra-work request ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               approve:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               reject:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: The updated pricing object
+ *       400:
+ *         description: Invalid id or body (VALIDATION_ERROR)
+ *       403:
+ *         description: Not this customer's booking (FORBIDDEN)
+ *       404:
+ *         description: Booking or request not found
+ *       409:
+ *         description: ITEM_NOT_PENDING, REQUEST_CLOSED, BILL_EXISTS or NOT_V2
+ */
+router.post('/bookings/:id/extra-work/:requestId/decision', protect, validateRequest(decisionSchema), userDecideExtraWork);
+
+/**
+ * @swagger
+ * /service_api/user/bookings/{id}/extra-work/{requestId}/call-request:
+ *   post:
+ *     summary: Ask the garage to call about an extra-work request
+ *     description: Records the request and notifies the garage. Never approves or rejects anything.
+ *     tags: [Bookings, Pricing v2]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Booking ID
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Extra-work request ID
+ *     responses:
+ *       200:
+ *         description: The updated pricing object
+ *       400:
+ *         description: Invalid id or body (VALIDATION_ERROR)
+ *       403:
+ *         description: Not this customer's booking (FORBIDDEN)
+ *       404:
+ *         description: Booking or request not found
+ *       409:
+ *         description: REQUEST_CLOSED or NOT_V2
+ */
+router.post('/bookings/:id/extra-work/:requestId/call-request', protect, userRequestCall);
+
+/**
+ * @swagger
+ * /service_api/user/bookings/{id}/bill-link:
+ *   post:
+ *     summary: Signed 15-minute link to the printable final bill (Download Invoice)
+ *     description: Returns {url, expires_at}. 409 BILL_NOT_ISSUED when there is no bill yet.
+ *     tags: [Bookings, Pricing v2]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/bookings/:id/bill-link', protect, userBillLink);
 
 export default router;

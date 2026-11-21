@@ -2,6 +2,7 @@ import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: l
 import prisma from "../../util/prisma.js";
 import { Prisma } from "@prisma/client";
 import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
+import { serializeServicePricing, withServicePricing } from "../../util/pricingV2.js";
 
 /**
  * Get All Services (Public)
@@ -147,6 +148,16 @@ export const getAllServices = async (req, res) => {
       list.push({ segment: row.segment, price: parseFloat(row.price.toString()) });
       segmentPricesByService.set(row.serviceId, list);
     }
+    // Pricing v2 lines, batched the same way for the same reason.
+    const priceLineRows = serviceIds.length
+      ? await prisma.servicePriceLine.findMany({ where: { serviceId: { in: serviceIds } } })
+      : [];
+    const priceLinesByService = new Map();
+    for (const row of priceLineRows) {
+      const list = priceLinesByService.get(row.serviceId) ?? [];
+      list.push(row);
+      priceLinesByService.set(row.serviceId, list);
+    }
 
     // Standardize the response format
     const enrichedServices = services.map((service) => {
@@ -198,6 +209,12 @@ export const getAllServices = async (req, res) => {
         // check — the same convention `is_active`/`is_featured` already use.
         segment_prices: segmentPricesByService.get(service.id) ?? [],
         vehicle_note: service.vehicle_note ?? null,
+        // Pricing v2 fields (docs/PRICING_V2_API.md section 1). Both branches
+        // select every Service column (s.* / Prisma), so the row has them.
+        ...serializeServicePricing(service, {
+          priceLines: priceLinesByService.get(service.id) ?? [],
+          segmentPrices: segmentPricesByService.get(service.id) ?? [],
+        }),
       };
     });
 
@@ -223,7 +240,7 @@ export const getServiceById = async (req, res) => {
     // unapproved vendor's service is a 404 to customers.
     const service = await prisma.service.findFirst({
       where: { id: parseInt(req.params.id), vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
-      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
     });
 
     if (service) {
@@ -235,7 +252,7 @@ export const getServiceById = async (req, res) => {
         : null;
 
       const enrichedService = {
-        ...service,
+        ...withServicePricing(service),
         image_url: fullImageUrl,
         image: fullImageUrl,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
@@ -318,13 +335,13 @@ export const getFeaturedServices = async (req, res) => {
       where,
       skip,
       take: limit,
-      include: { vendor: PUBLIC_VENDOR_INCLUDE },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
       orderBy: { id: "desc" },
     });
 
     const total = await prisma.service.count({ where });
 
-    const enrichedServices = services.map((service) => {
+    const enrichedServices = services.map(withServicePricing).map((service) => {
       const imgUrl = service.image_url;
       const fullImageUrl = imgUrl
         ? imgUrl.startsWith("http")
@@ -439,9 +456,12 @@ export const searchVendorsByLocation = async (req, res) => {
     `;
 
     const vendorIds = nearbyVendors.map((v) => v.userId);
-    const services = await prisma.service.findMany({
-      where: { vendorId: { in: vendorIds }, is_active: true },
-    });
+    const services = (
+      await prisma.service.findMany({
+        where: { vendorId: { in: vendorIds }, is_active: true },
+        include: { segmentPrices: true, priceLines: true },
+      })
+    ).map(withServicePricing);
 
     const formattedVendors = nearbyVendors.map((v) => ({
       id: v.userId,
@@ -486,13 +506,13 @@ export const getServicesByVendor = async (req, res) => {
 
     const services = await prisma.service.findMany({
       where: { vendorId: parseInt(vendorId), is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
-      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
       take: clampLimit(limit),
     });
 
-    const enrichedServices = services.map((service) => {
+    const enrichedServices = services.map(withServicePricing).map((service) => {
       const imgUrl = service.image_url;
       const fullImageUrl = imgUrl
         ? imgUrl.startsWith("http")

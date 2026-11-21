@@ -17,6 +17,8 @@ const DEFAULTS = {
   payoutHoldHours: 24,
   autoRefundOnCancellation: false,
   refundGatewayFeeBorneBy: 'customer',
+  // Pricing v2 off unless an admin sets a start instant.
+  pricingV2From: null,
 };
 
 export async function getPlatformSettings() {
@@ -136,4 +138,16 @@ export async function resolvePayoutHoldUntil(completedAt = new Date()) {
   const hours = Number(settings.payoutHoldHours ?? DEFAULTS.payoutHoldHours);
   if (!Number.isFinite(hours) || hours <= 0) return null;
   return new Date(completedAt.getTime() + hours * 60 * 60 * 1000);
+}
+
+/**
+ * Whether a booking created at `createdAt` uses pricing v2 (gets a
+ * BookingQuote). Off when the setting is null. Anchored to the booking's own
+ * creation time, like isHealthSheetRequiredFor, so turning it on never
+ * changes a booking that already exists.
+ */
+export async function isPricingV2ActiveFor(createdAt) {
+  const settings = await getPlatformSettings();
+  if (!settings?.pricingV2From) return false;
+  return createdAt >= new Date(settings.pricingV2From);
 }

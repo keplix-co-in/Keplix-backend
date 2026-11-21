@@ -49,4 +49,42 @@ export function resolveBookingAmount(booking) {
   return resolveServiceAmount(booking.service, null);
 }
 
-export default { resolveServiceAmount, resolveBookingAmount };
+/**
+ * Pricing v2 (docs/PRICING_V2_API.md section 6). Add to every booking load
+ * that feeds resolveChargeableAmount, next to service + bookingVehicle.
+ * Only the open (issued/paid) bill is needed; a voided bill is never payable.
+ */
+export const V2_AMOUNT_INCLUDE = {
+  bookingQuote: { select: { id: true } },
+  finalBills: {
+    where: { status: { in: ['issued', 'paid'] } },
+    orderBy: { id: 'desc' },
+    take: 1,
+    select: { id: true, status: true, total: true },
+  },
+};
+
+/**
+ * The amount ALL THREE payment paths (order create, client verify, webhook /
+ * reconciliation) charge for a booking. Same drift warning as above: if one
+ * path resolved the amount differently, the capture cross-check would fail
+ * every payment or record the wrong amount.
+ *
+ * - legacy booking (no BookingQuote): resolveBookingAmount, exactly as before.
+ *   A booking loaded without V2_AMOUNT_INCLUDE has no `bookingQuote` key and is
+ *   therefore treated as legacy -- deliberate, so older callers keep working.
+ * - v2 booking: the total of its open final bill. No bill yet -> amount null
+ *   (callers answer BILL_NOT_READY / reject the capture).
+ *
+ * @returns {{flow:'legacy'|'v2', amount:number|null, finalBillId:number|null, billStatus:string|null}}
+ */
+export function resolveChargeableAmount(booking) {
+  if (!booking?.bookingQuote) {
+    return { flow: 'legacy', amount: resolveBookingAmount(booking), finalBillId: null, billStatus: null };
+  }
+  const bill = (booking.finalBills ?? []).find((b) => b.status === 'issued' || b.status === 'paid') ?? null;
+  if (!bill) return { flow: 'v2', amount: null, finalBillId: null, billStatus: null };
+  return { flow: 'v2', amount: parseFloat(bill.total.toString()), finalBillId: bill.id, billStatus: bill.status };
+}
+
+export default { resolveServiceAmount, resolveBookingAmount, resolveChargeableAmount, V2_AMOUNT_INCLUDE };

@@ -3,7 +3,9 @@ import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
 import prisma from "../../util/prisma.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
-import { resolveServiceAmount } from "../../util/servicePricing.js";
+import { resolveServiceAmount, V2_AMOUNT_INCLUDE } from "../../util/servicePricing.js";
+import { isPricingV2ActiveFor } from "../../util/platformSettings.js";
+import { buildQuoteSnapshot, PRICING_FLOW_INCLUDE, withPricingFlow } from "../../util/pricingV2.js";
 import { executeCancellationRefund, resolveCancellationRefund } from "../../services/refundPolicy.js";
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 import {
@@ -247,6 +249,8 @@ export const getUserBookings = async (req, res) => {
         // start early, so respondToEarlyStart could never be reached and the
         // vendor-side request would dead-end.
         earlyStart: true,
+        // Pricing v2: pricing_flow on every row (see withPricingFlow).
+        ...PRICING_FLOW_INCLUDE,
       },
       orderBy: { booking_date: "desc" },
     });
@@ -254,7 +258,7 @@ export const getUserBookings = async (req, res) => {
     const total = await prisma.booking.count({ where });
 
     const formattedBookings = bookings.map((booking) => ({
-      ...booking,
+      ...withPricingFlow(booking),
       service: {
         ...booking.service,
         image_url: booking.service.image_url
@@ -313,6 +317,7 @@ export const getSingleBooking = async (req, res) => {
         // start early, so respondToEarlyStart could never be reached and the
         // vendor-side request would dead-end.
         earlyStart: true,
+        ...PRICING_FLOW_INCLUDE,
       },
     });
 
@@ -320,7 +325,7 @@ export const getSingleBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    res.json(stripVendorSecrets({ ...booking, refund: buildRefundView({ booking, payment: booking.payment }) }));
+    res.json(stripVendorSecrets({ ...withPricingFlow(booking), refund: buildRefundView({ booking, payment: booking.payment }) }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -403,7 +408,7 @@ export const createBooking = async (req, res) => {
 
         const service = await prisma.service.findUnique({
             where: { id: serviceId },
-            include: { segmentPrices: true },
+            include: { segmentPrices: true, priceLines: true },
         });
         if (!service) {
             return res.status(404).json({ message: "Service not found" });
@@ -480,6 +485,20 @@ export const createBooking = async (req, res) => {
         // Booking + BookingVehicle together: a booking that priced against a
         // vehicle but has no snapshot row (or vice versa) is an inconsistent
         // state neither payment code path can safely reason about.
+
+        // Pricing v2 (docs/PRICING_V2_API.md section 2): a booking created at
+        // or after PlatformSettings.pricingV2From gets a BookingQuote, which is
+        // what makes it "v2". A settings read failure falls back to legacy:
+        // the legacy flow is the one every existing client already handles,
+        // so failing open to it never strands a booking.
+        let quoteSnapshot = null;
+        try {
+            if (await isPricingV2ActiveFor(new Date())) {
+                quoteSnapshot = buildQuoteSnapshot(service, vehicle?.segment ?? null, priceSnapshot);
+            }
+        } catch (settingsError) {
+            console.error("createBooking: pricing v2 check failed, booking stays legacy:", settingsError?.message);
+        }
 
         const booking = await prisma.$transaction(async (tx) => {
             // === DOUBLE-BOOKING GUARD ===
@@ -579,6 +598,18 @@ export const createBooking = async (req, res) => {
                 },
             });
 
+            // Same transaction as the BookingVehicle snapshot: a v2 booking
+            // without its quote would silently behave as legacy.
+            if (quoteSnapshot) {
+                await tx.bookingQuote.create({
+                    data: {
+                        bookingId: created.id,
+                        ...quoteSnapshot.quote,
+                        lines: { create: quoteSnapshot.lines },
+                    },
+                });
+            }
+
             return created;
         });
 
@@ -644,7 +675,8 @@ export const canProceedToPayment = async (req, res) => {
       where: { id: bookingId },
       include: {
         service: true,
-        payment: true
+        payment: true,
+        ...V2_AMOUNT_INCLUDE,
       }
     });
 
@@ -661,10 +693,22 @@ export const canProceedToPayment = async (req, res) => {
     // the vendor AND in a live status. Checking vendor_status alone told the
     // app a cancelled-but-once-accepted booking could still be paid for, and
     // the resulting capture then had to be refunded.
-    const canPay = isBookingPayable(booking) && !booking.payment;
+    let canPay = isBookingPayable(booking) && !booking.payment;
+    // Pricing v2: a v2 booking is paid against its final bill, so it cannot
+    // be paid before the garage issues one. `reason` is additive (older app
+    // builds ignore it); null whenever no v2-specific rule applies.
+    let reason = null;
+    if (canPay && booking.bookingQuote) {
+      const bill = (booking.finalBills ?? []).find((b) => b.status === 'issued');
+      if (!bill) {
+        canPay = false;
+        reason = 'BILL_NOT_READY';
+      }
+    }
 
     res.json({
       canPay,
+      reason,
       vendor_status: booking.vendor_status,
       status: booking.status,
       hasPayment: !!booking.payment,

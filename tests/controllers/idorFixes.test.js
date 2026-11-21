@@ -82,6 +82,7 @@ jest.unstable_mockModule('../../queues/notificationQueue.js', () => ({
 
 jest.unstable_mockModule('../../util/servicePricing.js', () => ({
   resolveServiceAmount: jest.fn(),
+  V2_AMOUNT_INCLUDE: {},
 }));
 
 jest.unstable_mockModule('../../services/refundPolicy.js', () => ({

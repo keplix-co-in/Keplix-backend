@@ -17,6 +17,10 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     serviceSegmentPrice: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // Pricing v2: getAllServices batch-loads price lines the same way.
+    servicePriceLine: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   },
 }));
 

@@ -38,7 +38,12 @@ jest.unstable_mockModule('../../services/paymentService.js', () => ({
   verifyAndRecordPayment: jest.fn(), recordCapturedPaymentFromWebhook: jest.fn(), PaymentError: class extends Error {},
 }));
 const resolveBookingAmount = jest.fn();
-jest.unstable_mockModule('../../util/servicePricing.js', () => ({ resolveBookingAmount }));
+jest.unstable_mockModule('../../util/servicePricing.js', () => ({
+  resolveBookingAmount,
+  // Pricing v2 helper: legacy bookings delegate to resolveBookingAmount.
+  resolveChargeableAmount: (b) => ({ flow: 'legacy', amount: resolveBookingAmount(b), finalBillId: null, billStatus: null }),
+  V2_AMOUNT_INCLUDE: {},
+}));
 
 const { createPaymentOrder } = await import('../../controllers/user/paymentController.js');
 
