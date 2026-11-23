@@ -14,7 +14,7 @@ three clients are built against. If you change the API, change this file in the 
 - Deferred: booking deposit, subscription model, settlement screen, GST lines.
 
 ## Feature switch and "v2 booking"
-- `PlatformSettings.pricingV2From DateTime?`. `null` = off (default). It is set by an admin later.
+- `PlatformSettings.pricingV2From` is NO LONGER READ (owner 2026-11-21): every new booking is v2. The column stays only to avoid a destructive schema change.
 - When a booking is created at or after `pricingV2From`, the backend writes a `BookingQuote` row.
   **A booking is "v2" if and only if it has a `BookingQuote`.** Bookings without one behave exactly as today:
   pay after accept, the same amounts, the same crons.

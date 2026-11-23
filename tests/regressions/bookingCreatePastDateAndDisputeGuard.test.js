@@ -116,6 +116,7 @@ describe('D-past-date — createBooking accepted a booking_date already in the p
           }),
         },
         bookingVehicle: { create: jest.fn().mockResolvedValue({}) },
+        bookingQuote: { create: jest.fn().mockResolvedValue({}) },
       }),
     );
 

@@ -6,6 +6,7 @@ jest.unstable_mockModule('../../../util/prisma.js', () => ({
     service: { findUnique: jest.fn() },
     booking: { findFirst: jest.fn(), create: jest.fn() },
     bookingVehicle: { create: jest.fn() },
+    bookingQuote: { create: jest.fn() },
     // createBooking now checks the requested time against the vendor's
     // opening hours before the transaction (see checkSlotBookable).
     vendorProfile: { findUnique: jest.fn() },
@@ -47,6 +48,7 @@ describe('createBooking slot conflict', () => {
     tx = {
       booking: { findFirst: jest.fn(), create: jest.fn() },
       bookingVehicle: { create: jest.fn() },
+      bookingQuote: { create: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([]),
       $executeRaw: jest.fn().mockResolvedValue(0),
     };

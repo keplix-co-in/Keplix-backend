@@ -248,6 +248,7 @@ describe('createBooking slot validation', () => {
           }),
         },
         bookingVehicle: { create: jest.fn().mockResolvedValue({}) },
+        bookingQuote: { create: jest.fn().mockResolvedValue({}) },
       }),
     );
     const res = mockRes();

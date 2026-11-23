@@ -100,25 +100,18 @@ describe('createBooking pricing v2 snapshot', () => {
     expect(tx.bookingQuote.create.mock.invocationCallOrder[0]).toBeGreaterThan(tx.bookingVehicle.create.mock.invocationCallOrder[0]);
   });
 
-  test('switch off (no settings row): legacy booking, no quote', async () => {
+  // Owner decision 2026-11-21: the switch is gone -- every new booking is v2,
+  // whatever PlatformSettings says (null row, future date, read failure).
+  test('no settings row: still a v2 booking with a quote', async () => {
     prisma.platformSettings.findFirst.mockResolvedValue(null);
     const res = await run();
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(tx.bookingQuote.create).not.toHaveBeenCalled();
+    expect(tx.bookingQuote.create).toHaveBeenCalled();
   });
 
-  test('switch set to a future instant: still legacy', async () => {
+  test('pricingV2From in the future is ignored: still v2', async () => {
     prisma.platformSettings.findFirst.mockResolvedValue({ pricingV2From: new Date(Date.now() + 86_400_000) });
     await run();
-    expect(tx.bookingQuote.create).not.toHaveBeenCalled();
-  });
-
-  test('settings read fails: booking still created as legacy (never blocks a booking)', async () => {
-    prisma.platformSettings.findFirst.mockRejectedValue(new Error('db blip'));
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await run();
-    spy.mockRestore();
-    expect(res.status).toHaveBeenCalledWith(201);
-    expect(tx.bookingQuote.create).not.toHaveBeenCalled();
+    expect(tx.bookingQuote.create).toHaveBeenCalled();
   });
 });

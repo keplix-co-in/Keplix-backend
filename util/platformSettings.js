@@ -146,8 +146,11 @@ export async function resolvePayoutHoldUntil(completedAt = new Date()) {
  * creation time, like isHealthSheetRequiredFor, so turning it on never
  * changes a booking that already exists.
  */
+// Owner decision 2026-11-21: no rollout switch -- every NEW booking uses
+// pricing v2. The PlatformSettings.pricingV2From column is kept (dropping it
+// would be a destructive schema change) but is no longer read. Bookings that
+// already exist keep whatever flow they were created with.
+// eslint-disable-next-line no-unused-vars
 export async function isPricingV2ActiveFor(createdAt) {
-  const settings = await getPlatformSettings();
-  if (!settings?.pricingV2From) return false;
-  return createdAt >= new Date(settings.pricingV2From);
+  return true;
 }
