@@ -99,7 +99,7 @@ describe('getAllServices', () => {
 
       const whereArg = prisma.service.findMany.mock.calls[0][0].where;
       // audit 2026-11-07: approval filter always applies alongside is_online.
-      expect(whereArg.vendor).toEqual({ vendorProfile: { status: 'approved', is_online: true } });
+      expect(whereArg.vendor).toMatchObject({ vendorProfile: { status: 'approved', is_online: true } });
     });
 
     it('ignores online_only when not "true"', async () => {
@@ -111,7 +111,7 @@ describe('getAllServices', () => {
       await getAllServices(req, res);
 
       const whereArg = prisma.service.findMany.mock.calls[0][0].where;
-      expect(whereArg.vendor).toEqual({ vendorProfile: { status: 'approved' } });
+      expect(whereArg.vendor).toMatchObject({ vendorProfile: { status: 'approved' } });
     });
 
     it('respects page and limit', async () => {
@@ -531,8 +531,8 @@ describe('customer listings exclude unapproved vendors', () => {
     prisma.service.findMany.mockResolvedValue([]);
     prisma.service.count.mockResolvedValue(0);
     await getAllServices(mockReq({ query: {} }), mockRes());
-    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toEqual(approved);
-    expect(prisma.service.count.mock.calls[0][0].where.vendor).toEqual(approved);
+    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toMatchObject(approved);
+    expect(prisma.service.count.mock.calls[0][0].where.vendor).toMatchObject(approved);
   });
 
   it('getAllServices (location SQL path) filters on vp.status = approved', async () => {
@@ -550,7 +550,7 @@ describe('customer listings exclude unapproved vendors', () => {
     prisma.service.findFirst.mockResolvedValue(null);
     const res = mockRes();
     await getServiceById(mockReq({ params: { id: '5' } }), res);
-    expect(prisma.service.findFirst.mock.calls[0][0].where).toEqual({ id: 5, vendor: approved });
+    expect(prisma.service.findFirst.mock.calls[0][0].where).toMatchObject({ id: 5, vendor: approved });
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
@@ -565,7 +565,43 @@ describe('customer listings exclude unapproved vendors', () => {
     prisma.service.findMany.mockResolvedValue([]);
     prisma.service.count.mockResolvedValue(0);
     await getServicesByVendor(mockReq({ params: { vendorId: '9' }, query: {} }), mockRes());
-    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toEqual(approved);
+    expect(prisma.service.findMany.mock.calls[0][0].where.vendor).toMatchObject(approved);
+  });
+
+  // Subscription visibility (2026-11-22): garages past the 7-day grace are hidden from customers.
+  const hasVisibility = (vendor) => {
+    expect(vendor.OR).toEqual([
+      { vendorSubscription: { is: null } },
+      { vendorSubscription: { is: { ends_at: { gt: expect.any(Date) } } } },
+    ]);
+  };
+
+  it('getAllServices, getServiceById, getFeaturedServices and getServicesByVendor all apply the subscription filter', async () => {
+    prisma.service.findMany.mockResolvedValue([]);
+    prisma.service.count.mockResolvedValue(0);
+    prisma.service.findFirst.mockResolvedValue(null);
+    await getAllServices(mockReq({ query: {} }), mockRes());
+    hasVisibility(prisma.service.findMany.mock.calls[0][0].where.vendor);
+    hasVisibility(prisma.service.count.mock.calls[0][0].where.vendor);
+    await getAllServices(mockReq({ query: { online_only: 'true' } }), mockRes());
+    hasVisibility(prisma.service.findMany.mock.calls[1][0].where.vendor);
+    await getServiceById(mockReq({ params: { id: '5' } }), mockRes());
+    hasVisibility(prisma.service.findFirst.mock.calls[0][0].where.vendor);
+    await getFeaturedServices(mockReq({ query: {} }), mockRes());
+    hasVisibility(prisma.service.findMany.mock.calls[2][0].where.vendor);
+    await getServicesByVendor(mockReq({ params: { vendorId: '7' } }), mockRes());
+    hasVisibility(prisma.service.findMany.mock.calls[3][0].where.vendor);
+  });
+
+  it('the location SQL listing and nearby-vendor SQL exclude expired subscriptions', async () => {
+    prisma.$queryRaw.mockResolvedValue([]);
+    await getAllServices(mockReq({ query: { latitude: '12.9', longitude: '77.6' } }), mockRes());
+    const flat = (call) => call.flat(Infinity).map((v) => (v && v.strings ? v.strings.join('?') : v && v.sql ? v.sql : Array.isArray(v) ? v.join('?') : String(v))).join(' ');
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls[0])).toContain('VendorSubscription');
+    prisma.$queryRaw.mockClear();
+    await searchVendorsByLocation(mockReq({ query: { latitude: '12.9', longitude: '77.6' } }), mockRes());
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls[0])).toContain('VendorSubscription');
+    expect(flat).toBeDefined();
   });
 
   it('searchVendorsByLocation SQL keeps its approved filter', async () => {

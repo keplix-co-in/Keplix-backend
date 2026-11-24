@@ -195,14 +195,11 @@ describe('auto-confirm cron', () => {
     expect(take).toBe(50);
   });
 
-  test('also picks v2 bookings closed by a paid ₹0 bill with no Payment row (owner decision 2026-11-21)', async () => {
+  test('also picks bookings with no Payment row (pay-at-garage, 2026-11-22)', async () => {
     mockPrisma.booking.findMany.mockResolvedValue([]);
     await manager.autoConfirmCompletedBookings(NOW);
     const { where } = mockPrisma.booking.findMany.mock.calls[0][0];
-    expect(where.OR[1]).toEqual({
-      payment: { is: null },
-      finalBills: { some: { status: 'paid', total: 0 } },
-    });
+    expect(where.OR[1]).toEqual({ payment: { is: null } });
   });
 
   test('confirms each candidate through the customer confirmation path (no rating) and notifies the customer', async () => {

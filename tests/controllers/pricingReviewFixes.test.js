@@ -7,7 +7,7 @@ jest.unstable_mockModule('../../services/pricingV2Service.js', () => ({
   checkIn: jest.fn(), completeWork: jest.fn(), getPricing: jest.fn(), addPhotos: jest.fn(),
   createBillLink: jest.fn(), getCustomerContact: jest.fn(), recordPartsUsed: jest.fn(),
   issueFinalBill: jest.fn(), requestExtraWork: jest.fn(), sendPricingError: jest.fn(),
-  startInspection: jest.fn(), startWork: jest.fn(), voidFinalBill: jest.fn(),
+  startInspection: jest.fn(), startWork: jest.fn(), voidFinalBill: jest.fn(), markBillPaid: jest.fn(),
 }));
 
 const { photoUploadPrecheck } = await import('../../middleware/photoUploadPrecheck.js');

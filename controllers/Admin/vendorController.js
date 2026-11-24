@@ -1,6 +1,9 @@
 import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import prisma from '../../util/prisma.js';
 import Logger from "../../util/logger.js";
+import { getOrCreateSubscription } from "../../util/subscription.js";
+import { signPrivateUrl } from "../../util/cloudinary.js";
+import { computeOnboarding, maskTail } from "../../util/vendorOnboarding.js";
 
 export const getVendorMetrics = async (req, res) => {
   try {
@@ -237,6 +240,24 @@ export const setVendorStatus = async (req, res) => {
       return res.status(404).json({ message: "Vendor profile not found" });
     }
 
+    // WHY: owner decision 2026-11-24 -- no vendor goes live with an incomplete
+    // onboarding, whatever the admin UI does. Checked before the no-op branch.
+    if (status === "approved") {
+      const full = await prisma.vendorProfile.findUnique({ where: { userId: vendorId } });
+      const docs = await prisma.document.findMany({
+        where: { vendorId },
+        select: { document_type: true },
+      });
+      const { complete, missing } = computeOnboarding(full, docs);
+      if (!complete) {
+        return res.status(400).json({
+          code: "ONBOARDING_INCOMPLETE",
+          message: "Vendor onboarding is incomplete.",
+          missing,
+        });
+      }
+    }
+
     if (profile.status === status) {
       return res.status(200).json({
         message: `Vendor is already ${status}.`,
@@ -250,6 +271,17 @@ export const setVendorStatus = async (req, res) => {
       select: { userId: true, status: true, business_name: true },
     });
 
+    // Audit: start the trial clock at approval. A vendor with no subscription row
+    // is treated as visible forever (rows are otherwise created lazily by the
+    // reminder cron), so create it here. Best-effort: approval already succeeded.
+    if (status === "approved") {
+      try {
+        await getOrCreateSubscription(vendorId, new Date());
+      } catch (e) {
+        Logger.error(`[Admin] trial row for vendor ${vendorId} failed: ${e.message}`);
+      }
+    }
+
     // Loud on purpose: this is the gate between a signup and a business that can
     // take customers' money, so it needs to be searchable in logs afterwards.
     Logger.warn(
@@ -259,6 +291,69 @@ export const setVendorStatus = async (req, res) => {
     return res.json({ message: `Vendor ${status}.`, vendor: updated });
   } catch (error) {
     Logger.error(`[Admin] setVendorStatus failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+
+/**
+ * GET /admin/vendors/:id -- everything onboarding collected, for the admin
+ * verification step. Bank/UPI masked to the last 4; document URLs are signed
+ * (they are private Cloudinary assets). Read-only; any admin may call it.
+ */
+export const getVendorDetail = async (req, res) => {
+  const vendorId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(vendorId)) {
+    return res.status(400).json({ message: "Invalid vendor id" });
+  }
+  try {
+    const user = await prisma.user.findFirst({
+      where: { id: vendorId, role: "vendor" },
+      select: { id: true, email: true, is_verified: true, is_active: true, createdAt: true, vendorProfile: true },
+    });
+    if (!user || !user.vendorProfile) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+    const [documents, servicesCount] = await Promise.all([
+      prisma.document.findMany({ where: { vendorId }, orderBy: { createdAt: "desc" } }),
+      prisma.service.count({ where: { vendorId } }),
+    ]);
+    const p = user.vendorProfile;
+    const onboarding = computeOnboarding(p, documents);
+    return res.json({
+      data: {
+        account: {
+          id: user.id, name: p.owner_name || null, email: user.email, phone: p.phone,
+          alternatePhone: p.alternate_phone, emailVerified: !!user.is_verified,
+          // No separate phone-verified flag on the schema; see owner items.
+          phoneVerified: null, isActive: user.is_active, createdAt: user.createdAt,
+          dateOfBirth: p.date_of_birth,
+        },
+        business: {
+          name: p.business_name, type: p.business_type, description: p.description,
+          address: p.address, street: p.street, area: p.area, city: p.city, state: p.state,
+          pincode: p.pincode, landmark: p.landmark, latitude: p.latitude, longitude: p.longitude,
+          operatingHours: p.operating_hours, breaks: p.breaks, holidays: p.holidays,
+          image: p.image ? signPrivateUrl(p.image) : null,
+          coverImage: p.cover_image ? signPrivateUrl(p.cover_image) : null,
+          hasGst: p.has_gst, gstNumber: p.gst_number, taxType: p.tax_type,
+        },
+        documents: documents.map((d) => ({
+          id: d.id, type: d.document_type, status: d.status, createdAt: d.createdAt,
+          url: signPrivateUrl(d.file_url),
+        })),
+        bank: {
+          accountHolder: p.bank_account_holder_name,
+          accountNumber: maskTail(p.bank_account_number),
+          ifsc: p.ifsc_code, upi: maskTail(p.upi_id),
+        },
+        servicesCount,
+        status: p.status,
+        onboarding,
+      },
+    });
+  } catch (error) {
+    Logger.error(`[Admin] getVendorDetail failed: ${error.message}`);
     return res.status(500).json({ message: "Server Error" });
   }
 };

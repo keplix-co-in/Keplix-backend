@@ -186,3 +186,15 @@ export const vendorPhotoUploadLimiter = rateLimit({
   keyGenerator: keyByUserOrIp,
   message: { success: false, code: 'RATE_LIMITED', message: 'Too many photo uploads. Please try again in a few minutes.' },
 });
+
+// Audit: subscription order/verify each hit Razorpay, so cap them per vendor
+// (~10/hour, keyed by user id; mounted after `protect`). In-memory store is fine:
+// the backend is single-instance by design.
+export const subscriptionPaymentLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: keyByUserOrIp,
+  message: { message: "Too many payment attempts, please try again later." }
+});

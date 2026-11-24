@@ -36,6 +36,8 @@ const extraWorkItemSchema = z
     qty: z.number().positive().max(9999).optional(),
     unit_price: money('Unit price').optional(),
     quote_line_id: positiveId.nullish(),
+    // Items sharing a job_key are one job (part + labour) and are decided together (2026-11-22).
+    job_key: z.string().trim().min(1).max(40).nullish(),
   })
   .superRefine((item, ctx) => {
     if (item.kind === 'removal') {
@@ -56,6 +58,11 @@ export const extraWorkSchema = z.object({
   reason: z.string().trim().min(3, { message: 'Reason must be at least 3 characters' }).max(300),
   items: z.array(extraWorkItemSchema).min(1, { message: 'Add at least one item' }).max(20),
   supersedes_id: positiveId.nullish(),
+});
+
+// Pay-the-garage (owner decision 2026-11-22): the garage records how it was paid.
+export const markPaidSchema = z.object({
+  method: z.enum(['cash', 'upi', 'card']),
 });
 
 export const voidBillSchema = z.object({

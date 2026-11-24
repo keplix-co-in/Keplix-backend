@@ -8,6 +8,7 @@ import { getISTDate } from './time.js';
 import { RESERVED_STATUSES } from '../services/refundService.js';
 import { confirmBookingAndQueuePayout } from '../services/bookingConfirmationService.js';
 import { sendBillReminders as sendFinalBillReminders } from '../services/billReminderService.js';
+import { sendSubscriptionReminders } from '../services/subscriptionReminderService.js';
 
 /**
  * How long after its slot an un-started booking is written off.
@@ -120,6 +121,7 @@ class BookingStatusManager {
       // Unpaid pricing v2 bill reminders (24h, 72h). Hours-scale, so the
       // 10-minute tick is plenty; idempotent per bill (see the service).
       await this.sendBillReminders(new Date());
+      await this.sendSubscriptionReminders(new Date());
     });
 
     // And once on startup, as the minute job does above. Cloud Run scales this
@@ -133,6 +135,7 @@ class BookingStatusManager {
     });
     // sendBillReminders never throws; same startup reasoning as above.
     this.sendBillReminders(new Date());
+    this.sendSubscriptionReminders(new Date());
 
     this.isRunning = true;
     Logger.info('Booking Status Manager started successfully');
@@ -503,6 +506,21 @@ class BookingStatusManager {
   }
 
   /**
+   * Garage subscription reminders + lazy trial rows. Runs on the 10-minute tick
+   * rather than a once-a-day cron because Cloud Run may scale to zero and miss
+   * a fixed daily time; the service's last_reminder_at claim keeps it to one
+   * reminder per day. Never throws.
+   */
+  async sendSubscriptionReminders(now) {
+    try {
+      const { sent } = await sendSubscriptionReminders(now);
+      if (sent > 0) Logger.info(`Sent ${sent} subscription reminder(s)`);
+    } catch (error) {
+      Logger.error('Error sending subscription reminders:', error);
+    }
+  }
+
+  /**
    * Confirm bookings the customer left in service_completed past the
    * auto-confirm window (AUTO_CONFIRM_HOURS), releasing the workshop's payout.
    *
@@ -560,8 +578,8 @@ class BookingStatusManager {
               },
             },
             {
+              // Pay-at-garage (2026-11-22): no Payment row is normal; close with no payout.
               payment: { is: null },
-              finalBills: { some: { status: 'paid', total: 0 } },
             },
           ],
         },

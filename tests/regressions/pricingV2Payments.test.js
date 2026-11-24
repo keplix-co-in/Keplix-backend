@@ -82,45 +82,25 @@ describe('resolveChargeableAmount (the one helper all paths use)', () => {
   });
 });
 
-describe('path 1: createPaymentOrder', () => {
-  test('charges the bill total + fee and records the bill id in the notes', async () => {
+// Pay-the-garage (2026-11-22): customers no longer pay through the app, so path 1
+// (order create) and the quote are 410 PAY_AT_GARAGE whatever the booking looks like.
+// Paths 2 and 3 below stay: they settle orders created before the switch.
+describe('path 1: createPaymentOrder / getPaymentQuote are gone', () => {
+  test.each([
+    ['v2 booking with an issued bill', () => v2Booking()],
+    ['v2 booking with no bill', () => v2Booking({ finalBills: [] })],
+    ['legacy booking', () => v2Booking({ bookingQuote: null, finalBills: [] })],
+  ])('%s -> 410 PAY_AT_GARAGE, no order, no lookup', async (_n, make) => {
+    mockPrisma.booking.findUnique.mockResolvedValue(make());
     const r = res();
     await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(rz.orders.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 858000, notes: v2Notes }));
-  });
-
-  test('no issued bill -> 409 BILL_NOT_READY, no order', async () => {
-    mockPrisma.booking.findUnique.mockResolvedValue(v2Booking({ finalBills: [] }));
-    const r = res();
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(r.status).toHaveBeenCalledWith(409);
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'BILL_NOT_READY' }));
+    expect(r.status).toHaveBeenCalledWith(410);
+    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'PAY_AT_GARAGE' }));
     expect(rz.orders.create).not.toHaveBeenCalled();
-  });
-
-  test('bill already paid -> 409 ALREADY_PAID', async () => {
-    mockPrisma.booking.findUnique.mockResolvedValue(v2Booking({ finalBills: [{ ...issuedBill, status: 'paid' }] }));
-    const r = res();
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'ALREADY_PAID' }));
-  });
-
-  test('legacy booking: notes stay exactly as before (no finalBillId)', async () => {
-    mockPrisma.booking.findUnique.mockResolvedValue(v2Booking({ bookingQuote: null, finalBills: [] }));
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, res());
-    const { amount, notes } = rz.orders.create.mock.calls[0][0];
-    expect(amount).toBe(110000);
-    expect(notes).not.toHaveProperty('finalBillId');
-  });
-
-  test('quote uses the same helper: bill total, or BILL_NOT_READY', async () => {
-    const r = res();
-    await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 7 } }, r);
-    expect(r.json).toHaveBeenCalledWith({ success: true, data: { servicePrice: 7800, platformFee: 780, feeRate: 0.1, total: 8580 } });
-    mockPrisma.booking.findUnique.mockResolvedValue(v2Booking({ finalBills: [] }));
-    const r2 = res();
-    await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 7 } }, r2);
-    expect(r2.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'BILL_NOT_READY' }));
+    const q = res();
+    await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 7 } }, q);
+    expect(q.status).toHaveBeenCalledWith(410);
+    expect(q.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'PAY_AT_GARAGE' }));
   });
 });
 

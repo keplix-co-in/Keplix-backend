@@ -75,19 +75,19 @@ describe('can-pay reason', () => {
     return r.json.mock.calls[0][0];
   };
 
-  test('v2 with no bill -> canPay false, reason BILL_NOT_READY', async () => {
+  test('v2 with no bill -> canPay false, reason PAY_AT_GARAGE (pay-the-garage, 2026-11-22)', async () => {
     prisma.booking.findUnique.mockResolvedValue(v2Booking({ status: 'in_progress', finalBills: [] }));
-    expect(await ask()).toMatchObject({ canPay: false, reason: 'BILL_NOT_READY' });
+    expect(await ask()).toMatchObject({ canPay: false, reason: 'PAY_AT_GARAGE' });
   });
 
-  test('v2 with an issued bill -> canPay true, reason null', async () => {
+  test('v2 with an issued bill -> still canPay false: the garage collects payment', async () => {
     prisma.booking.findUnique.mockResolvedValue(v2Booking({ status: 'in_progress' }));
-    expect(await ask()).toMatchObject({ canPay: true, reason: null });
+    expect(await ask()).toMatchObject({ canPay: false, reason: 'PAY_AT_GARAGE' });
   });
 
-  test('legacy -> unchanged rule, reason null', async () => {
+  test('legacy -> canPay false too', async () => {
     prisma.booking.findUnique.mockResolvedValue(v2Booking({ status: 'confirmed', bookingQuote: null, finalBills: [] }));
-    expect(await ask()).toMatchObject({ canPay: true, reason: null });
+    expect(await ask()).toMatchObject({ canPay: false, reason: 'PAY_AT_GARAGE' });
   });
 });
 

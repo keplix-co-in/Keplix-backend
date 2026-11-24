@@ -63,6 +63,8 @@ import publicBlogRoutes from "./routes/public/blog.js";
 import publicJobSheetRoutes from "./routes/public/jobSheet.js";
 import publicBillRoutes from "./routes/public/bills.js";
 import adminOfferRoutes from "./routes/Admin/offers.js";
+import vendorSubscriptionRoutes from "./routes/vendor/subscriptions.js";
+import adminSubscriptionRoutes from "./routes/Admin/subscriptions.js";
 import publicOfferRoutes from "./routes/public/offers.js";
 
 /**
@@ -318,6 +320,8 @@ app.use("/service_api/user", userGarageRoutes);
 app.use("/service_api", userServiceRoutes);
 app.use("/service_api", userPaymentRoutes);
 app.use("/service_api", vendorPaymentRoutes);
+// Garage subscriptions: the only thing the gateway is used for now (owner decision 2026-11-22).
+app.use("/subscriptions", vendorSubscriptionRoutes);
 
 // Interactions
 app.use("/interactions/api/user", userInteractionRoutes);
@@ -341,6 +345,7 @@ app.use("/admin", adminWalkInJobRoutes);
 app.use("/admin", adminHealthComponentRoutes);
 app.use("/admin", adminOfferRoutes);
 app.use("/admin", adminSettingsRoutes);
+app.use("/admin", adminSubscriptionRoutes); // garage subscriptions (2026-11-22 decision)
 
 // Public content (no auth) — consumed by the marketing site
 app.use("/content", publicBlogRoutes);

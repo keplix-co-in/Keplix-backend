@@ -20,6 +20,7 @@ import {
   startInspection,
   startWork,
   voidFinalBill,
+  markBillPaid,
 } from '../../services/pricingV2Service.js';
 
 const ctxOf = (req, res) => {
@@ -118,4 +119,5 @@ export const vendorBillLink = async (req, res) => {
   }
 };
 
+export const vendorMarkBillPaid = action('final-bill/mark-paid', (ctx, req) => markBillPaid(ctx, req.body));
 export const vendorVoidFinalBill = action('final-bill/void', (ctx, req) => voidFinalBill(ctx, req.body));

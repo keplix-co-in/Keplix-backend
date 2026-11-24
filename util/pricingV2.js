@@ -241,6 +241,8 @@ const itemOut = (i) => ({
   unit_price: num(i.unit_price),
   line_total: num(i.line_total),
   quote_line_id: i.quote_line_id ?? null,
+  // Part + labour of one job share a job_key; apps group by it (2026-11-22).
+  job_key: i.job_key ?? null,
   decision: i.decision,
   decided_at: iso(i.decided_at),
 });
@@ -297,10 +299,10 @@ export const billOut = (bill, quote = null) =>
         tax_inclusive: quote?.tax_inclusive ?? true,
         issued_at: iso(bill.issued_at),
         paid_at: iso(bill.paid_at),
+        paid_method: bill.paid_method ?? null,
       }
     : null;
 
-const PAID_PAYMENT_STATUSES = ['success', 'refunded'];
 
 /**
  * Section 3 `can` flags, for the caller's role. Clients show buttons from
@@ -317,6 +319,7 @@ export const computeCan = (booking, role) => {
     issue_bill: false,
     void_bill: false,
     pay: false,
+    mark_paid: false,
   };
   if (!booking?.bookingQuote) return can;
 
@@ -336,9 +339,13 @@ export const computeCan = (booking, role) => {
     can.request_extra_work = active && !bill;
     can.issue_bill = active && !bill;
     can.void_bill = active && bill?.status === 'issued';
+    // Garage confirms it was paid directly (cash/UPI/card); an issued bill only.
+    can.mark_paid = accepted && Boolean(job) && V2_ACTIVE_STATUSES.includes(booking.status) && bill?.status === 'issued';
   } else if (role === 'user') {
-    const paid = PAID_PAYMENT_STATUSES.includes(booking.payment?.status);
-    can.pay = accepted && bill?.status === 'issued' && !paid && V2_ACTIVE_STATUSES.includes(booking.status);
+    // PAY AT THE GARAGE (owner decision 2026-11-22): the customer never pays or
+    // confirms payment in the app, so `pay` stays false. The garage marks the
+    // bill paid (can.mark_paid on the vendor side).
+    can.pay = false;
   }
   return can;
 };
@@ -408,6 +415,12 @@ export const buildPricingView = (booking, role) => {
       .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
       .map((r) => requestOut(r, booking.bookingPhotos)),
     bill: billOut(bill, quote),
+    // Where the customer pays (2026-11-22 pay-the-garage decision): the garage's
+    // UPI id for the QR on the customer's bill screen. upi_id may be null.
+    pay_to: {
+      upi_id: booking.service?.vendor?.vendorProfile?.upi_id ?? null,
+      garage_name: booking.service?.vendor?.vendorProfile?.business_name ?? null,
+    },
     running_total: runningTotal,
     can: computeCan(booking, role),
   };

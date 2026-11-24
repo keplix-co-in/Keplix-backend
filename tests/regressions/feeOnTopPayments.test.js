@@ -56,65 +56,19 @@ beforeEach(() => {
   rz.orders.create.mockImplementation(async (p) => ({ id: 'order_new', ...p }));
 });
 
-describe('createPaymentOrder — fee on top', () => {
-  test('charges price + fee and freezes the split in the notes', async () => {
-    const r = res();
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(rz.orders.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 110000, notes: onTopNotes }));
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ amount: 110000, servicePrice: 1000, platformFee: 100 }));
-  });
-
-  test('fee disabled: charges the price only', async () => {
-    settings.current = { isPlatformFeeEnabled: false };
-    const r = res();
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(rz.orders.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 100000 }));
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ platformFee: 0 }));
-  });
-
-  test('does not reuse a legacy (no feeModel) order even if the amount matches', async () => {
-    settings.current = { isPlatformFeeEnabled: false };
-    rz.orders.all.mockResolvedValue({ items: [{ id: 'order_old', status: 'created', amount: 100000, notes: { bookingId: '1' } }] });
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, res());
-    expect(rz.orders.create).toHaveBeenCalled();
-  });
-
-  test('reuses a matching on-top order', async () => {
-    rz.orders.all.mockResolvedValue({ items: [{ id: 'order_x', status: 'created', amount: 110000, currency: 'INR', notes: onTopNotes }] });
-    const r = res();
-    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r);
-    expect(rz.orders.create).not.toHaveBeenCalled();
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ id: 'order_x', amount: 110000 }));
-  });
-});
-
-describe('getPaymentQuote', () => {
-  test('owner gets the breakdown in rupees', async () => {
-    const r = res();
-    await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 7 } }, r);
-    expect(r.json).toHaveBeenCalledWith({ success: true, data: { servicePrice: 1000, platformFee: 100, feeRate: 0.1, total: 1100 } });
-  });
-  test('another user is refused (403)', async () => {
-    const r = res();
-    await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 8 } }, r);
-    expect(r.status).toHaveBeenCalledWith(403);
-    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
-  });
-  test('bad id 400, missing booking 404', async () => {
+// createPaymentOrder / getPaymentQuote were removed 2026-11-22 (customers pay the
+// garage directly); they now answer 410 PAY_AT_GARAGE. The fee-on-top rules below
+// still apply to orders created before the switch, which verify/webhook settle.
+describe('createPaymentOrder / getPaymentQuote — retired', () => {
+  const res = () => { const r = {}; r.status = jest.fn(() => r); r.json = jest.fn(() => r); return r; };
+  test('both answer 410 PAY_AT_GARAGE and create no order', async () => {
     const r1 = res();
-    await getPaymentQuote({ params: { bookingId: 'abc' }, user: { id: 7 } }, r1);
-    expect(r1.status).toHaveBeenCalledWith(400);
-    mockPrisma.booking.findUnique.mockResolvedValue(null);
+    await createPaymentOrder({ body: { bookingId: 1 }, user: { id: 7 } }, r1);
+    expect(r1.status).toHaveBeenCalledWith(410);
+    expect(r1.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'PAY_AT_GARAGE' }));
     const r2 = res();
     await getPaymentQuote({ params: { bookingId: '1' }, user: { id: 7 } }, r2);
-    expect(r2.status).toHaveBeenCalledWith(404);
-  });
-  test('route is mounted behind protect', async () => {
-    const router = (await import('../../routes/user/payments.js')).default;
-    const layer = router.stack.find((l) => l.route?.path === '/payments/quote/:bookingId');
-    expect(layer.route.methods.get).toBe(true);
-    const { protect } = await import('../../middleware/authMiddleware.js');
-    expect(layer.route.stack[0].handle).toBe(protect);
+    expect(r2.status).toHaveBeenCalledWith(410);
   });
 });
 

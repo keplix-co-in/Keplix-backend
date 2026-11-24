@@ -58,6 +58,10 @@ model User {
   // Offer slots this vendor has been specifically targeted by (see OfferSlot).
   offerSlotTargets OfferSlotVendor[]
 
+  // Garage subscription (2026-11-22 decision). Vendors only; one row per vendor.
+  vendorSubscription   VendorSubscription?
+  subscriptionPayments SubscriptionPayment[]
+
   @@index([email])
   @@index([role])
 }
@@ -1229,6 +1233,10 @@ model ExtraWorkItem {
   line_total    Decimal   @db.Decimal(10, 2)
   // For 'removal': the BookingQuoteLine being taken off the bill.
   quote_line_id Int?
+  // Items sharing a job_key are ONE job (part + labour): the customer approves or
+  // rejects them together (2026-11-22 subscription decision). Client-generated,
+  // e.g. "j1"; null = the item is its own job.
+  job_key       String?   @db.VarChar(40)
   // 'pending' | 'approved' | 'rejected' | 'superseded' | 'lapsed'
   decision      String    @default("pending")
   decided_at    DateTime?
@@ -1268,6 +1276,10 @@ model FinalBill {
   // sent, so a cron re-run never sends the same reminder twice.
   reminder_24h_sent_at DateTime?
   reminder_72h_sent_at DateTime?
+  // Pay-the-garage (2026-11-22): how the garage says it was paid, and who marked
+  // it. 'cash' | 'upi' | 'card' | 'online'. Customers never confirm payment.
+  paid_method          String?   @db.VarChar(10)
+  marked_paid_by       Int?
 
   booking Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   lines   FinalBillLine[]
@@ -1339,4 +1351,55 @@ model BookingPhoto {
 
   @@index([bookingId])
   @@index([extraWorkRequestId])
+}
+
+// Garage subscriptions (owner decision 2026-11-22: customers pay the garage
+// directly; Razorpay is used ONLY for these). Prices/features are editable from
+// the admin panel; the seed in util/subscription.js only fills missing rows.
+model SubscriptionPlan {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  name          String
+  monthly_price Decimal  @db.Decimal(10, 2)
+  yearly_price  Decimal  @db.Decimal(10, 2)
+  features      Json
+  sort_order    Int      @default(0)
+  is_active     Boolean  @default(true)
+  updated_at    DateTime @updatedAt
+}
+
+// Status is DERIVED from ends_at (never stored): see util/subscription.js.
+model VendorSubscription {
+  id               Int       @id @default(autoincrement())
+  vendorId         Int       @unique
+  plan_code        String
+  // 'trial' | 'monthly' | 'yearly'
+  period           String
+  starts_at        DateTime
+  ends_at          DateTime
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  last_reminder_at DateTime?
+
+  vendor User @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([ends_at])
+}
+
+model SubscriptionPayment {
+  id                  Int       @id @default(autoincrement())
+  vendorId            Int
+  plan_code           String
+  period              String
+  amount              Decimal   @db.Decimal(10, 2)
+  razorpay_order_id   String    @unique
+  razorpay_payment_id String?   @unique
+  // 'created' | 'paid' | 'failed'
+  status              String    @default("created")
+  paid_at             DateTime?
+  created_at          DateTime  @default(now())
+
+  vendor User @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }

@@ -19,13 +19,14 @@ import {
   vendorRequestExtraWork,
   vendorIssueFinalBill,
   vendorVoidFinalBill,
+  vendorMarkBillPaid,
   vendorAddPhotos,
   vendorPartsUsed,
   vendorCustomerContact,
   vendorBillLink,
 } from '../../controllers/vendor/pricingController.js';
 import { getBookingEarnings, getEarningsSummary } from '../../controllers/vendor/earningsController.js';
-import { checkInSchema, extraWorkSchema, voidBillSchema, partsUsedSchema } from '../../validators/pricingV2Validators.js';
+import { checkInSchema, extraWorkSchema, voidBillSchema, markPaidSchema, partsUsedSchema } from '../../validators/pricingV2Validators.js';
 
 const router = express.Router();
 
@@ -539,6 +540,8 @@ router.post('/bookings/:id/final-bill', protect, vendorOnly, requireApprovedVend
  *       409:
  *         description: Not allowed in the current state (NOT_V2, INVALID_STATE, NOT_CHECKED_IN, BILL_EXISTS, ...)
  */
+// Pay-the-garage (2026-11-22): vendor records that the customer paid the garage directly.
+router.post('/bookings/:id/final-bill/mark-paid', protect, vendorOnly, requireApprovedVendor, validateRequest(markPaidSchema), vendorMarkBillPaid);
 router.post('/bookings/:id/final-bill/void', protect, vendorOnly, requireApprovedVendor, validateRequest(voidBillSchema), vendorVoidFinalBill);
 
 /**

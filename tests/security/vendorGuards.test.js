@@ -138,39 +138,7 @@ describe('A-022 safe user selects', () => {
   });
 });
 
-describe('A-017 / A-019 vendor payment verify', () => {
-  const body = { orderId: 'order_1', paymentId: 'pay_1', gateway: 'razorpay' };
-  const sign = (secret) => crypto.createHmac('sha256', secret).update('order_1|pay_1').digest('hex');
-  const OLD = { ...process.env };
-  afterEach(() => { process.env = { ...OLD }; });
-
-  test('503 when gateway keys are missing (no placeholder fallback)', async () => {
-    delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET;
-    const res = mockRes();
-    await verifyVendorPayment({ user: { id: 7 }, body: { ...body, signature: 'x' } }, res);
-    expect(res.status).toHaveBeenCalledWith(503);
-  });
-  test("403 when the order was created for another vendor", async () => {
-    process.env.RAZORPAY_KEY_ID = 'test_id'; process.env.RAZORPAY_KEY_SECRET = 'test_secret';
-    mockOrdersFetch.mockResolvedValue({ amount: 50000, notes: { vendorId: '99', type: 'vendor_payment' } });
-    const res = mockRes();
-    await verifyVendorPayment({ user: { id: 7 }, body: { ...body, signature: sign('test_secret') } }, res);
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(mockPrisma.payment.create).not.toHaveBeenCalled();
-  });
-  test('own order is recorded with vendorId; replay -> 409', async () => {
-    process.env.RAZORPAY_KEY_ID = 'test_id'; process.env.RAZORPAY_KEY_SECRET = 'test_secret';
-    mockOrdersFetch.mockResolvedValue({ amount: 50000, notes: { vendorId: '7', type: 'vendor_payment' } });
-    mockPrisma.payment.create.mockResolvedValueOnce({ id: 1 });
-    await verifyVendorPayment({ user: { id: 7 }, body: { ...body, signature: sign('test_secret') } }, mockRes());
-    expect(mockPrisma.payment.create.mock.calls[0][0].data.vendorId).toBe(7);
-
-    mockPrisma.payment.create.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: 'P2002' }));
-    const res = mockRes();
-    await verifyVendorPayment({ user: { id: 7 }, body: { ...body, signature: sign('test_secret') } }, res);
-    expect(res.status).toHaveBeenCalledWith(409);
-  });
-});
+// A-017 / A-019 verifyVendorPayment tests removed: endpoint retired (410), see tests/controllers/vendor/paymentController.test.js
 
 describe('A-024 walk-in notification cooldown', () => {
   test('a re-send inside the cooldown is 429 with Retry-After', async () => {

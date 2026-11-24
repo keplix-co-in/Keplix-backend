@@ -178,29 +178,5 @@ test('a payment on an in_progress booking leaves it in_progress (no rollback) an
   expect(executeCancellationRefund).not.toHaveBeenCalled();
 });
 
-describe('createPaymentOrder refuses a booking that cannot be paid for', () => {
-  const req = () => ({ body: { bookingId: String(BOOKING_ID) }, user: { id: USER_ID } });
-
-  test.each([
-    ['cancelled', 'accepted'],
-    ['pending', 'pending'],
-    ['pending', 'rejected'],
-    ['user_confirmed', 'accepted'],
-  ])('status %s / vendor_status %s -> 409 BOOKING_NOT_PAYABLE', async (status, vendor_status) => {
-    mockPrisma.booking.findUnique.mockResolvedValue(bookingRow({ status, vendor_status }));
-    const res = mockRes();
-
-    await createPaymentOrder(req(), res);
-
-    expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'BOOKING_NOT_PAYABLE' }));
-    expect(mockOrdersCreate).not.toHaveBeenCalled();
-  });
-
-  test('a non-numeric booking id is 400 before any lookup', async () => {
-    const res = mockRes();
-    await createPaymentOrder({ body: { bookingId: 'abc' }, user: { id: USER_ID } }, res);
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(mockPrisma.booking.findUnique).not.toHaveBeenCalled();
-  });
-});
+// 'createPaymentOrder refuses a booking that cannot be paid for' removed 2026-11-22:
+// the endpoint is a 410 PAY_AT_GARAGE stub now (covered in pricingV2Payments.test.js).

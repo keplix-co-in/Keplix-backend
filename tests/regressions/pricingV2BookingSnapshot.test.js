@@ -13,6 +13,8 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     booking: { findFirst: jest.fn(), create: jest.fn() },
     bookingVehicle: { create: jest.fn() },
     vendorProfile: { findUnique: jest.fn() },
+    // Subscription visibility (2026-11-22): an active subscription so createBooking is not blocked.
+    vendorSubscription: { findUnique: async () => ({ ends_at: new Date('2099-01-01'), period: 'trial', plan_code: 'gold' }) },
     platformSettings: { findFirst: jest.fn() },
     $transaction: jest.fn(),
   },

@@ -49,7 +49,7 @@ export const PRICING_BOOKING_INCLUDE = {
       id: true,
       name: true,
       vendorId: true,
-      vendor: { select: { vendorProfile: { select: { business_name: true } } } },
+      vendor: { select: { vendorProfile: { select: { business_name: true, upi_id: true } } } },
     },
   },
   payment: { select: { id: true, status: true } },
@@ -418,6 +418,7 @@ export const requestExtraWork = (ctx, body) =>
           unit_price: -num(line.unit_price),
           line_total: fromPaise(-totalPaise),
           quote_line_id: line.id,
+          job_key: item.job_key?.trim() || null,
           sort_order: index,
         };
       }
@@ -428,6 +429,7 @@ export const requestExtraWork = (ctx, body) =>
         unit_price: item.unit_price,
         line_total: fromPaise(lineTotalPaise(item.qty, item.unit_price)),
         quote_line_id: null,
+        job_key: item.job_key?.trim() || null,
         sort_order: index,
       };
     });
@@ -568,6 +570,32 @@ export const issueFinalBill = (ctx) =>
     };
   });
 
+/**
+ * Pay-the-garage (owner decision 2026-11-22): the garage confirms the customer
+ * paid it directly. Customers never confirm payment. Idempotent: an already
+ * paid bill is a 200 no-op (no event, no second notification).
+ */
+export const markBillPaid = (ctx, body) =>
+  runAction({ ...ctx, role: ROLE_VENDOR }, async (tx, booking) => {
+    const bill = openBillOf(booking.finalBills);
+    if (!bill) throw new PricingError(409, 'BILL_NOT_ISSUED', 'There is no issued bill to mark as paid');
+    if (bill.status === 'paid') return {};
+    if (!V2_ACTIVE_STATUSES.includes(booking.status)) {
+      throw new PricingError(409, 'INVALID_STATE', `This booking is ${booking.status}; the bill cannot be marked paid`);
+    }
+    const paidAt = new Date();
+    const { count } = await tx.finalBill.updateMany({
+      where: { id: bill.id, status: 'issued' },
+      data: { status: 'paid', paid_at: paidAt, paid_method: body.method, marked_paid_by: ctx.actorId },
+    });
+    // Lost a race with a concurrent mark-paid: same end state, so a no-op.
+    if (count === 0) return {};
+    return {
+      event: { type: 'final_bill_marked_paid', payload: { billId: bill.id, number: bill.number, method: body.method } },
+      notify: [{ type: NOTIFICATION_TYPES.FINAL_BILL_MARKED_PAID, to: ROLE_USER, vars: { billId: bill.id, amount: num(bill.total) } }],
+    };
+  });
+
 export const voidFinalBill = (ctx, body) =>
   runAction({ ...ctx, role: ROLE_VENDOR }, async (tx, booking) => {
     const bill = openBillOf(booking.finalBills);
@@ -624,6 +652,29 @@ const findRequest = (booking, requestId) => {
   return request;
 };
 
+/**
+ * JOB_SPLIT_NOT_ALLOWED: for every job_key among the request's PENDING items,
+ * if any item is approved then all must be approved; same for reject. A job
+ * left entirely untouched is fine (still pending). Items without a job_key
+ * are their own job and cannot split.
+ */
+export const assertNoJobSplit = (items, approve, reject) => {
+  const jobs = new Map();
+  for (const i of items) {
+    if (i.decision !== 'pending' || !i.job_key) continue;
+    if (!jobs.has(i.job_key)) jobs.set(i.job_key, []);
+    jobs.get(i.job_key).push(i.id);
+  }
+  for (const [key, ids] of jobs) {
+    const approved = ids.filter((id) => approve.includes(id)).length;
+    const rejected = ids.filter((id) => reject.includes(id)).length;
+    const touched = approved + rejected;
+    if (touched > 0 && !(approved === ids.length || rejected === ids.length)) {
+      throw new PricingError(400, 'JOB_SPLIT_NOT_ALLOWED', `Items of job "${key}" must all be approved or all rejected together`);
+    }
+  }
+};
+
 export const decideExtraWork = (ctx, requestId, body, appVersion) =>
   runAction({ ...ctx, role: ROLE_USER }, async (tx, booking) => {
     const request = findRequest(booking, requestId);
@@ -642,6 +693,11 @@ export const decideExtraWork = (ctx, requestId, body, appVersion) =>
     if ([...approve, ...reject].some((id) => !pendingIds.has(id))) {
       throw new PricingError(409, 'ITEM_NOT_PENDING', 'One or more items are not waiting for a decision');
     }
+
+    // One decision per job (2026-11-22): items sharing a job_key (part +
+    // labour) must all go the same way. Enforced here, not only in the apps,
+    // so an old app build cannot approve the part and reject the labour.
+    assertNoJobSplit(request.items ?? [], approve, reject);
 
     const decidedAt = new Date();
     const stamp = {

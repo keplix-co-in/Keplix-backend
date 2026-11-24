@@ -96,6 +96,10 @@ export const NOTIFICATION_TYPES = {
   // Owner decision 2026-11-21: a ₹0 final bill is auto-closed as paid
   // (Razorpay cannot charge ₹0), so the customer gets "nothing to pay".
   FINAL_BILL_NO_CHARGE: 'final_bill_no_charge',
+  // Pay-the-garage decision 2026-11-22: the garage confirms it was paid directly.
+  FINAL_BILL_MARKED_PAID: 'final_bill_marked_paid',
+  // Garage subscription reminders (docs/SUBSCRIPTIONS_API.md); sent to the vendor.
+  SUBSCRIPTION_REMINDER: 'subscription_reminder',
 };
 
 // ---------------------------------------------------------------------------
@@ -640,6 +644,32 @@ export const notificationTemplates = {
     body: `${garageName(v.garageName)} has finished the work on ${bookingRef(v.bookingId)}.`,
     data: bookingData(T.WORK_COMPLETED, v),
   }),
+
+  [T.FINAL_BILL_MARKED_PAID]: (v = {}) => {
+    const amount = billAmount(v.amount);
+    return {
+      type: T.FINAL_BILL_MARKED_PAID,
+      title: 'Payment recorded',
+      body: `${garageName(v.garageName)} marked ${bookingRef(v.bookingId)} as paid${amount ? ` (${amount})` : ''}.`,
+      data: bookingData(T.FINAL_BILL_MARKED_PAID, v, { billId: v.billId }),
+    };
+  },
+
+  // Vendor-facing. daysLeft > 0: before ends_at; <= 0: in the 7-day grace.
+  [T.SUBSCRIPTION_REMINDER]: (v = {}) => {
+    const d = Number.isFinite(v.daysLeft) ? v.daysLeft : null;
+    return {
+      type: T.SUBSCRIPTION_REMINDER,
+      title: d !== null && d > 0 ? 'Your subscription is ending soon' : 'Your subscription has ended',
+      body:
+        d !== null && d > 0
+          ? `Your Keplix subscription ends in ${d} day${d === 1 ? '' : 's'}. Renew to stay listed to customers.`
+          : `Your Keplix subscription has ended. Renew now or your garage will be hidden from customers${
+              Number.isFinite(v.graceDaysLeft) ? ` in ${v.graceDaysLeft} day${v.graceDaysLeft === 1 ? '' : 's'}` : ''
+            }.`,
+      data: { ...payload({ type: T.SUBSCRIPTION_REMINDER }), screen: 'Subscription' }, // vendor app screen (see SUBSCRIPTIONS_API.md notes)
+    };
+  },
 
   [T.FINAL_BILL_REMINDER]: (v = {}) => {
     const amount = billAmount(v.amount);

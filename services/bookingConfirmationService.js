@@ -111,9 +111,11 @@ export const confirmBookingAndQueuePayout = async ({ userId, bookingId, rating, 
       // auto-closed as paid with NO Payment row (Razorpay cannot charge ₹0).
       // Confirming it just closes the booking: no payout, no refund check.
       // Without this it was stuck in service_completed forever.
-      const noChargeBill = !payment
-        ? await tx.finalBill.findFirst({ where: { bookingId, status: "paid", total: 0 }, select: { id: true } })
-        : null;
+      // Subscription decision 2026-11-22: customers pay the garage directly, so
+      // a booking with NO Payment row is the normal case. Closing it moves no
+      // platform money (no payout). Legacy bookings that did pay online still
+      // have a Payment row and take the payout path below.
+      const noChargeBill = !payment;
 
       if (!payment && !noChargeBill) {
         throw new Error("No payment found for this booking");

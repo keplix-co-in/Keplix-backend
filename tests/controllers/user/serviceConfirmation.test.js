@@ -132,7 +132,8 @@ describe('confirmServiceCompletion', () => {
     }));
   });
 
-  test('Rollback scenario: Missing payment record', async () => {
+  test('No Payment row (pay at the garage): closes as user_confirmed, no payout', async () => {
+    let txUsed;
     const mockBooking = {
       id: 100,
       userId: 1,
@@ -146,17 +147,21 @@ describe('confirmServiceCompletion', () => {
     prisma.$transaction.mockImplementation(async (callback) => {
       const tx = {
       $queryRaw: jest.fn().mockResolvedValue([]), // row lock taken inside the transaction
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking) },
-        // No ₹0 paid bill either (2026-11-21), so it is still "no payment".
-        finalBill: { findFirst: jest.fn().mockResolvedValue(null) }
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        review: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+        payment: { update: jest.fn() },
       };
       await callback(tx);
+      txUsed = tx;
     });
 
     await confirmServiceCompletion(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ message: 'No payment found for this booking' });
+    // Pay-at-garage (2026-11-22): no Payment row is normal, so this now closes the booking (no payout).
+    expect(res.status).not.toHaveBeenCalledWith(400);
+    expect(res.status).not.toHaveBeenCalledWith(500);
+    expect(txUsed.booking.updateMany).toHaveBeenCalledWith({ where: { id: 100, status: 'service_completed' }, data: { status: 'user_confirmed' } });
+    expect(txUsed.payment.update).not.toHaveBeenCalled();
   });
 
   // Owner decision 2026-11-21: a v2 booking closed by a paid ₹0 bill has no
@@ -176,7 +181,6 @@ describe('confirmServiceCompletion', () => {
 
     await confirmServiceCompletion(req, res);
 
-    expect(tx.finalBill.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { bookingId: 100, status: 'paid', total: 0 } }));
     expect(tx.booking.updateMany).toHaveBeenCalledWith({ where: { id: 100, status: 'service_completed' }, data: { status: 'user_confirmed' } });
     expect(tx.review.create).toHaveBeenCalled();
     expect(tx.payment.update).not.toHaveBeenCalled();

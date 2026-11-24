@@ -23,6 +23,8 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     booking: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
     bookingEarlyStart: { update: jest.fn(), updateMany: jest.fn() },
     vendorProfile: { findUnique: jest.fn() },
+    // Subscription visibility (2026-11-22): an active subscription so createBooking is not blocked.
+    vendorSubscription: { findUnique: async () => ({ ends_at: new Date('2099-01-01'), period: 'trial', plan_code: 'gold' }) },
     user: { findUnique: jest.fn().mockResolvedValue({ pushToken: null }) },
     $transaction: jest.fn(),
     $executeRaw: jest.fn().mockResolvedValue(0),

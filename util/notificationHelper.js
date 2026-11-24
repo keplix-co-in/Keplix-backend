@@ -122,7 +122,7 @@ export const createNotification = async (userIdOrPayload, title, message, metada
             const chunks = expo.chunkPushNotifications(messages);
             for (let chunk of chunks) {
                 try {
-                Logger.debug(`Sending internal push chunk to ${user.pushToken}`);
+                Logger.debug(`Sending internal push chunk to token ending ...${String(user.pushToken).slice(-6)}`); // audit: never log the full push token
                 let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
                 Logger.debug("Expo Ticket:", ticketChunk);
                 // A ticket can come back with status 'error' on a 200 response

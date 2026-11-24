@@ -119,9 +119,9 @@ describe.each(['abc', '12abc', '99999999999'])('id %p', (badId) => {
   });
 });
 
-test('createPaymentOrder: a non-numeric bookingId in the body -> 400 before any database call', async () => {
+test('createPaymentOrder: gone (pay-the-garage, 2026-11-22) -> 410 before any database call', async () => {
   const res = mockRes();
   await payments.createPaymentOrder({ body: { bookingId: '12abc' }, user: { id: 1 } }, res);
-  expect(res.status).toHaveBeenCalledWith(400);
+  expect(res.status).toHaveBeenCalledWith(410);
   expect(prismaCall).not.toHaveBeenCalled();
 });

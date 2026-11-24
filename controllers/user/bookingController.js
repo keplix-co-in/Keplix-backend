@@ -1,6 +1,8 @@
 import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
 import prisma from "../../util/prisma.js";
+import { isVendorVisible } from "../../util/subscription.js";
+import { sendError } from "../../util/apiError.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import { resolveServiceAmount, V2_AMOUNT_INCLUDE } from "../../util/servicePricing.js";
@@ -22,7 +24,6 @@ import { getISTDate } from "../../util/time.js";
 import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
 import {
   isValidBookingStatus,
-  isBookingPayable,
   USER_CANCELLABLE_STATUSES,
   USER_RESCHEDULABLE_STATUSES,
 } from "../../util/bookingStatus.js";
@@ -99,11 +100,18 @@ export const getVendorSlots = async (req, res) => {
 
     const profile = await prisma.vendorProfile.findUnique({
       where: { userId: vendorId },
-      select: { operating_hours: true, breaks: true, holidays: true },
+      select: { operating_hours: true, breaks: true, holidays: true, status: true },
     });
 
     if (!profile) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
+
+    // Audit: same visibility rule as createBooking. An unapproved garage, or one
+    // past its subscription grace, is hidden from customers, so its slot list
+    // must not be readable by id either (stale page / deep link / scraping).
+    if (profile.status !== 'approved' || !(await isVendorVisible(vendorId))) {
+      return sendError(res, 403, "GARAGE_UNAVAILABLE", "This garage is not available right now.");
     }
 
     const weekday = WEEKDAYS[dayStart.getUTCDay()];
@@ -476,6 +484,11 @@ export const createBooking = async (req, res) => {
             if (profile && profile.status !== 'approved') {
                 return res.status(400).json({ message: "This garage is not accepting bookings yet.", code: "VENDOR_NOT_APPROVED" });
             }
+            // Subscription (2026-11-22 decision): a garage past its 7-day grace is
+            // hidden from customers, so it cannot take new bookings either.
+            if (!(await isVendorVisible(service.vendorId))) {
+                return sendError(res, 403, "GARAGE_UNAVAILABLE", "This garage is not available right now.");
+            }
             const slotCheck = checkSlotBookable(profile, bookingDateKey, canonicalTime);
             if (!slotCheck.ok) {
                 return res.status(400).json({ message: slotCheck.message, code: slotCheck.code });
@@ -689,22 +702,12 @@ export const canProceedToPayment = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    // Same rule createPaymentOrder enforces (isBookingPayable): accepted by
-    // the vendor AND in a live status. Checking vendor_status alone told the
-    // app a cancelled-but-once-accepted booking could still be paid for, and
-    // the resulting capture then had to be refunded.
-    let canPay = isBookingPayable(booking) && !booking.payment;
-    // Pricing v2: a v2 booking is paid against its final bill, so it cannot
-    // be paid before the garage issues one. `reason` is additive (older app
-    // builds ignore it); null whenever no v2-specific rule applies.
-    let reason = null;
-    if (canPay && booking.bookingQuote) {
-      const bill = (booking.finalBills ?? []).find((b) => b.status === 'issued');
-      if (!bill) {
-        canPay = false;
-        reason = 'BILL_NOT_READY';
-      }
-    }
+    // PAY AT THE GARAGE (owner decision 2026-11-22): customers no longer pay
+    // through the app, so this is always false. `reason` tells the app to show
+    // "pay the garage" instead of a Pay button. The endpoint stays because
+    // shipped app builds call it before showing payment UI.
+    const canPay = false;
+    const reason = 'PAY_AT_GARAGE';
 
     res.json({
       canPay,

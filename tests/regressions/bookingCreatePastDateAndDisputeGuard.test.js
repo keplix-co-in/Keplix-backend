@@ -19,6 +19,8 @@ jest.unstable_mockModule('../../util/prisma.js', () => ({
     // createBooking now checks the requested time against the vendor's
     // opening hours before the transaction (see checkSlotBookable).
     vendorProfile: { findUnique: jest.fn() },
+    // Subscription visibility (2026-11-22): an active subscription so createBooking is not blocked.
+    vendorSubscription: { findUnique: async () => ({ ends_at: new Date('2099-01-01'), period: 'trial', plan_code: 'gold' }) },
     user: { findUnique: jest.fn().mockResolvedValue({ pushToken: null, email: 'vendor@audit.test' }) },
     $transaction: jest.fn(),
     $executeRaw: jest.fn().mockResolvedValue(0),
@@ -172,6 +174,25 @@ describe('D-dispute-guard — dispute was reachable with no vendor-completion pr
     expect(res.status).toHaveBeenCalledWith(409);
     expect(prisma.booking.update).not.toHaveBeenCalled();
     expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+  });
+
+  // Owner decision 2026-11-24: dispute is allowed while the final bill is
+  // issued but unpaid (no payment row / not success). Only Confirm needs payment.
+  test('allows a dispute on service_completed with NO payment recorded', async () => {
+    prisma.booking.findUnique.mockResolvedValue({
+      id: BOOKING_ID, userId: CUSTOMER_ID, status: 'service_completed',
+      service: { vendorId: VENDOR_ID, name: 'Oil Change' }, payment: null,
+    });
+    prisma.booking.updateMany.mockResolvedValue({ count: 1 });
+    const res = mockRes();
+    await disputeServiceCompletion({
+      params: { userId: String(CUSTOMER_ID), id: String(BOOKING_ID) },
+      body: { reason: 'The brakes were not actually replaced as claimed.' },
+      user: { id: CUSTOMER_ID },
+    }, res);
+    expect(prisma.booking.updateMany).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalledWith(409);
+    expect(res.status).not.toHaveBeenCalledWith(403);
   });
 
   test('allows a dispute once the vendor has marked the service completed', async () => {

@@ -471,11 +471,13 @@ describe('final bill', () => {
     expect(db.bills[0].status).toBe('paid');
   });
 
-  test('the customer can pay only once the bill is issued', async () => {
+  test('the customer never pays in-app (pay-the-garage, 2026-11-22); the vendor can mark paid once billed', async () => {
     await checkedIn();
     expect((await svc.getPricing({ ...userCtx, role: 'user' })).can.pay).toBe(false);
+    expect((await svc.getPricing({ ...vendorCtx, role: 'vendor' })).can.mark_paid).toBe(false);
     await svc.issueFinalBill(vendorCtx);
-    expect((await svc.getPricing({ ...userCtx, role: 'user' })).can.pay).toBe(true);
+    expect((await svc.getPricing({ ...userCtx, role: 'user' })).can.pay).toBe(false);
+    expect((await svc.getPricing({ ...vendorCtx, role: 'vendor' })).can.mark_paid).toBe(true);
   });
 });
 
@@ -497,5 +499,129 @@ describe('sendPricingError', () => {
     svc.sendPricingError(c, new Error('boom'), 't');
     expect(c.status).toHaveBeenCalledWith(500);
     spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pay-the-garage (owner decision 2026-11-22)
+// ---------------------------------------------------------------------------
+describe('markBillPaid: the garage records that the customer paid it', () => {
+  const billed = async () => {
+    await checkedIn();
+    await svc.issueFinalBill(vendorCtx);
+    jest.clearAllMocks();
+  };
+
+  test('issued -> paid with method, who, when; audited; customer notified', async () => {
+    await billed();
+    const { status } = await svc.markBillPaid(vendorCtx, { method: 'upi' });
+    expect(status).toBe(200);
+    expect(db.bills[0]).toMatchObject({ status: 'paid', paid_method: 'upi', marked_paid_by: VENDOR });
+    expect(db.bills[0].paid_at).toBeInstanceOf(Date);
+    expect(db.events.at(-1)).toMatchObject({ actor_role: 'vendor', actor_id: VENDOR, type: 'final_bill_marked_paid' });
+    expect(addNotificationJob).toHaveBeenCalledWith(expect.objectContaining({ recipientId: USER, type: 'final_bill_marked_paid' }));
+  });
+
+  test('idempotent: marking an already paid bill is a 200 no-op (no second event or notification)', async () => {
+    await billed();
+    await svc.markBillPaid(vendorCtx, { method: 'cash' });
+    jest.clearAllMocks();
+    const before = db.events.length;
+    const { status } = await svc.markBillPaid(vendorCtx, { method: 'card' });
+    expect(status).toBe(200);
+    expect(db.events).toHaveLength(before);
+    expect(addNotificationJob).not.toHaveBeenCalled();
+    expect(db.bills[0].paid_method).toBe('cash');
+  });
+
+  test('losing a concurrent claim (count 0) is also a quiet no-op', async () => {
+    await billed();
+    fake.finalBill.updateMany.mockResolvedValueOnce({ count: 0 });
+    const before = db.events.length;
+    await svc.markBillPaid(vendorCtx, { method: 'cash' });
+    expect(db.events).toHaveLength(before);
+  });
+
+  test('no issued bill -> 409 BILL_NOT_ISSUED', async () => {
+    await checkedIn();
+    await expectError(svc.markBillPaid(vendorCtx, { method: 'cash' }), 409, 'BILL_NOT_ISSUED');
+  });
+
+  test('wrong state (booking cancelled) -> 409 INVALID_STATE, bill untouched', async () => {
+    await billed();
+    db.booking.status = 'cancelled';
+    await expectError(svc.markBillPaid(vendorCtx, { method: 'cash' }), 409, 'INVALID_STATE');
+    expect(db.bills[0].status).toBe('issued');
+  });
+
+  test('not the booking vendor -> 403; the customer cannot mark paid -> 403', async () => {
+    await billed();
+    await expectError(svc.markBillPaid({ bookingId: BOOKING, actorId: 999 }, { method: 'cash' }), 403, 'FORBIDDEN');
+    await expectError(svc.markBillPaid(userCtx, { method: 'cash' }), 403, 'FORBIDDEN');
+    expect(db.bills[0].status).toBe('issued');
+  });
+
+  test('a paid bill cannot then be voided', async () => {
+    await billed();
+    await svc.markBillPaid(vendorCtx, { method: 'cash' });
+    await expectError(svc.voidFinalBill(vendorCtx, { reason: 'oops' }), 409, 'BILL_PAID');
+  });
+});
+
+describe('job_key: items of one job are decided together', () => {
+  const send = (items) => svc.requestExtraWork(vendorCtx, { reason: 'Found during inspection', items });
+  const jk = (item, job_key) => ({ ...item, job_key });
+  const decide = (approve, reject = []) => svc.decideExtraWork(userCtx, db.requests[0].id, { approve, reject });
+
+  test('job_key is persisted on every item (null when absent)', async () => {
+    await checkedIn();
+    await send([jk(part('Pads', 2200), 'brakes'), jk(labour('Fit pads', 400), '  brakes '), labour('Wash', 100)]);
+    expect(db.items.map((i) => i.job_key)).toEqual(['brakes', 'brakes', null]);
+  });
+
+  test('approving one half of a job -> 400 JOB_SPLIT_NOT_ALLOWED, nothing decided', async () => {
+    await checkedIn();
+    await send([jk(part('Pads', 2200), 'brakes'), jk(labour('Fit pads', 400), 'brakes')]);
+    await expectError(decide([db.items[0].id]), 400, 'JOB_SPLIT_NOT_ALLOWED');
+    expect(db.items.every((i) => i.decision === 'pending')).toBe(true);
+  });
+
+  test('approve one half and reject the other is a split too', async () => {
+    await checkedIn();
+    await send([jk(part('Pads', 2200), 'brakes'), jk(labour('Fit pads', 400), 'brakes')]);
+    await expectError(decide([db.items[0].id], [db.items[1].id]), 400, 'JOB_SPLIT_NOT_ALLOWED');
+  });
+
+  test('all of a job approved, or all rejected, works; other jobs and keyless items are independent', async () => {
+    await checkedIn();
+    await send([jk(part('Pads', 2200), 'brakes'), jk(labour('Fit pads', 400), 'brakes'), jk(part('Wipers', 300), 'wipers'), labour('Wash', 100)]);
+    const [pads, fit, wipers, wash] = db.items;
+    await decide([pads.id, fit.id], [wash.id]);
+    expect(db.items.find((i) => i.id === pads.id).decision).toBe('approved');
+    expect(db.items.find((i) => i.id === fit.id).decision).toBe('approved');
+    expect(db.items.find((i) => i.id === wash.id).decision).toBe('rejected');
+    expect(db.items.find((i) => i.id === wipers.id).decision).toBe('pending'); // untouched job stays pending
+  });
+
+  test('once one job is decided, deciding a different job later is fine', async () => {
+    await checkedIn();
+    await send([jk(part('Pads', 2200), 'brakes'), jk(labour('Fit pads', 400), 'brakes'), jk(part('Wipers', 300), 'wipers')]);
+    await decide([db.items[0].id, db.items[1].id]);
+    await decide([], [db.items[2].id]);
+    expect(db.items[2].decision).toBe('rejected');
+  });
+
+  test('assertNoJobSplit ignores items that are no longer pending', () => {
+    const items = [{ id: 1, decision: 'approved', job_key: 'a' }, { id: 2, decision: 'pending', job_key: 'a' }];
+    expect(() => svc.assertNoJobSplit(items, [2], [])).not.toThrow();
+  });
+});
+
+describe('sendPricingError maps the new pay-the-garage codes', () => {
+  test('JOB_SPLIT_NOT_ALLOWED -> 400 { success:false, message, code }', () => {
+    const r = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    svc.sendPricingError(r, new svc.PricingError(400, 'JOB_SPLIT_NOT_ALLOWED', 'split'), 't');
+    expect(r.status).toHaveBeenCalledWith(400);
+    expect(r.json).toHaveBeenCalledWith({ success: false, message: 'split', code: 'JOB_SPLIT_NOT_ALLOWED' });
   });
 });

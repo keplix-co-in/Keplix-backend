@@ -165,17 +165,20 @@ describe('computeCan / buildPricingView', () => {
     expect(can).toMatchObject({ check_in: false, start_work: true, request_extra_work: true, issue_bill: true, void_bill: false });
   });
 
-  test('customer can pay only an issued bill that is not paid yet', () => {
+  // Pay-the-garage (2026-11-22): the customer never pays through the app; the vendor marks the bill paid.
+  test('customer can never pay online; the vendor can mark an issued bill paid', () => {
     const billed = {
       ...base,
       status: 'in_progress',
       bookingJob: { checked_in_at: new Date() },
       finalBills: [{ id: 1, status: 'issued', total: 100, lines: [] }],
     };
-    expect(computeCan(billed, 'user').pay).toBe(true);
+    expect(computeCan(billed, 'user').pay).toBe(false);
     expect(computeCan(billed, 'vendor').issue_bill).toBe(false);
     expect(computeCan(billed, 'vendor').void_bill).toBe(true);
-    expect(computeCan({ ...billed, payment: { status: 'success' } }, 'user').pay).toBe(false);
+    expect(computeCan(billed, 'vendor').mark_paid).toBe(true);
+    expect(computeCan({ ...billed, finalBills: [{ ...billed.finalBills[0], status: 'paid' }] }, 'vendor').mark_paid).toBe(false);
+    expect(computeCan({ ...billed, status: 'cancelled' }, 'vendor').mark_paid).toBe(false);
   });
 });
 
