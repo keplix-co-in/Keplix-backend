@@ -2,6 +2,8 @@ import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: l
 import prisma from "../../util/prisma.js";
 import { Prisma } from "@prisma/client";
 import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
+import { visibleVendorWhere, visibleVendorSql } from "../../util/subscription.js"; // garages past subscription grace are hidden from customers (2026-11-22)
+import { serializeServicePricing, withServicePricing } from "../../util/pricingV2.js";
 
 /**
  * Get All Services (Public)
@@ -64,6 +66,7 @@ export const getAllServices = async (req, res) => {
       const whereConditions = [
         Prisma.sql`s.is_active = true`,
         Prisma.sql`vp.status = ${APPROVED_VENDOR_STATUS}`,
+        visibleVendorSql(Prisma, 'vp."userId"'),
         Prisma.sql`vp.latitude IS NOT NULL`,
         Prisma.sql`vp.longitude IS NOT NULL`,
         Prisma.sql`${distanceSql} <= ${searchRadius}`
@@ -107,7 +110,7 @@ export const getAllServices = async (req, res) => {
       total = countResult[0]?.total || 0;
     } else {
       // Standard Prisma query when location is not provided
-      let where = { is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } };
+      let where = { is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS }, ...visibleVendorWhere() } };
 
       if (search) {
         where.OR = [
@@ -118,7 +121,7 @@ export const getAllServices = async (req, res) => {
       }
 
       if (online_only === 'true') {
-        where.vendor = { vendorProfile: { status: APPROVED_VENDOR_STATUS, is_online: true } };
+        where.vendor = { vendorProfile: { status: APPROVED_VENDOR_STATUS, is_online: true }, ...visibleVendorWhere() };
       }
 
       services = await prisma.service.findMany({
@@ -146,6 +149,16 @@ export const getAllServices = async (req, res) => {
       const list = segmentPricesByService.get(row.serviceId) ?? [];
       list.push({ segment: row.segment, price: parseFloat(row.price.toString()) });
       segmentPricesByService.set(row.serviceId, list);
+    }
+    // Pricing v2 lines, batched the same way for the same reason.
+    const priceLineRows = serviceIds.length
+      ? await prisma.servicePriceLine.findMany({ where: { serviceId: { in: serviceIds } } })
+      : [];
+    const priceLinesByService = new Map();
+    for (const row of priceLineRows) {
+      const list = priceLinesByService.get(row.serviceId) ?? [];
+      list.push(row);
+      priceLinesByService.set(row.serviceId, list);
     }
 
     // Standardize the response format
@@ -198,6 +211,12 @@ export const getAllServices = async (req, res) => {
         // check — the same convention `is_active`/`is_featured` already use.
         segment_prices: segmentPricesByService.get(service.id) ?? [],
         vehicle_note: service.vehicle_note ?? null,
+        // Pricing v2 fields (docs/PRICING_V2_API.md section 1). Both branches
+        // select every Service column (s.* / Prisma), so the row has them.
+        ...serializeServicePricing(service, {
+          priceLines: priceLinesByService.get(service.id) ?? [],
+          segmentPrices: segmentPricesByService.get(service.id) ?? [],
+        }),
       };
     });
 
@@ -222,8 +241,8 @@ export const getServiceById = async (req, res) => {
     // findFirst (not findUnique) so the vendor-approval filter can apply; an
     // unapproved vendor's service is a 404 to customers.
     const service = await prisma.service.findFirst({
-      where: { id: parseInt(req.params.id), vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
-      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
+      where: { id: parseInt(req.params.id), vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS }, ...visibleVendorWhere() } },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
     });
 
     if (service) {
@@ -235,7 +254,7 @@ export const getServiceById = async (req, res) => {
         : null;
 
       const enrichedService = {
-        ...service,
+        ...withServicePricing(service),
         image_url: fullImageUrl,
         image: fullImageUrl,
         vendor_name: service.vendor?.vendorProfile?.business_name || "Vendor",
@@ -300,7 +319,7 @@ export const getFeaturedServices = async (req, res) => {
     const where = {
       is_active: true,
       is_featured: true,
-      vendor: { vendorProfile: { is_online: true, status: APPROVED_VENDOR_STATUS } }
+      vendor: { vendorProfile: { is_online: true, status: APPROVED_VENDOR_STATUS }, ...visibleVendorWhere() }
     };
 
     // Filter by online vendors if requested
@@ -318,13 +337,13 @@ export const getFeaturedServices = async (req, res) => {
       where,
       skip,
       take: limit,
-      include: { vendor: PUBLIC_VENDOR_INCLUDE },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
       orderBy: { id: "desc" },
     });
 
     const total = await prisma.service.count({ where });
 
-    const enrichedServices = services.map((service) => {
+    const enrichedServices = services.map(withServicePricing).map((service) => {
       const imgUrl = service.image_url;
       const fullImageUrl = imgUrl
         ? imgUrl.startsWith("http")
@@ -431,6 +450,7 @@ export const searchVendorsByLocation = async (req, res) => {
              ${distanceSql} as distance
       FROM "VendorProfile"
       WHERE status = 'approved' 
+        AND ${visibleVendorSql(Prisma, '"userId"')}
         AND is_online = true
         AND latitude IS NOT NULL 
         AND longitude IS NOT NULL
@@ -439,9 +459,12 @@ export const searchVendorsByLocation = async (req, res) => {
     `;
 
     const vendorIds = nearbyVendors.map((v) => v.userId);
-    const services = await prisma.service.findMany({
-      where: { vendorId: { in: vendorIds }, is_active: true },
-    });
+    const services = (
+      await prisma.service.findMany({
+        where: { vendorId: { in: vendorIds }, is_active: true },
+        include: { segmentPrices: true, priceLines: true },
+      })
+    ).map(withServicePricing);
 
     const formattedVendors = nearbyVendors.map((v) => ({
       id: v.userId,
@@ -485,14 +508,14 @@ export const getServicesByVendor = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const services = await prisma.service.findMany({
-      where: { vendorId: parseInt(vendorId), is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS } } },
-      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true },
+      where: { vendorId: parseInt(vendorId), is_active: true, vendor: { vendorProfile: { status: APPROVED_VENDOR_STATUS }, ...visibleVendorWhere() } },
+      include: { vendor: PUBLIC_VENDOR_INCLUDE, segmentPrices: true, priceLines: true },
       orderBy: { id: "desc" },
       skip: Number(skip),
       take: clampLimit(limit),
     });
 
-    const enrichedServices = services.map((service) => {
+    const enrichedServices = services.map(withServicePricing).map((service) => {
       const imgUrl = service.image_url;
       const fullImageUrl = imgUrl
         ? imgUrl.startsWith("http")

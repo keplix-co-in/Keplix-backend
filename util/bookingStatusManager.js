@@ -7,6 +7,8 @@ import { parseTimeToMinutes } from './slots.js';
 import { getISTDate } from './time.js';
 import { RESERVED_STATUSES } from '../services/refundService.js';
 import { confirmBookingAndQueuePayout } from '../services/bookingConfirmationService.js';
+import { sendBillReminders as sendFinalBillReminders } from '../services/billReminderService.js';
+import { sendSubscriptionReminders } from '../services/subscriptionReminderService.js';
 
 /**
  * How long after its slot an un-started booking is written off.
@@ -55,7 +57,7 @@ const PENDING_TIMEOUT_MINUTES = Number(
  * is not a positive number falls back to 48 rather than to "release
  * immediately".
  */
-const AUTO_CONFIRM_HOURS = (() => {
+export const AUTO_CONFIRM_HOURS = (() => {
   const configured = Number(process.env.BOOKING_AUTO_CONFIRM_HOURS);
   return Number.isFinite(configured) && configured > 0 ? configured : 48;
 })();
@@ -116,6 +118,10 @@ class BookingStatusManager {
       } catch (error) {
         Logger.error('Error in auto-confirm cron job:', error);
       }
+      // Unpaid pricing v2 bill reminders (24h, 72h). Hours-scale, so the
+      // 10-minute tick is plenty; idempotent per bill (see the service).
+      await this.sendBillReminders(new Date());
+      await this.sendSubscriptionReminders(new Date());
     });
 
     // And once on startup, as the minute job does above. Cloud Run scales this
@@ -127,6 +133,9 @@ class BookingStatusManager {
     this.autoConfirmCompletedBookings(new Date()).catch(error => {
       Logger.error('Error in initial auto-confirm run:', error);
     });
+    // sendBillReminders never throws; same startup reasoning as above.
+    this.sendBillReminders(new Date());
+    this.sendSubscriptionReminders(new Date());
 
     this.isRunning = true;
     Logger.info('Booking Status Manager started successfully');
@@ -171,6 +180,11 @@ class BookingStatusManager {
           },
           vendor_status: 'accepted',
           booking_date: { gte: this.getActivationLowerBound(now) },
+          // Pricing v2 bookings (they have a BookingQuote) start when the
+          // garage checks the car in, not at the slot time: they are unpaid
+          // until the final bill, and check-in records the odometer/fuel
+          // reading that starts the job (docs/PRICING_V2_API.md sections 4, 6).
+          bookingQuote: { is: null },
         },
         include: { service: true },
       });
@@ -266,6 +280,8 @@ class BookingStatusManager {
           },
           vendor_status: 'accepted',
           booking_date: { gte: this.getActivationLowerBound(now) },
+          // Skip pricing v2 bookings -- same reason as the activation job.
+          bookingQuote: { is: null },
         },
         include: { service: true },
       });
@@ -477,6 +493,34 @@ class BookingStatusManager {
   }
 
   /**
+   * Pricing v2: remind the customer about an issued, unpaid final bill after
+   * 24h and 72h. Never throws.
+   */
+  async sendBillReminders(now) {
+    try {
+      const { sent } = await sendFinalBillReminders(now);
+      if (sent > 0) Logger.info(`Sent ${sent} final bill reminder(s)`);
+    } catch (error) {
+      Logger.error('Error sending final bill reminders:', error);
+    }
+  }
+
+  /**
+   * Garage subscription reminders + lazy trial rows. Runs on the 10-minute tick
+   * rather than a once-a-day cron because Cloud Run may scale to zero and miss
+   * a fixed daily time; the service's last_reminder_at claim keeps it to one
+   * reminder per day. Never throws.
+   */
+  async sendSubscriptionReminders(now) {
+    try {
+      const { sent } = await sendSubscriptionReminders(now);
+      if (sent > 0) Logger.info(`Sent ${sent} subscription reminder(s)`);
+    } catch (error) {
+      Logger.error('Error sending subscription reminders:', error);
+    }
+  }
+
+  /**
    * Confirm bookings the customer left in service_completed past the
    * auto-confirm window (AUTO_CONFIRM_HOURS), releasing the workshop's payout.
    *
@@ -515,16 +559,29 @@ class BookingStatusManager {
           // fill the whole batch of AUTO_CONFIRM_BATCH_SIZE, so no other
           // booking was ever auto-confirmed. NULL is listed explicitly because
           // SQL `NOT IN` never matches NULL.
-          payment: {
-            is: {
-              status: 'success',
-              refunds: { none: { status: { in: RESERVED_STATUSES } } },
-              OR: [
-                { vendorPayoutStatus: null },
-                { vendorPayoutStatus: { notIn: CLAIMED_PAYOUT_STATUSES } },
-              ],
+          //
+          // Owner decision 2026-11-21: OR a v2 booking closed by a ₹0 final
+          // bill (status 'paid', no Payment row). confirmBookingAndQueuePayout
+          // confirms those with no payout; without this branch they would sit
+          // in service_completed forever.
+          OR: [
+            {
+              payment: {
+                is: {
+                  status: 'success',
+                  refunds: { none: { status: { in: RESERVED_STATUSES } } },
+                  OR: [
+                    { vendorPayoutStatus: null },
+                    { vendorPayoutStatus: { notIn: CLAIMED_PAYOUT_STATUSES } },
+                  ],
+                },
+              },
             },
-          },
+            {
+              // Pay-at-garage (2026-11-22): no Payment row is normal; close with no payout.
+              payment: { is: null },
+            },
+          ],
         },
         include: { service: { select: { name: true } } },
         orderBy: { service_completed_at: 'asc' },

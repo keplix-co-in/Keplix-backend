@@ -17,7 +17,7 @@ import { readFileSync } from 'fs';
  * column name fails here instead of in production.
  */
 
-const mockPrisma = { vendorProfile: { findUnique: jest.fn(), update: jest.fn() } };
+const mockPrisma = { vendorProfile: { findUnique: jest.fn(), update: jest.fn() }, document: { findMany: jest.fn() } };
 const mockLogger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 jest.unstable_mockModule('../../util/prisma.js', () => ({ default: mockPrisma }));
 jest.unstable_mockModule('../../util/logger.js', () => ({ default: mockLogger }));
@@ -45,7 +45,12 @@ const mockRes = () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockPrisma.vendorProfile.findUnique.mockResolvedValue({ id: 1, status: 'pending', business_name: 'Audit Garage' });
+  // Complete profile so the onboarding gate (approve) passes by default.
+  mockPrisma.vendorProfile.findUnique.mockResolvedValue({
+    id: 1, status: 'pending', business_name: 'Audit Garage', owner_name: 'O', phone: '9', address: 'a', city: 'c',
+    pincode: '1', latitude: 1, longitude: 2, operating_hours: '9-5', bank_account_number: '123456', ifsc_code: 'X',
+  });
+  mockPrisma.document.findMany.mockResolvedValue([{ document_type: 'pan_card' }]);
   mockPrisma.vendorProfile.update.mockResolvedValue({ userId: 5, status: 'approved', business_name: 'Audit Garage' });
 });
 

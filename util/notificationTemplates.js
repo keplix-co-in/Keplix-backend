@@ -79,6 +79,27 @@ export const NOTIFICATION_TYPES = {
   SERVICE_DISPUTED: 'SERVICE_DISPUTED',
   DISPUTE_RESOLVED_CUSTOMER: 'DISPUTE_RESOLVED_CUSTOMER',
   DISPUTE_RESOLVED_VENDOR_NOTICE: 'DISPUTE_RESOLVED_VENDOR_NOTICE',
+
+  // Pricing v2 (docs/PRICING_V2_API.md section 7). Lowercase values because
+  // the contract fixes them and the mobile apps route on data.type.
+  // Lower snake case ON PURPOSE (docs/PRICING_V2_API.md section 7), unlike
+  // the UPPERCASE types above: the contract names them this way and both
+  // apps match push types case-insensitively. Do not "normalise" one set.
+  JOB_CHECKED_IN: 'job_checked_in',
+  EXTRA_WORK_REQUESTED: 'extra_work_requested',
+  EXTRA_WORK_DECIDED: 'extra_work_decided',
+  EXTRA_WORK_CALL_REQUESTED: 'extra_work_call_requested',
+  FINAL_BILL_ISSUED: 'final_bill_issued',
+  FINAL_BILL_VOIDED: 'final_bill_voided',
+  WORK_COMPLETED: 'work_completed',
+  FINAL_BILL_REMINDER: 'final_bill_reminder',
+  // Owner decision 2026-11-21: a ₹0 final bill is auto-closed as paid
+  // (Razorpay cannot charge ₹0), so the customer gets "nothing to pay".
+  FINAL_BILL_NO_CHARGE: 'final_bill_no_charge',
+  // Pay-the-garage decision 2026-11-22: the garage confirms it was paid directly.
+  FINAL_BILL_MARKED_PAID: 'final_bill_marked_paid',
+  // Garage subscription reminders (docs/SUBSCRIPTIONS_API.md); sent to the vendor.
+  SUBSCRIPTION_REMINDER: 'subscription_reminder',
 };
 
 // ---------------------------------------------------------------------------
@@ -192,6 +213,20 @@ const bookingData = (type, vars = {}, extra = {}) =>
   });
 
 const T = NOTIFICATION_TYPES;
+
+// Pricing v2 copy helpers. "The garage" / "your booking" keep every sentence
+// readable when a name or id is missing.
+const garageName = (value) => text(value) || 'The garage';
+const bookingRef = (id) => (text(id) ? `booking #${text(id)}` : 'your booking');
+const bookingLabel = (id) => (text(id) ? `Booking #${text(id)}` : 'Your booking');
+const countOrNull = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
+/** "₹7,800" or "₹2,800.50": bills carry paise, so show 2 decimals when present. */
+const billAmount = (value) => {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '';
+  const hasPaise = Math.round(n * 100) % 100 !== 0;
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: hasPaise ? 2 : 0, maximumFractionDigits: 2 })}`;
+};
 
 // ---------------------------------------------------------------------------
 // The registry
@@ -543,6 +578,110 @@ export const notificationTemplates = {
     body: `The dispute for ${serviceName(v.serviceName)} has been resolved in the customer's favour. The booking is cancelled.`,
     data: bookingData(T.DISPUTE_RESOLVED_VENDOR_NOTICE, v),
   }),
+
+  // --- Pricing v2: workshop flow and final bill --------------------------
+
+  [T.JOB_CHECKED_IN]: (v = {}) => ({
+    type: T.JOB_CHECKED_IN,
+    title: 'Your car has been checked in',
+    body: `${garageName(v.garageName)} has started ${bookingRef(v.bookingId)}.`,
+    data: bookingData(T.JOB_CHECKED_IN, v),
+  }),
+
+  [T.EXTRA_WORK_REQUESTED]: (v = {}) => ({
+    type: T.EXTRA_WORK_REQUESTED,
+    title: 'Approval needed',
+    body: `${garageName(v.garageName)} recommends extra work. Review and approve or reject each item.`,
+    data: bookingData(T.EXTRA_WORK_REQUESTED, v, { requestId: v.requestId }),
+  }),
+
+  [T.EXTRA_WORK_DECIDED]: (v = {}) => {
+    const approved = countOrNull(v.approvedCount);
+    const rejected = countOrNull(v.rejectedCount);
+    const tally = approved !== null && rejected !== null ? `${approved} approved, ${rejected} rejected.` : 'The customer has answered your extra-work request.';
+    return {
+      type: T.EXTRA_WORK_DECIDED,
+      title: 'Customer responded',
+      body: `${bookingLabel(v.bookingId)}: ${tally}`,
+      data: bookingData(T.EXTRA_WORK_DECIDED, v, { requestId: v.requestId }),
+    };
+  },
+
+  [T.EXTRA_WORK_CALL_REQUESTED]: (v = {}) => ({
+    type: T.EXTRA_WORK_CALL_REQUESTED,
+    title: 'Customer wants a call',
+    body: `${bookingLabel(v.bookingId)}: call the customer about the extra work.`,
+    data: bookingData(T.EXTRA_WORK_CALL_REQUESTED, v),
+  }),
+
+  [T.FINAL_BILL_ISSUED]: (v = {}) => {
+    const amount = billAmount(v.amount);
+    return {
+      type: T.FINAL_BILL_ISSUED,
+      title: 'Your final bill is ready',
+      body: amount ? `${bookingLabel(v.bookingId)}: ${amount}. Review and pay.` : `${bookingLabel(v.bookingId)}: review and pay your bill.`,
+      data: bookingData(T.FINAL_BILL_ISSUED, v, { requestId: v.requestId, billId: v.billId }),
+    };
+  },
+
+  [T.FINAL_BILL_NO_CHARGE]: (v = {}) => ({
+    type: T.FINAL_BILL_NO_CHARGE,
+    title: 'No charge for this visit',
+    body: `${bookingLabel(v.bookingId)}: your bill is ₹0, nothing to pay.`,
+    data: bookingData(T.FINAL_BILL_NO_CHARGE, v, { billId: v.billId }),
+  }),
+
+  [T.FINAL_BILL_VOIDED]: (v = {}) => ({
+    type: T.FINAL_BILL_VOIDED,
+    title: 'Bill updated',
+    body: `The garage corrected your bill for ${bookingRef(v.bookingId)}.`,
+    data: bookingData(T.FINAL_BILL_VOIDED, v),
+  }),
+
+  [T.WORK_COMPLETED]: (v = {}) => ({
+    type: T.WORK_COMPLETED,
+    title: 'Work completed',
+    body: `${garageName(v.garageName)} has finished the work on ${bookingRef(v.bookingId)}.`,
+    data: bookingData(T.WORK_COMPLETED, v),
+  }),
+
+  [T.FINAL_BILL_MARKED_PAID]: (v = {}) => {
+    const amount = billAmount(v.amount);
+    return {
+      type: T.FINAL_BILL_MARKED_PAID,
+      title: 'Payment recorded',
+      body: `${garageName(v.garageName)} marked ${bookingRef(v.bookingId)} as paid${amount ? ` (${amount})` : ''}.`,
+      data: bookingData(T.FINAL_BILL_MARKED_PAID, v, { billId: v.billId }),
+    };
+  },
+
+  // Vendor-facing. daysLeft > 0: before ends_at; <= 0: in the 7-day grace.
+  [T.SUBSCRIPTION_REMINDER]: (v = {}) => {
+    const d = Number.isFinite(v.daysLeft) ? v.daysLeft : null;
+    return {
+      type: T.SUBSCRIPTION_REMINDER,
+      title: d !== null && d > 0 ? 'Your subscription is ending soon' : 'Your subscription has ended',
+      body:
+        d !== null && d > 0
+          ? `Your Keplix subscription ends in ${d} day${d === 1 ? '' : 's'}. Renew to stay listed to customers.`
+          : `Your Keplix subscription has ended. Renew now or your garage will be hidden from customers${
+              Number.isFinite(v.graceDaysLeft) ? ` in ${v.graceDaysLeft} day${v.graceDaysLeft === 1 ? '' : 's'}` : ''
+            }.`,
+      data: { ...payload({ type: T.SUBSCRIPTION_REMINDER }), screen: 'Subscription' }, // vendor app screen (see SUBSCRIPTIONS_API.md notes)
+    };
+  },
+
+  [T.FINAL_BILL_REMINDER]: (v = {}) => {
+    const amount = billAmount(v.amount);
+    return {
+      type: T.FINAL_BILL_REMINDER,
+      title: 'Your bill is waiting',
+      body: amount
+        ? `${bookingLabel(v.bookingId)}: your final bill of ${amount} is still unpaid.`
+        : `${bookingLabel(v.bookingId)}: your final bill is still unpaid.`,
+      data: bookingData(T.FINAL_BILL_REMINDER, v),
+    };
+  },
 };
 
 /**

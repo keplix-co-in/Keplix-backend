@@ -1,9 +1,13 @@
 import { clampLimit } from "../../util/parsePagination.js"; // Security A-026: list limits capped at 100
 import { SAFE_CUSTOMER_SELECT } from "../../util/publicVendor.js";
 import prisma from "../../util/prisma.js";
+import { isVendorVisible } from "../../util/subscription.js";
+import { sendError } from "../../util/apiError.js";
 import { addNotificationJob } from "../../queues/notificationQueue.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
-import { resolveServiceAmount } from "../../util/servicePricing.js";
+import { resolveServiceAmount, V2_AMOUNT_INCLUDE } from "../../util/servicePricing.js";
+import { isPricingV2ActiveFor } from "../../util/platformSettings.js";
+import { buildQuoteSnapshot, PRICING_FLOW_INCLUDE, withPricingFlow } from "../../util/pricingV2.js";
 import { executeCancellationRefund, resolveCancellationRefund } from "../../services/refundPolicy.js";
 import { buildRefundView, REFUND_ETA_TEXT } from "../../util/refundView.js";
 import {
@@ -20,7 +24,6 @@ import { getISTDate } from "../../util/time.js";
 import { stripVendorSecrets, PUBLIC_VENDOR_INCLUDE } from "../../util/publicVendor.js";
 import {
   isValidBookingStatus,
-  isBookingPayable,
   USER_CANCELLABLE_STATUSES,
   USER_RESCHEDULABLE_STATUSES,
 } from "../../util/bookingStatus.js";
@@ -97,11 +100,18 @@ export const getVendorSlots = async (req, res) => {
 
     const profile = await prisma.vendorProfile.findUnique({
       where: { userId: vendorId },
-      select: { operating_hours: true, breaks: true, holidays: true },
+      select: { operating_hours: true, breaks: true, holidays: true, status: true },
     });
 
     if (!profile) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
+
+    // Audit: same visibility rule as createBooking. An unapproved garage, or one
+    // past its subscription grace, is hidden from customers, so its slot list
+    // must not be readable by id either (stale page / deep link / scraping).
+    if (profile.status !== 'approved' || !(await isVendorVisible(vendorId))) {
+      return sendError(res, 403, "GARAGE_UNAVAILABLE", "This garage is not available right now.");
     }
 
     const weekday = WEEKDAYS[dayStart.getUTCDay()];
@@ -247,6 +257,8 @@ export const getUserBookings = async (req, res) => {
         // start early, so respondToEarlyStart could never be reached and the
         // vendor-side request would dead-end.
         earlyStart: true,
+        // Pricing v2: pricing_flow on every row (see withPricingFlow).
+        ...PRICING_FLOW_INCLUDE,
       },
       orderBy: { booking_date: "desc" },
     });
@@ -254,7 +266,7 @@ export const getUserBookings = async (req, res) => {
     const total = await prisma.booking.count({ where });
 
     const formattedBookings = bookings.map((booking) => ({
-      ...booking,
+      ...withPricingFlow(booking),
       service: {
         ...booking.service,
         image_url: booking.service.image_url
@@ -313,6 +325,7 @@ export const getSingleBooking = async (req, res) => {
         // start early, so respondToEarlyStart could never be reached and the
         // vendor-side request would dead-end.
         earlyStart: true,
+        ...PRICING_FLOW_INCLUDE,
       },
     });
 
@@ -320,7 +333,7 @@ export const getSingleBooking = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    res.json(stripVendorSecrets({ ...booking, refund: buildRefundView({ booking, payment: booking.payment }) }));
+    res.json(stripVendorSecrets({ ...withPricingFlow(booking), refund: buildRefundView({ booking, payment: booking.payment }) }));
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server Error" });
@@ -403,7 +416,7 @@ export const createBooking = async (req, res) => {
 
         const service = await prisma.service.findUnique({
             where: { id: serviceId },
-            include: { segmentPrices: true },
+            include: { segmentPrices: true, priceLines: true },
         });
         if (!service) {
             return res.status(404).json({ message: "Service not found" });
@@ -471,6 +484,11 @@ export const createBooking = async (req, res) => {
             if (profile && profile.status !== 'approved') {
                 return res.status(400).json({ message: "This garage is not accepting bookings yet.", code: "VENDOR_NOT_APPROVED" });
             }
+            // Subscription (2026-11-22 decision): a garage past its 7-day grace is
+            // hidden from customers, so it cannot take new bookings either.
+            if (!(await isVendorVisible(service.vendorId))) {
+                return sendError(res, 403, "GARAGE_UNAVAILABLE", "This garage is not available right now.");
+            }
             const slotCheck = checkSlotBookable(profile, bookingDateKey, canonicalTime);
             if (!slotCheck.ok) {
                 return res.status(400).json({ message: slotCheck.message, code: slotCheck.code });
@@ -480,6 +498,20 @@ export const createBooking = async (req, res) => {
         // Booking + BookingVehicle together: a booking that priced against a
         // vehicle but has no snapshot row (or vice versa) is an inconsistent
         // state neither payment code path can safely reason about.
+
+        // Pricing v2 (docs/PRICING_V2_API.md section 2): a booking created at
+        // or after PlatformSettings.pricingV2From gets a BookingQuote, which is
+        // what makes it "v2". A settings read failure falls back to legacy:
+        // the legacy flow is the one every existing client already handles,
+        // so failing open to it never strands a booking.
+        let quoteSnapshot = null;
+        try {
+            if (await isPricingV2ActiveFor(new Date())) {
+                quoteSnapshot = buildQuoteSnapshot(service, vehicle?.segment ?? null, priceSnapshot);
+            }
+        } catch (settingsError) {
+            console.error("createBooking: pricing v2 check failed, booking stays legacy:", settingsError?.message);
+        }
 
         const booking = await prisma.$transaction(async (tx) => {
             // === DOUBLE-BOOKING GUARD ===
@@ -579,6 +611,18 @@ export const createBooking = async (req, res) => {
                 },
             });
 
+            // Same transaction as the BookingVehicle snapshot: a v2 booking
+            // without its quote would silently behave as legacy.
+            if (quoteSnapshot) {
+                await tx.bookingQuote.create({
+                    data: {
+                        bookingId: created.id,
+                        ...quoteSnapshot.quote,
+                        lines: { create: quoteSnapshot.lines },
+                    },
+                });
+            }
+
             return created;
         });
 
@@ -644,7 +688,8 @@ export const canProceedToPayment = async (req, res) => {
       where: { id: bookingId },
       include: {
         service: true,
-        payment: true
+        payment: true,
+        ...V2_AMOUNT_INCLUDE,
       }
     });
 
@@ -657,14 +702,16 @@ export const canProceedToPayment = async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    // Same rule createPaymentOrder enforces (isBookingPayable): accepted by
-    // the vendor AND in a live status. Checking vendor_status alone told the
-    // app a cancelled-but-once-accepted booking could still be paid for, and
-    // the resulting capture then had to be refunded.
-    const canPay = isBookingPayable(booking) && !booking.payment;
+    // PAY AT THE GARAGE (owner decision 2026-11-22): customers no longer pay
+    // through the app, so this is always false. `reason` tells the app to show
+    // "pay the garage" instead of a Pay button. The endpoint stays because
+    // shipped app builds call it before showing payment UI.
+    const canPay = false;
+    const reason = 'PAY_AT_GARAGE';
 
     res.json({
       canPay,
+      reason,
       vendor_status: booking.vendor_status,
       status: booking.status,
       hasPayment: !!booking.payment,

@@ -178,7 +178,8 @@ describe('auto-confirm cron', () => {
       not: null,
       lt: new Date('2026-10-18T12:00:00.000Z'),
     });
-    expect(where.payment).toEqual({
+    // 2026-11-21: the paid branch is OR[0]; OR[1] is the ₹0-bill branch.
+    expect(where.OR[0].payment).toEqual({
       is: {
         status: 'success',
         refunds: { none: { status: { in: ['pending', 'processing'] } } },
@@ -192,6 +193,13 @@ describe('auto-confirm cron', () => {
     });
     expect(orderBy).toEqual({ service_completed_at: 'asc' });
     expect(take).toBe(50);
+  });
+
+  test('also picks bookings with no Payment row (pay-at-garage, 2026-11-22)', async () => {
+    mockPrisma.booking.findMany.mockResolvedValue([]);
+    await manager.autoConfirmCompletedBookings(NOW);
+    const { where } = mockPrisma.booking.findMany.mock.calls[0][0];
+    expect(where.OR[1]).toEqual({ payment: { is: null } });
   });
 
   test('confirms each candidate through the customer confirmation path (no rating) and notifies the customer', async () => {
@@ -230,7 +238,7 @@ describe('auto-confirm cron', () => {
 
     await manager.autoConfirmCompletedBookings(NOW);
 
-    const { OR } = mockPrisma.booking.findMany.mock.calls[0][0].where.payment.is;
+    const { OR } = mockPrisma.booking.findMany.mock.calls[0][0].where.OR[0].payment.is;
     const notIn = OR.find((c) => c.vendorPayoutStatus?.notIn).vendorPayoutStatus.notIn;
     expect([...notIn].sort()).toEqual(['paid', 'processing', 'settled']);
     for (const unclaimed of ['pending', 'failed', 'not_applicable']) {

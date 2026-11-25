@@ -45,6 +45,8 @@ jest.unstable_mockModule('../../util/logger.js', () => ({
 }));
 jest.unstable_mockModule('../../util/servicePricing.js', () => ({
   resolveBookingAmount: jest.fn(),
+  resolveChargeableAmount: jest.fn(),
+  V2_AMOUNT_INCLUDE: {},
 }));
 
 const recordCapturedPaymentFromWebhook = jest.fn();

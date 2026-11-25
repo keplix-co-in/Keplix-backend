@@ -1,302 +1,27 @@
-import Razorpay from "razorpay";
 import prisma from "../../util/prisma.js";
 import { verifyRazorpayWebhook } from "../../util/webhookVerification.js";
 import { createNotification } from "../../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../../util/notificationTemplates.js";
 import Logger from "../../util/logger.js";
-import { verifyAndRecordPayment, recordCapturedPaymentFromWebhook, PaymentError } from "../../services/paymentService.js";
-import { resolveBookingAmount } from "../../util/servicePricing.js";
-import { computeCharge, resolvePlatformFeeRate } from "../../util/platformSettings.js";
-import { FEE_MODEL_ON_TOP } from "../../util/feeModel.js";
-import { isBookingPayable } from "../../util/bookingStatus.js";
-import { parseIdParam } from "../../util/parseIdParam.js";
-import { describeGatewayError } from "../../util/razorpayCredentials.js";
+import { recordCapturedPaymentFromWebhook } from "../../services/paymentService.js";
 import { applyGatewayRefundOutcome, recordDashboardRefund } from "../../services/refundService.js";
+import { handleSubscriptionCaptured, handleSubscriptionFailed, isSubscriptionNotes } from "../../services/subscriptionService.js";
+import { sendError } from "../../util/apiError.js";
 
+// PAY AT THE GARAGE (owner decision 2026-11-22; contract in
+// docs/SUBSCRIPTIONS_API.md). Customers now pay the garage directly (cash or
+// the garage's UPI) and the garage marks the bill paid, so the customer-side
+// gateway endpoints are retired. The routes stay (shipped app builds still
+// call them) and answer 410 PAY_AT_GARAGE so those apps can show "pay the
+// garage". The old order/quote/verify code is deleted -- git history keeps it.
+// The webhook below still settles ORDERS THAT ALREADY EXISTED, so a customer
+// who paid just before this shipped is never left unrecorded.
+const payAtGarage = (res) =>
+  sendError(res, 410, 'PAY_AT_GARAGE', 'Online payment for bookings is closed. Please pay the garage directly (cash or UPI).');
 
-
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
-/**
- * CREATE PAYMENT ORDER
- * User -> Keplix
- */
-export const createPaymentOrder = async (req, res) => {
-  try {
-    // `amount` is intentionally ignored — the client used to be able to
-    // request an order for any amount it liked (e.g. ₹1 against a ₹5,000
-    // booking), and verification never cross-checked it against the booking
-    // price, so a valid signature on a cheap order recorded a full-price
-    // payment. The price is now looked up server-side from the booking.
-    const { currency = "INR", bookingId } = req.body;
-
-    if (!bookingId) {
-      return res.status(400).json({ message: "Booking ID is required" });
-    }
-    // Number("abc") is NaN and reached Prisma as a 500.
-    const bookingIdNum = parseIdParam(typeof bookingId === "number" ? bookingId : String(bookingId));
-    if (bookingIdNum === null) {
-      return res.status(400).json({ message: "Invalid booking ID" });
-    }
-
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingIdNum },
-      include: { service: true, bookingVehicle: true },
-    });
-
-    if (!booking || !booking.service) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    if (booking.userId !== req.user.id) {
-      return res.status(403).json({ message: "Not authorized for this booking" });
-    }
-
-    // Only a vendor-accepted, still-live booking can be paid for
-    // (util/bookingStatus.js isBookingPayable). Orders used to be created for
-    // any booking the caller owned -- one still awaiting the vendor, one the
-    // vendor had declined, one already cancelled -- and the resulting capture
-    // then confirmed it regardless. 409: the request is fine, the booking's
-    // state is what rules it out.
-    if (!isBookingPayable(booking)) {
-      return res.status(409).json({
-        message:
-          booking.vendor_status !== "accepted"
-            ? "The workshop has not accepted this booking yet, so it can't be paid for."
-            : `This booking is ${booking.status} and can no longer be paid for.`,
-        code: "BOOKING_NOT_PAYABLE",
-      });
-    }
-
-    // Prefers BookingVehicle.price_snapshot (segment price at the time this
-    // booking was created) over a fresh lookup of the service's current
-    // price. See util/servicePricing.js — this is one of three sites that
-    // must agree, or the webhook's cross-check below fails every payment.
-    const servicePriceRupees = resolveBookingAmount(booking);
-
-    // Razorpay's minimum order is ₹1 (100 paise). A booking priced at 0 (a
-    // missing price_snapshot or a ₹0 service) used to reach the gateway and
-    // come back as an opaque 502. Refuse it here with a reason instead.
-    if (!Number.isFinite(Number(servicePriceRupees)) || Math.round(Number(servicePriceRupees) * 100) < 100) {
-      console.error(`Create payment order: booking ${bookingIdNum} resolved to an unpayable amount (${servicePriceRupees})`);
-      return res.status(422).json({
-        message: "This booking has no payable amount",
-        error: "This booking's price is missing, so it can't be paid online. Please contact support.",
-        code: "INVALID_BOOKING_AMOUNT",
-      });
-    }
-
-    // Fee ON TOP (owner decision 2026-11-06): the customer is charged the
-    // vendor's price plus Keplix's fee. The rate is frozen HERE, into the
-    // order notes, so an admin changing it before capture can't change what
-    // this order records (verify/webhook read it back via resolveExpectedCharge).
-    const charge = computeCharge(servicePriceRupees, await resolvePlatformFeeRate());
-    const amountPaise = Math.round(charge.total * 100);
-
-    const receipt = `rcpt_bk_${bookingId}`;
-
-    // Idempotency by receipt lookup rather than the X-Razorpay-Idempotency-Key
-    // header. razorpay@2.9.6's orders.create(params, cb) takes a CALLBACK as
-    // its second argument, not headers — passing a headers object there made
-    // the SDK invoke it as a function and every single order creation died
-    // with "cb is not a function", so no payment could ever start. The SDK's
-    // api.post has no per-request header support at all (headers are fixed at
-    // client construction), so the key cannot be sent this way.
-    //
-    // The receipt is already unique per booking, so an unpaid order for this
-    // booking is reused instead of piling up duplicates — which matters
-    // because the app can fire this endpoint twice for one tap.
-    let order = null;
-    try {
-      const existing = await razorpay.orders.all({ receipt, count: 10 });
-      order = (existing?.items ?? []).find(
-        // Only reuse an on-top order with today's exact charge: a legacy
-        // (pre-switch) order has no frozen fee in its notes.
-        (o) => o.status === 'created' && Number(o.amount) === amountPaise &&
-          o.notes?.feeModel === FEE_MODEL_ON_TOP &&
-          Math.round(Number(o.notes?.platformFee) * 100) === Math.round(charge.platformFee * 100)
-      ) ?? null;
-    } catch (lookupError) {
-      // A failed lookup must not block payment — worst case we create a new
-      // order, which is the pre-existing behaviour anyway.
-      console.warn('Order idempotency lookup failed, creating a new order:', lookupError.message);
-    }
-
-    if (!order) {
-      order = await razorpay.orders.create({
-        amount: amountPaise,
-        currency,
-        receipt,
-        // The webhook handler needs a reliable way to resolve which booking a
-        // captured payment belongs to when it's creating the payment record
-        // itself (client died before calling /verify) — notes are echoed back
-        // on both the order and payment webhook entities, unlike `receipt`
-        // parsing which is a string convention rather than a real contract.
-        // Notes values must be strings (Razorpay); read back as numbers.
-        notes: {
-          bookingId: String(bookingId),
-          servicePrice: charge.servicePrice.toFixed(2),
-          platformFee: charge.platformFee.toFixed(2),
-          feeRate: String(charge.feeRate),
-          feeModel: FEE_MODEL_ON_TOP,
-        },
-      });
-    }
-
-    const finalOrderId = order.id || order.orderId;
-
-    const responseData = {
-      id: finalOrderId, // This must be present and a string!
-      orderId: finalOrderId, 
-      amount: order.amount, // paise, = servicePrice + platformFee (what Razorpay charges)
-      currency: order.currency,
-      // Rupees, for the checkout breakdown. Additive: older app builds ignore them.
-      servicePrice: charge.servicePrice,
-      platformFee: charge.platformFee,
-      key_id: process.env.RAZORPAY_KEY_ID, 
-      key: process.env.RAZORPAY_KEY_ID, 
-      gateway: 'razorpay'
-    };
-
-    return res.json(responseData);
-  } catch (error) {
-    console.error("Create payment order error:", error);
-    // The Razorpay SDK throws a plain { statusCode, error: { description } }
-    // object, not an Error, for anything the gateway itself rejects
-    // (including bad/test credentials — statusCode 401). That previously fell
-    // through to a bare 500 with `error.message` (always undefined on this
-    // shape), hiding a gateway-side problem behind a generic server-error
-    // response. A failure Razorpay itself reported is an upstream/gateway
-    // failure from our API's point of view, so it's surfaced as 502 with the
-    // gateway's own description, not our own bug.
-    // describeGatewayError (util/razorpayCredentials.js) gives a 401 (bad
-    // keys) and a 400 amount error a message a user can read, and keeps the
-    // gateway's raw text in `gatewayError` for support.
-    if (error && typeof error.statusCode === 'number') {
-      const { status, body } = describeGatewayError(error);
-      return res.status(status).json(body);
-    }
-    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
-    res.status(500).json({ message: "Payment order failed" });
-  }
-};
-
-/**
- * PAYMENT QUOTE — GET /service_api/payments/quote/:bookingId
- * Shows the customer the price + fee breakdown before they pay. Uses the same
- * computeCharge as createPaymentOrder so the quote and the charge can't drift
- * (the rate could still change between quote and order; the order is what
- * freezes it). Owner of the booking only.
- */
-export const getPaymentQuote = async (req, res) => {
-  try {
-    const bookingIdNum = parseIdParam(req.params.bookingId);
-    if (bookingIdNum === null) {
-      return res.status(400).json({ success: false, message: "Invalid booking ID" });
-    }
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingIdNum },
-      include: { service: true, bookingVehicle: true },
-    });
-    if (!booking || !booking.service) {
-      return res.status(404).json({ success: false, message: "Booking not found" });
-    }
-    // 404 not 403 would hide existence, but 403 matches createPaymentOrder.
-    if (booking.userId !== req.user.id) {
-      return res.status(403).json({ success: false, message: "Not authorized for this booking" });
-    }
-    const { servicePrice, platformFee, feeRate, total } = computeCharge(
-      resolveBookingAmount(booking),
-      await resolvePlatformFeeRate(),
-    );
-    return res.json({ success: true, data: { servicePrice, platformFee, feeRate, total } });
-  } catch (error) {
-    console.error("Payment quote error:", error);
-    return res.status(500).json({ success: false, message: "Could not compute quote" });
-  }
-};
-
-/**
- * VERIFY PAYMENT
- * Payment verify + commission calculation
- */
-export const verifyPayment = async (req, res) => {
-  try {
-    const { orderId, paymentId, signature, bookingId, gateway } = req.body;
-
-    const { payment, updatedBooking, platformFee, vendorAmount, bookingActive, refundOutcome, alreadyRecorded } = await verifyAndRecordPayment({
-      bookingId,
-      requestingUserId: req.user.id,
-      orderId,
-      paymentId,
-      signature,
-      gateway,
-    });
-
-    // The payment was captured, but for a booking that had already been
-    // cancelled: recordSuccessfulPayment left it cancelled and refunded the
-    // money. Tell the app plainly (bookingActive:false is additive -- older
-    // app builds ignore it) and do NOT tell the vendor they were paid.
-    if (bookingActive === false) {
-      return res.json({
-        success: true,
-        paymentId: payment.id,
-        bookingActive: false,
-        refundInitiated: Boolean(refundOutcome?.refunded),
-        message: refundOutcome?.refunded
-          ? "This booking was cancelled before your payment arrived, so the full amount is being refunded."
-          : "This booking was cancelled before your payment arrived. Our team will refund you shortly.",
-      });
-    }
-
-    // Tell the vendor the job is on -- WITHOUT saying the customer paid.
-    // Owner decision 2026-11-03: only Keplix needs to know about the payment.
-    // This used to send PAYMENT_RECEIVED ("A customer has paid...") plus a
-    // "payment_received" socket event carrying the amount. Now it is a neutral
-    // BOOKING_READY notice and a plain "booking_updated" refresh signal.
-    //
-    // Skipped on a replayed verify (alreadyRecorded): the app retrying the
-    // same verify used to notify the vendor a second time.
-    const vendorId = updatedBooking?.service?.vendorId;
-    if (vendorId && !alreadyRecorded) {
-      const notice = renderNotification(NOTIFICATION_TYPES.BOOKING_READY, {
-        serviceName: updatedBooking.service?.name,
-        bookingId: updatedBooking.id,
-      });
-      await createNotification(vendorId, notice.title, notice.body, {
-        type: notice.type,
-        data: notice.data,
-        bookingId: updatedBooking.id,
-      });
-
-      const io = req.app.get("io");
-      if (io) {
-        // No amount and no payment wording: screens only need to refresh.
-        io.to(`user_${vendorId}`).emit("booking_updated", {
-          bookingId: updatedBooking.id,
-          status: updatedBooking.status,
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      paymentId: payment.id,
-      platformFee,
-      vendorAmount,
-      message: "Payment verified, payout pending",
-    });
-  } catch (error) {
-    console.error("Verify payment error:", error);
-    if (error instanceof PaymentError) {
-      return res.status(error.statusCode).json({ message: error.message });
-    }
-    res.status(500).json({ message: "Payment verification failed" });
-  }
-};
+export const createPaymentOrder = async (req, res) => payAtGarage(res);
+export const getPaymentQuote = async (req, res) => payAtGarage(res);
+export const verifyPayment = async (req, res) => payAtGarage(res);
 
 /**
  * RAZORPAY WEBHOOK HANDLER
@@ -379,6 +104,15 @@ export const handleRazorpayWebhook = async (req, res) => {
 
         case 'order.paid':
           Logger.info(`[Webhook] Order paid: ${payload.order.entity.id}`);
+          // Garage subscription orders (2026-11-22 decision) are also settled
+          // from order.paid; same idempotent mark-paid as payment.captured.
+          if (isSubscriptionNotes(payload.order.entity.notes) && payload.payment?.entity?.id) {
+            await handleSubscriptionCaptured({
+              orderId: payload.order.entity.id,
+              paymentId: payload.payment.entity.id,
+              amountPaise: payload.payment.entity.amount,
+            });
+          }
           break;
 
         // Refund outcomes. issueRefund writes 'gateway_confirmed' the moment the
@@ -419,6 +153,16 @@ async function handlePaymentCaptured(payment) {
 
     Logger.info(`[Webhook] Payment captured: ${id}, Amount: ${amount / 100}`);
 
+    // Garage subscription (owner decision 2026-11-22: the gateway is used ONLY
+    // for subscriptions now). Decided by OUR SubscriptionPayment row, never by
+    // the payment's own notes alone (checkout lets a client set those); an
+    // order we have no row for falls through to the booking path below, which
+    // still serves old booking orders so no money goes unrecorded.
+    if (isSubscriptionNotes(notes)) {
+      const sub = await handleSubscriptionCaptured({ orderId: order_id, paymentId: id, amountPaise: amount });
+      if (!sub.unresolved) return;
+    }
+
     // If /verify already ran, this just flips status to success (or is a
     // no-op if it's already there). If the client died before calling
     // /verify at all, this is the only place that payment ever gets
@@ -458,7 +202,11 @@ async function handlePaymentCaptured(payment) {
 async function handlePaymentFailed(payment) {
   try {
     const { id, error_description } = payment;
-    
+
+    if (isSubscriptionNotes(payment.notes)) {
+      await handleSubscriptionFailed({ orderId: payment.order_id });
+    }
+
     Logger.error(`[Webhook] Payment failed: ${id}, Reason: ${error_description}`);
     
     const existingPayment = await prisma.payment.findFirst({

@@ -11,6 +11,8 @@ const FROZEN_IST = new Date(2026, 7, 25, 13, 10, 0);
 jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: {
     vendorProfile: { findUnique: jest.fn() },
+    // visibility gate (audit): no row = lazy trial = visible
+    vendorSubscription: { findUnique: jest.fn(async () => null), create: jest.fn(async ({ data }) => data) },
     booking: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     bookingEarlyStart: { update: jest.fn() },
     $transaction: jest.fn(),
@@ -31,7 +33,7 @@ const prisma = (await import('../../../util/prisma.js')).default;
 
 const makeRes = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() });
 
-const HOURS = { operating_hours: '10:00 AM - 4:00 PM', breaks: null, holidays: null };
+const HOURS = { status: 'approved', operating_hours: '10:00 AM - 4:00 PM', breaks: null, holidays: null };
 
 describe('getVendorSlots — today vs future', () => {
   let res;
@@ -102,7 +104,7 @@ describe('getVendorSlots — today vs future', () => {
       res = makeRes();
       prisma.booking.findMany.mockResolvedValue([]);
       prisma.vendorProfile.findUnique.mockResolvedValue({
-        operating_hours: bad,
+        status: 'approved', operating_hours: bad,
         breaks: '[[[',
         holidays: '{"a":1}',
       });

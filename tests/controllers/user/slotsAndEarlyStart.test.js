@@ -3,6 +3,8 @@ import { jest } from '@jest/globals';
 jest.unstable_mockModule('../../../util/prisma.js', () => ({
   default: {
     vendorProfile: { findUnique: jest.fn() },
+    // visibility gate (audit): no row = lazy trial = visible
+    vendorSubscription: { findUnique: jest.fn(async () => null), create: jest.fn(async ({ data }) => data) },
     booking: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     bookingEarlyStart: { update: jest.fn() },
     $transaction: jest.fn(),
@@ -48,7 +50,7 @@ describe('getVendorSlots', () => {
 
   test('closed with no slots when the weekday is a holiday', async () => {
     prisma.vendorProfile.findUnique.mockResolvedValue({
-      operating_hours: '10:00 AM - 8:00 PM',
+      status: 'approved', operating_hours: '10:00 AM - 8:00 PM',
       breaks: JSON.stringify(['1:00 PM - 2:00 PM']),
       holidays: JSON.stringify(['Tuesday']),
     });
@@ -64,7 +66,7 @@ describe('getVendorSlots', () => {
 
   test('closed when the hours string is unparseable', async () => {
     prisma.vendorProfile.findUnique.mockResolvedValue({
-      operating_hours: 'open all hours',
+      status: 'approved', operating_hours: 'open all hours',
       breaks: null,
       holidays: null,
     });
@@ -79,7 +81,7 @@ describe('getVendorSlots', () => {
 
   test('marks taken slots unavailable, matching legacy and canonical times alike', async () => {
     prisma.vendorProfile.findUnique.mockResolvedValue({
-      operating_hours: '10:00 AM - 12:00 PM',
+      status: 'approved', operating_hours: '10:00 AM - 12:00 PM',
       breaks: JSON.stringify(['10:30 AM - 11:00 AM']),
       holidays: JSON.stringify(['Sunday']),
     });

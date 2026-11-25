@@ -2,6 +2,9 @@ import crypto from "crypto";
 import Razorpay from "razorpay";
 import prisma from "../util/prisma.js";
 import { resolveExpectedCharge } from "../util/paymentCharge.js";
+import { V2_AMOUNT_INCLUDE } from "../util/servicePricing.js";
+import { resolvePayoutHoldUntil } from "../util/platformSettings.js";
+import { settleV2PaymentInTx } from "../util/pricingV2Payment.js";
 import { executeCancellationRefund } from "./refundPolicy.js";
 import { createNotification } from "../util/notificationHelper.js";
 import { renderNotification, NOTIFICATION_TYPES } from "../util/notificationTemplates.js";
@@ -102,7 +105,8 @@ export const verifyAndRecordPayment = async ({
 
   const booking = await prisma.booking.findUnique({
     where: { id: Number(bookingId) },
-    include: { service: true, bookingVehicle: true },
+    // V2_AMOUNT_INCLUDE: pricing v2 bookings are charged their final bill.
+    include: { service: true, bookingVehicle: true, ...V2_AMOUNT_INCLUDE },
   });
 
   if (!booking || !booking.service) {
@@ -216,6 +220,8 @@ export const verifyAndRecordPayment = async ({
     feeModel,
     method: gateway || "razorpay",
     transactionId: paymentId || `TXN${Date.now()}`,
+    finalBillId: charge.finalBillId ?? null,
+    orderFinalBillId: charge.orderFinalBillId ?? null,
   });
 
   // bookingActive/refundOutcome let the controller tell the customer their
@@ -233,7 +239,7 @@ export const verifyAndRecordPayment = async ({
  * is set only on create — a re-run of this on an existing row must never
  * reach back in and reset a payout that has already been initiated.
  */
-const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorAmount, feeModel = null, method, transactionId }) => {
+const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorAmount, feeModel = null, method, transactionId, finalBillId = null, orderFinalBillId = null }) => {
   const paymentData = {
     feeModel,
     amount,
@@ -244,6 +250,20 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
     platformFee,
     vendorAmount,
   };
+
+  // Pricing v2 escrow (review fix 2026-11-21): the same payout hold that
+  // completion sets for a legacy booking, applied when the v2 bill is paid
+  // (see util/pricingV2Payment.js). Read before the transaction, and
+  // best-effort exactly like the completion code: a settings read failure
+  // must not lose a captured payment.
+  let v2HoldUntil = null;
+  if (finalBillId) {
+    try {
+      v2HoldUntil = await resolvePayoutHoldUntil(new Date());
+    } catch (holdError) {
+      console.error('Failed to resolve payout hold for v2 payment on booking', bookingId, holdError);
+    }
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     // Serialise concurrent verifies for this booking on the booking row.
@@ -281,15 +301,39 @@ const recordSuccessfulPayment = async ({ bookingId, amount, platformFee, vendorA
       data: { status: "confirmed" },
     });
 
+    // Pricing v2: the payment settles the final bill it was charged for, in
+    // the same transaction as the payment row, sets the escrow hold, restarts
+    // the confirm window, and flags (never silently drops) a capture whose
+    // bill was voided meanwhile. Only a v2 charge carries finalBillId, so
+    // legacy payments never touch these tables.
+    let v2Alerts = [];
+    if (finalBillId) {
+      ({ alerts: v2Alerts } = await settleV2PaymentInTx(tx, {
+        bookingId,
+        finalBillId,
+        orderFinalBillId,
+        paymentId: payment.id,
+        amount,
+        holdUntil: v2HoldUntil,
+        eventPayload: { transactionId },
+      }));
+    }
+
     const updatedBooking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { service: true },
     });
 
-    return { payment, updatedBooking, bookingAdvanced: count > 0 };
+    return { payment, updatedBooking, bookingAdvanced: count > 0, v2Alerts };
   });
 
-  const { payment, updatedBooking, bookingAdvanced } = result;
+  const { payment, updatedBooking, bookingAdvanced, v2Alerts } = result;
+  // Void race (review fix 2026-11-21): logged after commit so the alert only
+  // fires for a payment that was really recorded. [MANUAL ACTION] is the
+  // payment code's existing ops-alert tag; no auto-refund by design.
+  for (const alert of v2Alerts) {
+    console.error(`[MANUAL ACTION] ${alert}`);
+  }
 
   if (bookingAdvanced || !updatedBooking) {
     return { payment, updatedBooking, bookingActive: Boolean(updatedBooking) };
@@ -400,7 +444,8 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
   const bookingId = Number(bookingIdHint);
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { service: true, bookingVehicle: true },
+    // V2_AMOUNT_INCLUDE: pricing v2 bookings are charged their final bill.
+    include: { service: true, bookingVehicle: true, ...V2_AMOUNT_INCLUDE },
   });
 
   if (!booking || !booking.service) {
@@ -429,6 +474,8 @@ export const recordCapturedPaymentFromWebhook = async ({ orderId, paymentId, amo
     feeModel: charge.feeModel,
     method: "razorpay",
     transactionId: paymentId,
+    finalBillId: charge.finalBillId ?? null,
+    orderFinalBillId: charge.orderFinalBillId ?? null,
   });
 
   return { created: true, payment, updatedBooking, bookingActive, refundOutcome };

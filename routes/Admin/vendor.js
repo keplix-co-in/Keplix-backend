@@ -3,7 +3,7 @@ import express from 'express';
 // are super_admin-only; a regular admin account must not change who gets
 // paid or how much.
 import { authAdmin, authorizeAdmin, authorizeSuperAdmin } from '../../middleware/authAdminMiddleware.js';
-import { getVendorMetrics, getVendors, setVendorStatus } from '../../controllers/Admin/vendorController.js';
+import { getVendorMetrics, getVendors, getVendorDetail, setVendorStatus, listVendorApprovals } from '../../controllers/Admin/vendorController.js';
 import { validateRequest } from '../../middleware/validationMiddleware.js';
 import { setVendorStatusSchema } from '../../validators/Admin/vendorValidator.js';
 const router = express.Router();
@@ -47,6 +47,11 @@ router.get("/vendors", authAdmin, authorizeAdmin, getVendors);
  * approved and the nearby-vendor search (which filters on status = 'approved')
  * could never return a row.
  */
+// Must be registered before "/vendors/:id" or "approvals" is read as an id.
+router.get("/vendors/approvals", authAdmin, authorizeAdmin, listVendorApprovals);
+
+router.get("/vendors/:id", authAdmin, authorizeAdmin, getVendorDetail);
+
 router.patch(
   "/vendors/:id/status",
   authAdmin,

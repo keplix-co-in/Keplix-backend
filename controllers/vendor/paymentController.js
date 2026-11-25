@@ -1,6 +1,6 @@
 ﻿import Razorpay from "razorpay";
-import crypto from "crypto";
 import prisma from "../../util/prisma.js";
+import { sendError } from "../../util/apiError.js";
 
 
 
@@ -16,179 +16,17 @@ export const getRazorpay = () => {
   if (!razorpayClient) razorpayClient = new Razorpay({ key_id, key_secret });
   return razorpayClient;
 };
-const GATEWAY_NOT_CONFIGURED = { message: "Payment gateway is not configured" };
 
 
-/**
- * @desc    Create Vendor Payment Order (Subscription / Ads / Promotion)
- * @route   POST /service_api/vendor/payments/order/create
- * Vendor â†’ Keplix
- */
-export const createVendorPaymentOrder = async (req, res) => {
-  try {
-    const { amount, currency = "INR", gateway } = req.body;
+// Audit: both retired. They took a client-chosen amount and wrote Payment rows
+// with platformFee=amount, inflating revenue KPIs. Vendors pay through the
+// subscription flow (/subscriptions/order + /verify). Routes stay so shipped
+// builds get a clear 410 instead of a 404. Old code lives in git history.
+const useSubscriptions = (res) =>
+  sendError(res, 410, "USE_SUBSCRIPTIONS", "This payment endpoint is closed. Please pay for your plan from the Subscription screen.");
 
-    if (!amount) {
-      return res.status(400).json({ message: "Amount is required" });
-    }
-
-    // Partial mitigation, not a fix -- see keplix-backend/prisma's audit note
-    // and TODO.md. There is no Subscription/Plan/Invoice model anywhere in
-    // schema.prisma for this endpoint to derive a price FROM, and the vendor
-    // app's own call site (Payment4.jsx) sends a hardcoded placeholder amount
-    // with a comment admitting the real pricing concept was never wired up.
-    // A vendor can therefore still set their own price for whatever this
-    // endpoint is charging them for -- that requires a product decision
-    // (real subscription/ad-rate pricing data) this fix cannot invent. What
-    // IS safe to add without guessing at business data: reject amounts
-    // outside a sane range, so a typo or a trivially scripted request can't
-    // create a ₹0.01 "payment" or a wildly oversized one against a live
-    // payment gateway.
-    const numericAmount = Number(amount);
-    if (!Number.isFinite(numericAmount) || numericAmount < 1 || numericAmount > 100000) {
-      return res.status(400).json({ message: "Amount must be between ₹1 and ₹1,00,000" });
-    }
-
-    if (gateway === "stripe") {
-      return res.status(400).json({ message: "Stripe is not supported. Use gateway: 'razorpay'." });
-    }
-
-    // RAZORPAY (default)
-    const razorpay = getRazorpay();
-    if (!razorpay) return res.status(503).json(GATEWAY_NOT_CONFIGURED);
-    const order = await razorpay.orders.create({
-      amount: Math.round(numericAmount * 100),
-      currency,
-      receipt: `vendor_order_${Date.now()}`,
-      notes: {
-        vendorId: req.user.id,
-        type: "vendor_payment",
-      },
-    });
-
-    return res.json({
-      id: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      gateway: "razorpay",
-      key_id: process.env.RAZORPAY_KEY_ID,
-    });
-  } catch (error) {
-    console.error("Vendor Payment Order Error:", error);
-    // Same rationale as routes/user's createPaymentOrder: the Razorpay SDK
-    // throws a plain { statusCode, error: { description } } object (not an
-    // Error) for anything the gateway itself rejects, including bad/test
-    // credentials (statusCode 401). That previously surfaced as a bare 500
-    // with `error.message` always undefined. A gateway-reported failure is
-    // an upstream problem, not our own bug, so it's now a 502.
-    if (error && typeof error.statusCode === 'number') {
-      return res.status(502).json({
-        message: "Payment gateway rejected the request",
-        error: error.error?.description || error.message || 'Unknown gateway error',
-      });
-    }
-    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
-    res.status(500).json({
-      message: "Vendor payment order creation failed",
-    });
-  }
-};
-
-/**
- * @desc    Verify Vendor Payment
- * @route   POST /service_api/vendor/payments/verify
- */
-export const verifyVendorPayment = async (req, res) => {
-  try {
-    const {
-      orderId,
-      paymentId,
-      signature,
-      amount,
-      currency = "INR",
-      gateway,
-    } = req.body;
-
-    // ---------------- RAZORPAY VERIFY ----------------
-    // Any gateway value other than "razorpay" previously skipped signature
-    // verification entirely and still recorded a "success" payment with a
-    // client-chosen amount — this is Keplix's own revenue (vendor paying
-    // Keplix for subscription/ads), so an unverified request here was a
-    // direct way to fabricate platform revenue records. Only razorpay is
-    // accepted; anything else is rejected instead of silently trusted.
-    if (gateway !== "razorpay") {
-      return res.status(400).json({ message: "Unsupported or missing gateway" });
-    }
-
-    if (!orderId || !paymentId || !signature) {
-      return res.status(400).json({ message: "orderId, paymentId and signature are required" });
-    }
-
-    const razorpay = getRazorpay();
-    if (!razorpay) return res.status(503).json(GATEWAY_NOT_CONFIGURED);
-
-    const body = orderId + "|" + paymentId;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body)
-      .digest("hex");
-
-    const expectedBuf = Buffer.from(expectedSignature, "utf8");
-    const signatureBuf = Buffer.from(String(signature), "utf8");
-    const signatureValid =
-      expectedBuf.length === signatureBuf.length &&
-      crypto.timingSafeEqual(expectedBuf, signatureBuf);
-
-    if (!signatureValid) {
-      return res.status(400).json({ message: "Invalid Razorpay signature" });
-    }
-
-    // Fetch the Razorpay order to get the authoritative amount rather than
-    // trusting whatever the client sends back at verify time.
-    const order = await razorpay.orders.fetch(orderId);
-    const verifiedAmount = order.amount / 100; // paise -> rupees
-
-    // Security A-017: a valid signature only proves SOME vendor paid this
-    // order. The order must have been created for THIS vendor, or one vendor
-    // could replay another's payment as their own.
-    if (String(order?.notes?.vendorId) !== String(req.user.id) || order?.notes?.type !== "vendor_payment") {
-      return res.status(403).json({ message: "This payment does not belong to your account" });
-    }
-
-    // ---------------- SAVE PAYMENT ----------------
-
-    await prisma.payment.create({
-      data: {
-        amount: verifiedAmount,
-        currency,
-        status: "success",
-        method: gateway,
-        transactionId: paymentId,
-        vendorPayoutStatus: "not_applicable", // IMPORTANT
-        platformFee: verifiedAmount, // full amount is Keplix earning
-        vendorAmount: 0,
-        // Security A-018: lets getVendorPayments scope history to this vendor.
-        vendorId: req.user.id,
-      },
-    });
-
-    res.json({
-      success: true,
-      message: "Vendor payment verified successfully",
-    });
-  } catch (error) {
-    // Security A-017: transactionId is unique -- the same payment verified
-    // twice is a conflict, not a server error.
-    if (error?.code === "P2002") {
-      return res.status(409).json({ message: "This payment has already been recorded" });
-    }
-    console.error("Vendor Payment Verify Error:", error);
-    // Security A-008: error.message (Prisma/driver/gateway internals) is logged, never returned.
-    res.status(500).json({
-      message: "Vendor payment verification failed",
-    });
-  }
-};
+export const createVendorPaymentOrder = async (req, res) => useSubscriptions(res);
+export const verifyVendorPayment = async (req, res) => useSubscriptions(res);
 
 /**
  * @desc    Get Vendor Payments (what vendor paid to Keplix)
