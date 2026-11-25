@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
 export const createSubscriptionOrderSchema = z.object({
-  plan_code: z.string().trim().min(1).max(40),
-  period: z.enum(['monthly', 'yearly']),
+  // One plan, monthly only (owner decision 2026-11-25); anything else is a 400.
+  plan_code: z.literal('gold'),
+  period: z.literal('monthly'),
 });
 
 export const verifySubscriptionSchema = z.object({
@@ -16,7 +17,6 @@ const price = z.coerce.number().finite().min(0).max(10000000);
 export const updatePlanSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   monthly_price: price.optional(),
-  yearly_price: price.optional(),
   features: z.array(z.string().trim().min(1).max(120)).max(10).optional(),
   is_active: z.boolean().optional(),
   sort_order: z.number().int().min(0).max(1000).optional(),

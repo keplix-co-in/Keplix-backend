@@ -70,8 +70,11 @@ describe('vendor controller', () => {
 });
 
 describe('validators', () => {
-  test('order: plan_code and period (monthly|yearly) required', () => {
-    expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'gold', period: 'yearly' }).success).toBe(true);
+  test('order: only plan gold + period monthly are accepted', () => {
+    expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'gold', period: 'yearly' }).success).toBe(false);
+    expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'gold', period: 'monthly' }).success).toBe(true);
+    expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'silver', period: 'monthly' }).success).toBe(false);
+    expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'platinum', period: 'monthly' }).success).toBe(false);
     expect(createSubscriptionOrderSchema.safeParse({ plan_code: 'gold', period: 'trial' }).success).toBe(false);
     expect(createSubscriptionOrderSchema.safeParse({ period: 'monthly' }).success).toBe(false);
   });

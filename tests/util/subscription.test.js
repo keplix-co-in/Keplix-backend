@@ -132,31 +132,68 @@ describe('visibility filters for listings', () => {
 
 describe('ensurePlansSeeded', () => {
   beforeEach(() => sub.__resetPlanSeedCache());
-  test('inserts only missing plans and never overwrites an existing one', async () => {
-    const db = { subscriptionPlan: { findMany: jest.fn().mockResolvedValue([{ code: 'gold' }]), create: jest.fn() } };
+  const mkDb = (over = {}) => ({ subscriptionPlan: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 2 }), ...over } });
+
+  test('upserts gold as "Keplix Partner" Rs 999/month and deactivates silver/platinum (not deleted)', async () => {
+    const db = mkDb();
     await sub.ensurePlansSeeded(db);
-    const codes = db.subscriptionPlan.create.mock.calls.map((c) => c[0].data.code);
-    expect(codes).toEqual(['silver', 'platinum']);
+    const gold = db.subscriptionPlan.updateMany.mock.calls.find((c) => c[0].where.code === 'gold')[0];
+    // Conditional: only a row whose name is not yet 'Keplix Partner' (old seed) is touched.
+    expect(gold.where).toEqual({ code: 'gold', name: { not: 'Keplix Partner' } });
+    expect(gold.data).toMatchObject({
+      name: 'Keplix Partner', monthly_price: 999, is_active: true,
+      features: ['Listed to customers in your area', 'Unlimited bookings', 'Bills, invoices & job tools', 'Customer reviews'],
+    });
+    expect(db.subscriptionPlan.updateMany).toHaveBeenCalledWith({ where: { code: { in: ['silver', 'platinum'] } }, data: { is_active: false } });
     await sub.ensurePlansSeeded(db); // cached
-    expect(db.subscriptionPlan.findMany).toHaveBeenCalledTimes(1);
+    expect(db.subscriptionPlan.updateMany).toHaveBeenCalledTimes(2);
   });
 
-  test('concurrent first calls: a P2002 on create (the other request won) is swallowed', async () => {
+  test('admin-edited gold (already Keplix Partner, price 1299) is NOT overwritten', async () => {
+    // Stateful fake honouring the updateMany where-clause.
+    const rows = { gold: { code: 'gold', name: 'Keplix Partner', monthly_price: 1299 } };
+    const db = { subscriptionPlan: {
+      updateMany: jest.fn(async ({ where, data }) => {
+        const r = rows[where.code];
+        if (r && r.name !== where.name?.not) { Object.assign(r, data); return { count: 1 }; }
+        return { count: 0 };
+      }),
+      create: jest.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: 'P2002' })),
+    } };
+    await sub.ensurePlansSeeded(db);
+    expect(rows.gold).toEqual({ code: 'gold', name: 'Keplix Partner', monthly_price: 1299 });
+  });
+
+  test('old seed row (name Gold, 999) is migrated to Keplix Partner once', async () => {
+    const rows = { gold: { code: 'gold', name: 'Gold', monthly_price: 999 } };
+    const db = { subscriptionPlan: {
+      updateMany: jest.fn(async ({ where, data }) => {
+        const r = rows[where.code];
+        if (r && r.name !== where.name?.not) { Object.assign(r, data); return { count: 1 }; }
+        return { count: 0 };
+      }),
+      create: jest.fn().mockResolvedValue({}),
+    } };
+    await sub.ensurePlansSeeded(db);
+    expect(rows.gold.name).toBe('Keplix Partner');
+  });
+
+  test('concurrent first calls: a P2002 (the other request won) is swallowed', async () => {
     const err = Object.assign(new Error('dup'), { code: 'P2002' });
-    const db = { subscriptionPlan: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockRejectedValueOnce(err).mockResolvedValue({}) } };
+    const db = mkDb({ create: jest.fn().mockRejectedValue(err) });
     await expect(sub.ensurePlansSeeded(db)).resolves.toBeUndefined();
-    expect(db.subscriptionPlan.create).toHaveBeenCalledTimes(3);
+    expect(db.subscriptionPlan.updateMany).toHaveBeenCalled();
   });
 
-  test('other create errors still propagate and the seed is retried next time', async () => {
-    const db = { subscriptionPlan: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockRejectedValue(new Error('db down')) } };
+  test('other errors still propagate and the seed is retried next time', async () => {
+    const db = mkDb({ create: jest.fn().mockRejectedValue(new Error('db down')) });
     await expect(sub.ensurePlansSeeded(db)).rejects.toThrow('db down');
     await expect(sub.ensurePlansSeeded(db)).rejects.toThrow('db down');
-    expect(db.subscriptionPlan.findMany).toHaveBeenCalledTimes(2);
+    expect(db.subscriptionPlan.create).toHaveBeenCalledTimes(2);
   });
 
-  test('contract seed prices', () => {
-    const p = Object.fromEntries(sub.DEFAULT_PLANS.map((x) => [x.code, [x.monthly_price, x.yearly_price]]));
-    expect(p).toEqual({ silver: [499, 4990], gold: [999, 9990], platinum: [1999, 19990] });
+  test('single plan only, monthly billing only', () => {
+    expect(sub.DEFAULT_PLANS.map((x) => [x.code, x.monthly_price])).toEqual([['gold', 999]]);
+    expect(sub.PAID_PERIODS).toEqual(['monthly']);
   });
 });

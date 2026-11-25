@@ -10,7 +10,7 @@ jest.unstable_mockModule('razorpay', () => ({ default: jest.fn().mockImplementat
 jest.unstable_mockModule('../../util/logger.js', () => ({ default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() } }));
 
 const prisma = {
-  subscriptionPlan: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+  subscriptionPlan: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), upsert: jest.fn(), updateMany: jest.fn() },
   subscriptionPayment: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
   vendorSubscription: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
   $transaction: jest.fn(async (cb) => cb(prisma)),
@@ -21,7 +21,7 @@ const svc = await import('../../services/subscriptionService.js');
 const { __resetPlanSeedCache } = await import('../../util/subscription.js');
 
 const NOW = new Date('2026-11-23T10:00:00.000Z');
-const goldPlan = { code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 9990, features: ['a'], sort_order: 2, is_active: true };
+const goldPlan = { code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 0, features: ['a'], sort_order: 1, is_active: true };
 const sign = (orderId, paymentId) => crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${orderId}|${paymentId}`).digest('hex');
 const payRow = (over = {}) => ({ id: 1, vendorId: 5, plan_code: 'gold', period: 'monthly', amount: 999, razorpay_order_id: 'order_1', status: 'created', ...over });
 const trialSub = (over = {}) => ({ vendorId: 5, plan_code: 'gold', period: 'trial', starts_at: new Date(NOW.getTime() - 80 * DAY), ends_at: new Date(NOW.getTime() + 10 * DAY), ...over });
@@ -29,7 +29,8 @@ const trialSub = (over = {}) => ({ vendorId: 5, plan_code: 'gold', period: 'tria
 beforeEach(() => {
   jest.clearAllMocks();
   __resetPlanSeedCache();
-  prisma.subscriptionPlan.findMany.mockResolvedValue([{ code: 'silver' }, { code: 'gold' }, { code: 'platinum' }]);
+  prisma.subscriptionPlan.create.mockResolvedValue({});
+  prisma.subscriptionPlan.updateMany.mockResolvedValue({ count: 2 });
   prisma.subscriptionPlan.findUnique.mockResolvedValue(goldPlan);
   prisma.subscriptionPayment.updateMany.mockResolvedValue({ count: 1 });
   prisma.vendorSubscription.findUnique.mockResolvedValue(trialSub());
@@ -50,12 +51,22 @@ describe('createSubscriptionOrder: amount comes from the DB plan, never the clie
     expect(out).toEqual({ order_id: 'order_1', amount: 99900, currency: 'INR', key_id: 'rzp_test_sub', plan_code: 'gold', period: 'monthly' });
   });
 
-  test('yearly uses the yearly price; an admin price change in the DB is what is charged', async () => {
-    await svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'yearly' });
-    expect(rz.orders.create.mock.calls[0][0].amount).toBe(999000);
+  test('an admin price change in the DB is what is charged', async () => {
     prisma.subscriptionPlan.findUnique.mockResolvedValue({ ...goldPlan, monthly_price: 1200.5 });
     await svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'monthly' });
-    expect(rz.orders.create.mock.calls[1][0].amount).toBe(120050);
+    expect(rz.orders.create.mock.calls[0][0].amount).toBe(120050);
+  });
+
+  test('yearly (or any non-monthly period) is rejected with 400, nothing created', async () => {
+    await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'yearly' })).rejects.toMatchObject({ status: 400 });
+    expect(rz.orders.create).not.toHaveBeenCalled();
+  });
+
+  test('silver / platinum / unknown codes are rejected with 400, nothing created', async () => {
+    for (const plan_code of ['silver', 'platinum', 'nope']) {
+      await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code, period: 'monthly' })).rejects.toMatchObject({ status: 400 });
+    }
+    expect(rz.orders.create).not.toHaveBeenCalled();
   });
 
   test('ensures the vendor subscription row exists before creating the order (tx-safe pay)', async () => {
@@ -64,10 +75,10 @@ describe('createSubscriptionOrder: amount comes from the DB plan, never the clie
     expect(prisma.vendorSubscription.findUnique.mock.invocationCallOrder[0]).toBeLessThan(rz.orders.create.mock.invocationCallOrder[0]);
   });
 
-  test('bad period -> 400, unknown or inactive plan -> 404, nothing created', async () => {
+  test('bad period -> 400, inactive/missing gold row -> 404, nothing created', async () => {
     await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'weekly' })).rejects.toMatchObject({ status: 400 });
     prisma.subscriptionPlan.findUnique.mockResolvedValue(null);
-    await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'nope', period: 'monthly' })).rejects.toMatchObject({ status: 404, code: 'PLAN_NOT_FOUND' });
+    await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'monthly' })).rejects.toMatchObject({ status: 404, code: 'PLAN_NOT_FOUND' });
     prisma.subscriptionPlan.findUnique.mockResolvedValue({ ...goldPlan, is_active: false });
     await expect(svc.createSubscriptionOrder({ vendorId: 5, plan_code: 'gold', period: 'monthly' })).rejects.toMatchObject({ status: 404 });
     expect(rz.orders.create).not.toHaveBeenCalled();
@@ -188,7 +199,7 @@ describe('handleSubscriptionCaptured (webhook branch)', () => {
 describe('read models', () => {
   test('listPlans returns active plans in the contract shape', async () => {
     prisma.subscriptionPlan.findMany.mockResolvedValue([goldPlan]);
-    expect(await svc.listPlans()).toEqual([{ code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 9990, features: ['a'], sort_order: 2 }]);
+    expect(await svc.listPlans()).toEqual([{ code: 'gold', name: 'Gold', monthly_price: 999, features: ['a'], sort_order: 1 }]);
     expect(prisma.subscriptionPlan.findMany).toHaveBeenLastCalledWith({ where: { is_active: true }, orderBy: { sort_order: 'asc' } });
   });
 

@@ -4,6 +4,7 @@ import Logger from "../../util/logger.js";
 import { getOrCreateSubscription } from "../../util/subscription.js";
 import { signPrivateUrl } from "../../util/cloudinary.js";
 import { computeOnboarding, maskTail } from "../../util/vendorOnboarding.js";
+import { parseApprovalsQuery } from "../../validators/Admin/vendorValidator.js";
 
 export const getVendorMetrics = async (req, res) => {
   try {
@@ -354,6 +355,92 @@ export const getVendorDetail = async (req, res) => {
     });
   } catch (error) {
     Logger.error(`[Admin] getVendorDetail failed: ${error.message}`);
+    return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+
+// Only the columns computeOnboarding reads -- keeps the approvals list cheap.
+const APPROVAL_PROFILE_SELECT = {
+  business_name: true, owner_name: true, phone: true, address: true, street: true, city: true,
+  pincode: true, latitude: true, longitude: true, operating_hours: true,
+  bank_account_number: true, ifsc_code: true, upi_id: true, status: true,
+};
+// Hard ceiling when the onboarding filter forces an in-memory pass.
+const APPROVAL_SCAN_CAP = 5000;
+
+/**
+ * GET /admin/vendors/approvals -- newest-first vendor list with server-side
+ * filters (status, from/to joined date, city, onboarding, q search) and paging.
+ * One query: profile + document types are joined in, so no N+1. "Onboarding
+ * complete" is derived in JS (computeOnboarding is the single source of truth),
+ * so that filter scans matching rows and pages in memory; otherwise the DB pages.
+ * Never logs personal data.
+ */
+export const listVendorApprovals = async (req, res) => {
+  const parsed = parseApprovalsQuery(req.query);
+  if (parsed.error) return res.status(400).json({ message: parsed.error });
+  const { status, page, limit, from, to, onboarding, city, q } = parsed.value;
+
+  const profileWhere = {};
+  if (status !== "all") profileWhere.status = status;
+  if (city) profileWhere.city = { equals: city, mode: "insensitive" };
+  const where = { role: "vendor", vendorProfile: { is: profileWhere } };
+  if (from || to) where.createdAt = { ...(from && { gte: from }), ...(to && { lte: to }) };
+  if (q) {
+    const c = { contains: q, mode: "insensitive" };
+    where.OR = [
+      { email: c },
+      { vendorProfile: { is: { business_name: c } } },
+      { vendorProfile: { is: { owner_name: c } } },
+      { vendorProfile: { is: { phone: c } } },
+    ];
+  }
+
+  const select = {
+    id: true, email: true, createdAt: true,
+    vendorProfile: { select: APPROVAL_PROFILE_SELECT },
+    documents: { select: { document_type: true } },
+  };
+  const orderBy = [{ createdAt: "desc" }, { id: "desc" }];
+  const shape = (u) => {
+    const ob = computeOnboarding(u.vendorProfile, u.documents);
+    return {
+      id: u.id,
+      business: u.vendorProfile?.business_name || "",
+      owner: u.vendorProfile?.owner_name || "",
+      email: u.email || "",
+      phone: u.vendorProfile?.phone || "",
+      city: u.vendorProfile?.city || "",
+      joinedAt: u.createdAt,
+      status: u.vendorProfile?.status || "pending",
+      documentsCount: u.documents.length,
+      onboardingComplete: ob.complete,
+      missingCount: ob.missing.length,
+    };
+  };
+
+  try {
+    let rows; let total;
+    if (onboarding) {
+      const all = (await prisma.user.findMany({ where, select, orderBy, take: APPROVAL_SCAN_CAP })).map(shape)
+        .filter((r) => (onboarding === "complete" ? r.onboardingComplete : !r.onboardingComplete));
+      total = all.length;
+      rows = all.slice((page - 1) * limit, page * limit);
+    } else {
+      const [count, users] = await Promise.all([
+        prisma.user.count({ where }),
+        prisma.user.findMany({ where, select, orderBy, skip: (page - 1) * limit, take: limit }),
+      ]);
+      total = count;
+      rows = users.map(shape);
+    }
+    return res.json({
+      data: rows,
+      meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    });
+  } catch (error) {
+    Logger.error(`[Admin] listVendorApprovals failed: ${error.message}`);
     return res.status(500).json({ message: "Server Error" });
   }
 };

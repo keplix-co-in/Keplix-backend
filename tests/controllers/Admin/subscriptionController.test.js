@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 
 const DAY = 24 * 60 * 60 * 1000;
 const prisma = {
-  subscriptionPlan: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
+  subscriptionPlan: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), create: jest.fn(), upsert: jest.fn(), updateMany: jest.fn() },
   subscriptionPayment: { findMany: jest.fn() },
   vendorSubscription: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
   user: { findUnique: jest.fn() },
@@ -22,12 +22,13 @@ const { extendSubscriptionSchema, updatePlanSchema } = await import('../../../va
 
 const mockRes = () => { const r = {}; r.status = jest.fn(() => r); r.json = jest.fn(() => r); return r; };
 const admin = { id: 1, role: 'super_admin' };
-const gold = { code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 9990, features: ['x'], sort_order: 2, is_active: true };
+const gold = { code: 'gold', name: 'Gold', monthly_price: 999, features: ['x'], sort_order: 2, is_active: true };
 
 beforeEach(() => {
   jest.clearAllMocks();
   __resetPlanSeedCache();
-  prisma.subscriptionPlan.findMany.mockResolvedValue([{ code: 'silver' }, { code: 'gold' }, { code: 'platinum' }]);
+  prisma.subscriptionPlan.create.mockResolvedValue({});
+  prisma.subscriptionPlan.updateMany.mockResolvedValue({ count: 2 });
 });
 
 describe('plans', () => {
@@ -37,8 +38,8 @@ describe('plans', () => {
     await c.listPlansAdmin({ user: admin }, res);
     expect(prisma.subscriptionPlan.findMany).toHaveBeenLastCalledWith({ orderBy: { sort_order: 'asc' } });
     expect(res.json).toHaveBeenCalledWith([
-      { code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 9990, features: ['x'], sort_order: 2, is_active: true },
-      { code: 'silver', name: 'Gold', monthly_price: 999, yearly_price: 9990, features: ['x'], sort_order: 2, is_active: false },
+      { code: 'gold', name: 'Gold', monthly_price: 999, features: ['x'], sort_order: 2, is_active: true },
+      { code: 'silver', name: 'Gold', monthly_price: 999, features: ['x'], sort_order: 2, is_active: false },
     ]);
   });
 

@@ -16,22 +16,22 @@ export const GRACE_DAYS = 7;
 export const TRIAL_DAYS = 90; // owner decision 2026-11-23: 90 days of Gold for every vendor
 export const TRIAL_PLAN_CODE = 'gold';
 export const PERIOD_DAYS = { monthly: 30, yearly: 365 };
-export const PAID_PERIODS = Object.keys(PERIOD_DAYS);
+// Owner decision 2026-11-25: monthly billing only. 'yearly' stays in PERIOD_DAYS
+// solely so a pre-existing yearly payment row can still be renewed/verified.
+export const PAID_PERIODS = ['monthly'];
+export const PURCHASABLE_PLAN_CODE = 'gold';
+export const RETIRED_PLAN_CODES = ['silver', 'platinum'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Seed values (contract). Inserted only when a code is missing; admin edits win. */
+/**
+ * Owner decision 2026-11-25: ONE plan for everyone, Rs 999/month, after the
+ * 90-day free trial. The code stays 'gold' because trial and payment rows
+ * already point at it; only the display name changes.
+ */
 export const DEFAULT_PLANS = [
   {
-    code: 'silver', name: 'Silver', monthly_price: 499, yearly_price: 4990, sort_order: 1,
-    features: ['Listing in your area', 'Up to 30 bookings a month', 'Bills and job tools'],
-  },
-  {
-    code: 'gold', name: 'Gold', monthly_price: 999, yearly_price: 9990, sort_order: 2,
-    features: ['Priority listing in your area', 'Unlimited bookings', 'Bills, invoices & job tools', 'Customer reviews badge'],
-  },
-  {
-    code: 'platinum', name: 'Platinum', monthly_price: 1999, yearly_price: 19990, sort_order: 3,
-    features: ['Everything in Gold', 'Top of your area', 'Featured badge', '₹500 ad credit'],
+    code: 'gold', name: 'Keplix Partner', monthly_price: 999, yearly_price: 0, sort_order: 1,
+    features: ['Listed to customers in your area', 'Unlimited bookings', 'Bills, invoices & job tools', 'Customer reviews'],
   },
 ];
 
@@ -58,22 +58,31 @@ export const computeRenewal = (sub, period, now = new Date()) => {
   };
 };
 
-/** Seeds missing plans (no hand SQL needed). Never overwrites an admin's edits. */
+/**
+ * Self-seeds/corrects plans on first use after a deploy (no hand SQL needed).
+ * The gold row is migrated ONCE to the single-plan definition (see below). silver/platinum are
+ * DEACTIVATED, never deleted: SubscriptionPayment / VendorSubscription rows may
+ * still reference those codes, and deleting would break history or FKs.
+ */
 let plansSeeded = false;
 export const ensurePlansSeeded = async (db = prisma) => {
   if (plansSeeded) return;
-  const existing = await db.subscriptionPlan.findMany({ select: { code: true } });
-  const have = new Set(existing.map((p) => p.code));
   for (const plan of DEFAULT_PLANS) {
-    if (have.has(plan.code)) continue;
+    const { code, ...fields } = plan;
+    // One-time migration: only a row still carrying the OLD seed name is
+    // overwritten. Once named 'Keplix Partner', admin edits (e.g. price) stick.
+    await db.subscriptionPlan.updateMany({
+      where: { code, name: { not: plan.name } },
+      data: { ...fields, is_active: true },
+    });
     try {
-      await db.subscriptionPlan.create({ data: { ...plan, is_active: true } });
+      // Creates the row only if missing; an existing row raises P2002, which is fine.
+      await db.subscriptionPlan.create({ data: { code, ...fields, is_active: true } });
     } catch (err) {
-      // Two first-ever requests raced to seed: the other one won, which is fine
-      // (without this the loser got a 500 on a unique-code violation).
       if (err?.code !== 'P2002') throw err;
     }
   }
+  await db.subscriptionPlan.updateMany({ where: { code: { in: RETIRED_PLAN_CODES } }, data: { is_active: false } });
   plansSeeded = true;
 };
 export const __resetPlanSeedCache = () => { plansSeeded = false; };

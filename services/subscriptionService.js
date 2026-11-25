@@ -19,7 +19,7 @@ const safeEqual = (a, b) => {
   return crypto.timingSafeEqual(bufA, bufB);
 };
 import {
-  PAID_PERIODS, computeRenewal, describeSubscription, ensurePlansSeeded, getOrCreateSubscription,
+  PAID_PERIODS, PURCHASABLE_PLAN_CODE, computeRenewal, describeSubscription, ensurePlansSeeded, getOrCreateSubscription,
 } from '../util/subscription.js';
 
 const razorpay = new Razorpay({
@@ -42,7 +42,6 @@ export const planOut = (p) => ({
   code: p.code,
   name: p.name,
   monthly_price: rupees(p.monthly_price),
-  yearly_price: rupees(p.yearly_price),
   features: Array.isArray(p.features) ? p.features : [],
   sort_order: p.sort_order,
 });
@@ -74,12 +73,15 @@ export const listMyPayments = async (vendorId) => {
 /** POST /subscriptions/order. Amount (paise) is computed from the DB plan only. */
 export const createSubscriptionOrder = async ({ vendorId, plan_code, period }) => {
   if (!PAID_PERIODS.includes(period)) {
-    throw new SubscriptionError(400, 'VALIDATION_ERROR', "period must be 'monthly' or 'yearly'");
+    throw new SubscriptionError(400, 'VALIDATION_ERROR', "period must be 'monthly'");
+  }
+  if (plan_code !== PURCHASABLE_PLAN_CODE) {
+    throw new SubscriptionError(400, 'VALIDATION_ERROR', `plan_code must be '${PURCHASABLE_PLAN_CODE}'`);
   }
   await ensurePlansSeeded();
   const plan = await prisma.subscriptionPlan.findUnique({ where: { code: String(plan_code) } });
   if (!plan || !plan.is_active) throw new SubscriptionError(404, 'PLAN_NOT_FOUND', 'That plan is not available');
-  const amount = period === 'yearly' ? plan.yearly_price : plan.monthly_price;
+  const amount = plan.monthly_price;
   const amountPaise = toPaise(amount);
   // Razorpay cannot take less than Rs 1; a free plan would need no payment at all.
   if (amountPaise < 100) throw new SubscriptionError(422, 'INVALID_PLAN_PRICE', 'This plan has no payable price');
